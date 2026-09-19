@@ -324,3 +324,138 @@ class TestClavesApi:
         from app.utils.crypto import decrypt_secret
 
         assert decrypt_secret('esto-no-es-un-token-valido') is None
+
+
+@pytest.mark.unit
+class TestAnclajeEnElDocumento:
+    """Confidence and provenance come from the document, not from self-report.
+
+    A small local model's opinion of its own confidence is a guess. Whether the
+    value it produced appears in the document is a fact, and it happens to be
+    the distinction the specification draws between a value that came from the
+    document and one the model inferred.
+    """
+
+    def _blocks(self, texto):
+        return [UntrustedBlock(texto, referencia='doc-1', pagina=1)]
+
+    def test_un_valor_literal_se_marca_como_del_documento(self):
+        from app.services.ai_service import CONFIANZA_LITERAL, _ground_in_document
+
+        datos = {'campos': {'localizador': 'ODIVYR'}}
+        r = _ground_in_document(datos, self._blocks('Confirmación ODIVYR para su vuelo'))
+
+        assert r['confianzas']['localizador'] == CONFIANZA_LITERAL
+        assert r['procedencias']['localizador']['fragmento']
+        assert r['procedencias']['localizador']['pagina'] == 1
+
+    def test_el_espaciado_no_impide_reconocerlo(self):
+        """The model normalises ``FR 8342`` to ``FR8342``; both are the same value."""
+        from app.services.ai_service import CONFIANZA_LITERAL, _ground_in_document
+
+        datos = {'campos': {'numero_vuelo': 'FR8342'}}
+        r = _ground_in_document(datos, self._blocks('Flight FR 8342 BCN - LGW'))
+
+        assert r['confianzas']['numero_vuelo'] == CONFIANZA_LITERAL
+
+    def test_un_valor_inferido_baja_de_confianza(self):
+        from app.services.ai_service import CONFIANZA_INFERIDA, _ground_in_document
+
+        datos = {'campos': {'aerolinea': 'Ryanair'}}
+        r = _ground_in_document(datos, self._blocks('Vuelo FR 8342 BCN - LGW'))
+
+        assert r['confianzas']['aerolinea'] == CONFIANZA_INFERIDA
+        assert r['procedencias']['aerolinea']['fragmento'] is None
+
+    def test_un_campo_vacio_tiene_confianza_cero(self):
+        from app.services.ai_service import _ground_in_document
+
+        r = _ground_in_document({'campos': {'clase': None}}, self._blocks('texto'))
+        assert r['confianzas']['clase'] == 0.0
+
+    def test_no_se_cree_la_confianza_que_reporta_el_modelo(self):
+        """A model claiming 0.99 for something it invented is still inventing."""
+        from app.services.ai_service import CONFIANZA_INFERIDA, _ground_in_document
+
+        datos = {
+            'campos': {'aerolinea': 'Inventada'},
+            'confianzas': {'aerolinea': 0.99},
+        }
+        r = _ground_in_document(datos, self._blocks('Nada que ver'))
+
+        assert r['confianzas']['aerolinea'] == CONFIANZA_INFERIDA
+
+    def test_ni_lo_literal_alcanza_la_aprobacion_automatica(self):
+        """Copying is not correctness: «Payment details» is in the document too."""
+        from app.services.ai_service import CONFIANZA_LITERAL
+        from app.services.settings_service import DEFAULTS
+
+        umbral_auto = DEFAULTS['DOCUMENTOS_UMBRAL_AUTO_APROBAR'][0]
+        assert CONFIANZA_LITERAL < umbral_auto, (
+            'Un valor copiado del documento puede ser el equivocado; no debe '
+            'poder aprobarse solo.'
+        )
+
+    def test_la_confianza_global_es_la_media(self):
+        from app.services.ai_service import _ground_in_document
+
+        datos = {'campos': {'a': 'ODIVYR', 'b': 'Inventado'}}
+        r = _ground_in_document(datos, self._blocks('Referencia ODIVYR'))
+
+        assert r['confianza_global'] == pytest.approx(0.675, abs=0.01)
+
+
+@pytest.mark.unit
+class TestEnvoltorioTolerante:
+    """A model that answers without the wrapper has still done the work."""
+
+    def test_se_reconstruye_un_payload_plano(self):
+        from app.services.ai.schemas import SCHEMAS
+        from app.services.ai_service import _coerce_envelope
+
+        plano = {'numero_vuelo': 'IB3210', 'origen_codigo': 'MAD'}
+        r = _coerce_envelope(plano, SCHEMAS['extract_vuelo'])
+
+        assert r['campos'] == plano
+        assert r['confianzas'] == {}
+
+    def test_un_payload_correcto_no_se_toca(self):
+        from app.services.ai.schemas import SCHEMAS
+        from app.services.ai_service import _coerce_envelope
+
+        bueno = {'campos': {'numero_vuelo': 'IB3210'}, 'confianzas': {}}
+        assert _coerce_envelope(bueno, SCHEMAS['extract_vuelo']) == bueno
+
+
+@pytest.mark.unit
+class TestEsquemaDeDecodificacion:
+    """What Ollama is asked to generate, versus what we validate."""
+
+    def test_se_aplana_a_los_campos(self):
+        from app.services.ai.ollama import _decoding_schema
+        from app.services.ai.schemas import SCHEMAS
+
+        d = _decoding_schema(SCHEMAS['extract_vuelo'])
+
+        assert d['type'] == 'object'
+        assert 'numero_vuelo' in d['properties'], 'Los campos, sin envoltorio.'
+        assert 'confianzas' not in d['properties'], (
+            'Pedirle al modelo que se autoevalúe es lento y no aporta nada.'
+        )
+
+    def test_todos_los_campos_son_obligatorios(self):
+        """An omitted field is indistinguishable from one never looked for."""
+        from app.services.ai.ollama import _decoding_schema
+        from app.services.ai.schemas import SCHEMAS
+
+        d = _decoding_schema(SCHEMAS['extract_vuelo'])
+        assert set(d['required']) == set(d['properties'])
+
+    def test_se_quita_lo_que_la_gramatica_no_expresa(self):
+        import json
+
+        from app.services.ai.ollama import _decoding_schema
+        from app.services.ai.schemas import SCHEMAS
+
+        rendered = json.dumps(_decoding_schema(SCHEMAS['extract_hotel']))
+        assert 'additionalProperties' not in rendered

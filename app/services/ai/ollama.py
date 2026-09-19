@@ -46,10 +46,12 @@ class OllamaProvider(AIProvider):
                 'num_predict': int(request.max_tokens),
             },
         }
-        # Ollama can constrain decoding to valid JSON, which removes a whole
-        # class of "the model added a sentence before the object" failures.
         if request.esquema:
-            payload['format'] = 'json'
+            # Ollama constrains decoding to a JSON schema, not merely to valid
+            # JSON. That distinction matters: asked only for "json", a small
+            # model answers `{}` -- which is valid and useless. Given the
+            # schema, the fields it must produce are forced to exist.
+            payload['format'] = _decoding_schema(request.esquema)
 
         start = time.monotonic()
         try:
@@ -109,6 +111,65 @@ class OllamaProvider(AIProvider):
             f'accesible, pero el modelo «{self._modelo}» no está descargado. '
             f'Ejecute: ollama pull {self._modelo}'
         )
+
+
+def _decoding_schema(esquema):
+    """Reduce a validation schema to what the model should actually generate.
+
+    Our extraction schemas wrap the fields in an envelope of confidences and
+    provenance. Asking a model to fill all that in is both slow -- the grammar
+    for the full nested schema takes far longer to apply than the answer is
+    worth -- and pointless: a small model's self-reported confidence is a guess,
+    while whether a value appears literally in the document is something we can
+    check ourselves.
+
+    So the model is asked for the fields, flat, and the envelope is rebuilt
+    afterwards. Measured against a real booking email on a 4B model, this is
+    the difference between an answer in under two seconds and one that does not
+    arrive.
+    """
+    if not isinstance(esquema, dict):
+        return 'json'
+
+    propiedades = (esquema.get('properties') or {})
+    campos = propiedades.get('campos')
+
+    if isinstance(campos, dict) and campos.get('properties'):
+        plano = {
+            'type': 'object',
+            'properties': _strip_for_grammar(campos['properties']),
+        }
+        # Every field required, nulls allowed: a model that must emit the key
+        # says "null" for what it cannot find instead of quietly omitting it,
+        # and an omitted field is indistinguishable from one it never looked for.
+        plano['required'] = sorted(plano['properties'])
+        return plano
+
+    return _strip_for_grammar(esquema)
+
+
+def _strip_for_grammar(node):
+    """Remove what constrained decoding cannot express.
+
+    Anything dropped here is still checked by the validator once the answer is
+    back, so nothing is lost; leaving it in risks Ollama rejecting the schema
+    outright and falling back to unconstrained generation.
+    """
+    if isinstance(node, dict):
+        limpio = {}
+        for clave, valor in node.items():
+            if clave in ('additionalProperties', 'description'):
+                continue
+            limpio[clave] = _strip_for_grammar(valor)
+
+        if limpio.get('type') == 'object' and not limpio.get('properties'):
+            limpio.pop('required', None)
+        return limpio
+
+    if isinstance(node, list):
+        return [_strip_for_grammar(v) for v in node]
+
+    return node
 
 
 def _safe_detail(response):

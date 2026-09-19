@@ -161,18 +161,66 @@ def _audit(run, actor, resultado_denegado=False):
     )
 
 
+#: Keys of the extraction envelope. Anything else at the top level of an
+#: extraction answer is a field the model put there directly.
+_ENVELOPE_KEYS = frozenset({
+    'campos', 'confianzas', 'procedencias', 'confianza_global', 'avisos',
+})
+
+
+def _coerce_envelope(datos, esquema):
+    """Accept an extraction answered without its wrapper.
+
+    The ``{campos: {...}, confianzas: {...}}`` envelope is our own convenience.
+    A model that returns the fields flat has done the work that matters, and
+    rejecting it would throw away a good answer over a formatting detail. The
+    wrapper is rebuilt, and the missing confidences default to empty -- which
+    leaves ``confianza_global`` unknown and therefore forces human review, so
+    being liberal here cannot make a value look more trustworthy than it is.
+    """
+    if not isinstance(datos, dict):
+        return datos
+    if 'campos' in datos:
+        return datos
+    if not isinstance(esquema, dict):
+        return datos
+    if 'campos' not in (esquema.get('properties') or {}):
+        return datos
+
+    sueltos = {k: v for k, v in datos.items() if k not in _ENVELOPE_KEYS}
+    if not sueltos:
+        return datos
+
+    logger.info(
+        'La respuesta llegó sin el envoltorio «campos»; se reconstruye con %s campos.',
+        len(sueltos),
+    )
+    envoltorio = {k: v for k, v in datos.items() if k in _ENVELOPE_KEYS}
+    envoltorio['campos'] = sueltos
+    envoltorio.setdefault('confianzas', {})
+    return envoltorio
+
+
 def _parse(response, tarea, esquema=None):
     """Parse and validate the model's answer against its schema."""
     try:
         datos = response.parse_json(strict=True)
     except ValueError as exc:
-        raise AIContractError(str(exc)) from exc
+        raise AIContractError(
+            f'El modelo no devolvió un JSON interpretable en «{tarea}»: {exc}'
+        ) from exc
+
+    datos = _coerce_envelope(datos, esquema)
 
     if esquema is not None:
         valid, problem = validate_schema(datos, esquema)
         if not valid:
+            # The answer goes in the message: without it, diagnosing why a
+            # model failed the contract means reproducing the call by hand.
+            muestra = (response.contenido or '')[:300].replace('\n', ' ')
             raise AIContractError(
-                f'La respuesta del modelo no cumple el esquema de «{tarea}»: {problem}'
+                f'La respuesta del modelo no cumple el esquema de «{tarea}»: '
+                f'{problem}. Devolvió: {muestra}'
             )
     return datos
 
@@ -221,12 +269,134 @@ def extract_document(document, clasificacion=None, actor=None):
     )
 
     datos = _parse(response, 'extract_document', esquema)
+    _ground_in_document(datos, blocks)
+
     if truncated:
         datos.setdefault('avisos', []).append(
             'El documento se truncó por longitud; revise las páginas finales.'
         )
 
     return {'datos': datos, 'run': run, 'response': response}
+
+
+#: Confidence given to a value found literally in the document, and to one the
+#: model produced without a literal match.
+#:
+#: Deliberately below the auto-approval threshold, both of them. A literal match
+#: proves the model copied rather than invented; it says nothing about whether
+#: it copied the *right* string. Asked for a booking reference, a weak model
+#: will happily return "Payment details" -- which is in the document, and is
+#: wrong. Grounding separates copying from hallucinating, and that is all it
+#: does, so no value reaches the itinerary on its strength alone.
+CONFIANZA_LITERAL = 0.85
+CONFIANZA_INFERIDA = 0.5
+
+
+def _ground_in_document(datos, blocks):
+    """Derive per-field confidence and provenance from the document text.
+
+    Asking a small local model to rate its own confidence produces a number
+    with no relation to whether it is right. Whether the value it gave appears
+    literally in the document is something we can check, and it happens to be
+    exactly the distinction the specification draws between a value that came
+    from the document and one the model inferred (section 2.3).
+
+    Confidences the model volunteered are kept only where we found no literal
+    match, and capped: they are a hint, not evidence.
+    """
+    campos = datos.get('campos')
+    if not isinstance(campos, dict):
+        return datos
+
+    paginas = [(b.pagina or 1, b.contenido or '') for b in blocks]
+
+    confianzas = dict(datos.get('confianzas') or {})
+    procedencias = dict(datos.get('procedencias') or {})
+
+    for nombre, valor in campos.items():
+        literal = _find_literal(valor, paginas)
+
+        if literal is not None:
+            pagina, fragmento = literal
+            confianzas[nombre] = CONFIANZA_LITERAL
+            procedencias[nombre] = {'pagina': pagina, 'fragmento': fragmento}
+        elif valor in (None, '', {}):
+            confianzas[nombre] = 0.0
+            procedencias[nombre] = {'pagina': None, 'fragmento': None}
+        else:
+            reportada = confianzas.get(nombre)
+            confianzas[nombre] = min(
+                float(reportada) if isinstance(reportada, (int, float)) else
+                CONFIANZA_INFERIDA,
+                CONFIANZA_INFERIDA,
+            )
+            procedencias[nombre] = {'pagina': None, 'fragmento': None}
+
+    datos['confianzas'] = confianzas
+    datos['procedencias'] = procedencias
+
+    valores = [v for v in confianzas.values() if isinstance(v, (int, float))]
+    datos['confianza_global'] = round(sum(valores) / len(valores), 2) if valores else None
+
+    return datos
+
+
+#: How much text around a match to keep as the supporting excerpt.
+_CONTEXTO = 60
+
+
+def _find_literal(valor, paginas):
+    """Locate a value in the document text, returning ``(pagina, fragmento)``.
+
+    Compares case-insensitively and ignoring spacing, so ``XYZ 12A`` in the
+    document matches the ``XYZ12A`` the model normalised.
+    """
+    aguja = _searchable(valor)
+    if not aguja or len(aguja) < 3:
+        return None
+
+    for pagina, texto in paginas:
+        pajar = _searchable(texto)
+        posicion = pajar.find(aguja)
+        if posicion < 0:
+            continue
+
+        # Map back to the original text for a readable excerpt: the searchable
+        # form has had its spacing removed.
+        aproximado = _aproximar(texto, aguja)
+        return pagina, aproximado
+
+    return None
+
+
+def _searchable(valor):
+    """Normalise for comparison: lowercase, no spaces or separators."""
+    if isinstance(valor, dict):
+        valor = valor.get('local') or ''
+    if valor in (None, '', {}):
+        return ''
+    return ''.join(
+        c for c in str(valor).lower() if c.isalnum()
+    )
+
+
+def _aproximar(texto, aguja):
+    """Find the excerpt of ``texto`` whose normalised form contains ``aguja``."""
+    indices = []
+    normalizado = []
+    for i, c in enumerate(texto):
+        if c.isalnum():
+            normalizado.append(c.lower())
+            indices.append(i)
+
+    posicion = ''.join(normalizado).find(aguja)
+    if posicion < 0 or posicion >= len(indices):
+        return None
+
+    inicio = max(indices[posicion] - _CONTEXTO // 2, 0)
+    fin_idx = min(posicion + len(aguja) - 1, len(indices) - 1)
+    fin = min(indices[fin_idx] + _CONTEXTO // 2, len(texto))
+    return ' '.join(texto[inicio:fin].split())
 
 
 def _document_blocks(document):

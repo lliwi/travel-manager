@@ -19,6 +19,7 @@ from app.extensions import cache, csrf, db, limiter, login_manager, migrate, tal
 from app.utils.errors import AppError
 from app.utils.logging import (
     CORRELATION_HEADER,
+    NOISY_LIBRARIES,
     CorrelationIdFilter,
     RedactingFilter,
     build_formatter,
@@ -371,3 +372,10 @@ def configure_logging(app):
         target.addHandler(handler)
         target.setLevel(level if name != 'sqlalchemy.engine' else logging.WARNING)
         target.propagate = False
+
+    # Third-party libraries stay at WARNING whatever the configured level.
+    # Otherwise running at DEBUG buries every message this application emits --
+    # and botocore prints the Authorization header of each S3 request, which
+    # puts signing material in the log for no benefit at all.
+    for name in NOISY_LIBRARIES:
+        logging.getLogger(name).setLevel(logging.WARNING)

@@ -34,6 +34,29 @@ _REDACTION_PATTERNS = (
 
 REDACTED = '[REDACTED]'
 
+#: Libraries whose DEBUG output is noise at best and dangerous at worst, kept
+#: at WARNING whatever LOG_LEVEL says.
+#:
+#: botocore is the reason this list exists: at DEBUG it prints every request's
+#: ``Authorization`` header, signature included, and drowns the application's
+#: own messages in the process. The rest are merely unreadable --
+#: ``celery.utils.functional`` dumps the source of every task it introspects.
+NOISY_LIBRARIES = (
+    'botocore',
+    'boto3',
+    's3transfer',
+    'urllib3',
+    'celery.utils.functional',
+    'celery.bootsteps',
+    'amqp',
+    'kombu',
+    'httpx',
+    'httpcore',
+    'PIL',
+    'pdfminer',
+    'pdfplumber',
+)
+
 
 def new_correlation_id():
     """Generate a fresh correlation identifier."""

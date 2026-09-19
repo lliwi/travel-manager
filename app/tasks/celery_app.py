@@ -10,7 +10,7 @@ body reads like ordinary application code and cannot forget the context.
 import logging
 import os
 
-from celery import Celery, Task
+from celery import Celery, Task, signals
 from celery.schedules import crontab
 
 logger = logging.getLogger(__name__)
@@ -100,3 +100,18 @@ def make_celery():
 
 
 celery = make_celery()
+
+
+@signals.setup_logging.connect
+def _configure_worker_logging(**_kwargs):
+    """Let the application configure logging instead of Celery.
+
+    Celery installs its own handlers at the level it was started with, which
+    at DEBUG makes botocore print the signature of every S3 request and buries
+    the application's own messages. Connecting to ``setup_logging`` tells
+    Celery to keep its hands off; ``create_app`` has already set up handlers,
+    filters and the noisy-library levels.
+    """
+    from app import create_app
+
+    create_app(os.getenv('FLASK_ENV', 'production'))
