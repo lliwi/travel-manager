@@ -94,6 +94,12 @@ def make_celery():
                 'task': 'app.tasks.maintenance.purge_web_cache',
                 'schedule': crontab(hour=4, minute=30),
             },
+            # A verifiable audit trail that nobody verifies is a trail nobody
+            # trusts. Tampering only counts as detected if something looks.
+            'verificar-cadena-de-auditoria': {
+                'task': 'app.tasks.maintenance.verify_audit_chain',
+                'schedule': crontab(hour=5, minute=0),
+            },
         },
     )
     return celery

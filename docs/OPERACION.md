@@ -32,6 +32,7 @@ Las contraseñas, tokens y claves API se redactan antes de escribirse.
 
 ```bash
 $COMPOSE exec web flask verify-audit    # integridad de la auditoría
+$COMPOSE exec web flask apply-retention # qué documentos han vencido su plazo
 $COMPOSE exec web flask ai-health       # proveedores de IA
 $COMPOSE ps                             # estado de los servicios
 ```
@@ -44,6 +45,7 @@ $COMPOSE ps                             # estado de los servicios
 | `maintenance.expire_advisories` | 03:30 | Marca como caducadas las recomendaciones vencidas |
 | `maintenance.apply_retention` | 04:00 | Aplica la política de retención (en simulación por defecto) |
 | `maintenance.purge_web_cache` | 04:30 | Limpia la caché de investigación |
+| `maintenance.verify_audit_chain` | 05:00 | Comprueba la cadena de auditoría y avisa si está rota |
 
 El recálculo nocturno existe porque algunas alertas solo se vuelven ciertas con
 el calendario: un pasaporte se acerca a su caducidad y un viaje pasa de próximo
@@ -65,15 +67,14 @@ la pasada destructiva se activa a propósito:
 
 ```bash
 # Ver qué se purgaría
-$COMPOSE exec worker python -c "
-from app.tasks.maintenance_tasks import apply_retention
-print(apply_retention.run(dry_run=True))"
+$COMPOSE exec web flask apply-retention
 
-# Purgar de verdad
-$COMPOSE exec worker python -c "
-from app.tasks.maintenance_tasks import apply_retention
-print(apply_retention.run(dry_run=False))"
+# Purgar de verdad: pide confirmación antes de borrar
+$COMPOSE exec web flask apply-retention --execute
 ```
+
+La tarea nocturna de las 04:00 solo informa; nunca borra. La pasada destructiva
+la ejecuta una persona con el mandato para hacerlo.
 
 Lo que se borra es el contenido del documento. La fila de metadatos, su hash y
 la traza de auditoría permanecen: se borra el original, no la prueba de que

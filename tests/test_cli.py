@@ -234,3 +234,129 @@ class TestAmbiguedad:
         assert User.query.filter_by(username='uno').first().nombre == 'Uno'
         assert User.query.filter_by(username='dos').first().nombre == 'Dos'
         assert User.query.count() == 2
+
+
+@pytest.mark.unit
+class TestRetencion:
+    """Erasing an original is irreversible, so it needs a deliberate lever.
+
+    The nightly task only ever reports candidates -- by design, since how long
+    to keep a document is an organisational decision. But without a command to
+    run the destructive pass, retention could never actually be applied.
+    """
+
+    def _documento_caducado(self, gestor, trip, booking_pdf):
+        import io
+        from datetime import timedelta
+
+        from werkzeug.datastructures import FileStorage
+
+        from app.models.enums import DocumentType
+        from app.services import document_service
+        from app.utils.timeutil import utcnow
+
+        storage = FileStorage(
+            stream=io.BytesIO(booking_pdf), filename='viejo.pdf',
+            content_type='application/pdf',
+        )
+        documento = document_service.upload(
+            gestor, trip, storage, tipo=DocumentType.RESERVA, commit=False,
+        )
+        db.session.commit()
+
+        documento.objeto_storage = 'docs/viejo.pdf'
+        documento.retencion_hasta = utcnow() - timedelta(days=1)
+        db.session.commit()
+        return documento
+
+    def _invoke(self, runner, *args, **kwargs):
+        from app.cli import apply_retention
+
+        return runner.invoke(apply_retention, list(args), **kwargs)
+
+    def test_sin_execute_solo_informa(self, runner, gestor, trip, booking_pdf):
+        documento = self._documento_caducado(gestor, trip, booking_pdf)
+
+        resultado = self._invoke(runner)
+
+        assert resultado.exit_code == 0
+        assert 'superado su plazo' in resultado.output
+        db.session.refresh(documento)
+        assert documento.objeto_storage is not None, (
+            'Una simulación no puede borrar nada.'
+        )
+
+    def test_sin_candidatos_lo_dice(self, runner, gestor, trip, booking_pdf):
+        resultado = self._invoke(runner)
+
+        assert resultado.exit_code == 0
+        assert 'Ningún documento' in resultado.output
+
+    def test_con_execute_y_confirmacion_borra(
+        self, runner, gestor, trip, booking_pdf
+    ):
+        documento = self._documento_caducado(gestor, trip, booking_pdf)
+
+        resultado = self._invoke(runner, '--execute', '--yes')
+
+        assert resultado.exit_code == 0
+        db.session.refresh(documento)
+        assert documento.objeto_storage is None
+
+    def test_la_ficha_y_el_hash_sobreviven_al_borrado(
+        self, runner, gestor, trip, booking_pdf
+    ):
+        """What is erased is the content, not the evidence that it existed."""
+        documento = self._documento_caducado(gestor, trip, booking_pdf)
+        hash_original = documento.hash_sha256
+
+        self._invoke(runner, '--execute', '--yes')
+
+        db.session.refresh(documento)
+        assert documento.hash_sha256 == hash_original
+        assert not documento.is_deleted
+        assert AuditEvent.query.filter_by(
+            accion='document.purged_by_retention'
+        ).count() == 1
+
+    def test_se_aborta_si_no_se_confirma(self, runner, gestor, trip, booking_pdf):
+        documento = self._documento_caducado(gestor, trip, booking_pdf)
+
+        resultado = self._invoke(runner, '--execute', input='n\n')
+
+        assert resultado.exit_code != 0
+        db.session.refresh(documento)
+        assert documento.objeto_storage is not None
+
+
+@pytest.mark.unit
+class TestTareasProgramadas:
+    """A verifiable audit trail that nobody verifies is one nobody trusts."""
+
+    def test_la_cadena_de_auditoria_se_verifica_sola(self):
+        from app.tasks.celery_app import celery
+
+        tareas = {
+            cfg['task'] for cfg in celery.conf.beat_schedule.values()
+        }
+
+        assert 'app.tasks.maintenance.verify_audit_chain' in tareas, (
+            'La tarea existía pero nada la ejecutaba: la manipulación solo '
+            'cuenta como detectada si algo mira.'
+        )
+
+    def test_la_retencion_programada_no_borra_por_su_cuenta(self):
+        """The nightly pass reports; a person runs the destructive one."""
+        from app.tasks.celery_app import celery
+
+        entrada = next(
+            cfg for cfg in celery.conf.beat_schedule.values()
+            if cfg['task'] == 'app.tasks.maintenance.apply_retention'
+        )
+
+        kwargs = entrada.get('kwargs') or {}
+
+        assert kwargs.get('dry_run', True), (
+            'Programar el borrado real convierte una decisión de la '
+            'organización en un valor por defecto.'
+        )

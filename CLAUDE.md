@@ -118,6 +118,7 @@ $COMPOSE exec web flask db upgrade
 $COMPOSE exec web flask seed
 $COMPOSE exec web flask ai-health
 $COMPOSE exec web flask verify-audit
+$COMPOSE exec web flask apply-retention      # simula; --execute borra
 $COMPOSE logs -f worker
 ```
 

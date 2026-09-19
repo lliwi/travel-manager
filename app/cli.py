@@ -21,6 +21,7 @@ def register_commands(app):
     app.cli.add_command(verify_audit)
     app.cli.add_command(generate_key)
     app.cli.add_command(ai_health)
+    app.cli.add_command(apply_retention)
 
 
 @click.command('init-db')
@@ -437,6 +438,49 @@ def verify_audit(limit):
     for problem in problems[:50]:
         click.echo(f'  - evento {problem["id"]}: {problem["motivo"]}')
     raise SystemExit(1)
+
+
+@click.command('apply-retention')
+@click.option(
+    '--execute', is_flag=True,
+    help='Borra realmente los originales. Sin este indicador solo se informa.',
+)
+@click.option('--yes', is_flag=True, help='No pedir confirmación.')
+@with_appcontext
+def apply_retention(execute, yes):
+    """Purge document originals whose retention period has elapsed.
+
+    The nightly task only ever reports: erasing an original is irreversible and
+    how long to keep one is an organisational decision, not a default. This is
+    the lever that actually does it, and it asks before pulling.
+    """
+    from app.tasks.maintenance_tasks import apply_retention as tarea
+
+    if not execute:
+        resultado = tarea.run(dry_run=True)
+        candidatos = resultado['candidatos']
+        if not candidatos:
+            click.echo('Ningún documento ha superado su plazo de conservación.')
+            return
+        click.echo(click.style(
+            f'{candidatos} documentos han superado su plazo de conservación.',
+            fg='yellow',
+        ))
+        click.echo('Ejecute con --execute para borrar sus originales.')
+        return
+
+    if not yes:
+        click.confirm(
+            'Se borrarán los ficheros originales de forma irreversible. '
+            'La ficha, su hash y la traza de auditoría se conservan. ¿Continuar?',
+            abort=True,
+        )
+
+    resultado = tarea.run(dry_run=False)
+    click.echo(click.style(
+        f'Retención aplicada: {resultado["purgados"]} originales eliminados.',
+        fg='green',
+    ))
 
 
 @click.command('generate-key')
