@@ -241,12 +241,38 @@ El propio comando explica ambas salidas si lo ejecuta sin terminal.
 
 ### Restablecer la contraseña de un administrador
 
+`create-admin` sobre una cuenta que ya existe ofrece sobrescribirla:
+
 ```bash
-docker compose -f docker/docker-compose.yml exec web flask create-admin
+docker compose -f docker/docker-compose.yml exec web \
+  flask create-admin --username admin --email admin@empresa.test --nombre Ana
 ```
 
-Si el usuario ya existe, créelo con otro nombre y cambie los roles desde
-Administración → Usuarios.
+Muestra qué va a cambiar y pide confirmación. Sobrescribir supone:
+
+- establecer la contraseña nueva,
+- **reemplazar** los roles por el indicado (no se suman a los que tuviera),
+- invalidar todas sus sesiones abiertas,
+- levantar el bloqueo por intentos fallidos,
+- y reactivar la cuenta si estaba eliminada.
+
+Sin terminal hace falta `--overwrite` para confirmarlo, de modo que un script
+de despliegue no pueda restablecer la contraseña de un administrador porque un
+nombre de usuario coincidiera por casualidad:
+
+```bash
+export TRAVEL_ADMIN_PASSWORD='...'
+docker compose -f docker/docker-compose.yml exec -T \
+  -e TRAVEL_ADMIN_PASSWORD web flask create-admin --overwrite \
+  --username admin --email admin@empresa.test --nombre Ana
+```
+
+La cuenta se localiza por el nombre de usuario **o** por el correo, así que
+también sirve para renombrar. Si cada uno apunta a una cuenta distinta, el
+comando se niega en lugar de elegir: corrija uno de los dos datos.
+
+Cada sobrescritura queda en la auditoría como `user.overwritten`, con los roles
+antes y después.
 
 ---
 

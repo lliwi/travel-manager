@@ -176,7 +176,7 @@ travel-manager/
 ```bash
 COMPOSE="docker compose -f docker/docker-compose.yml"
 
-$COMPOSE exec web flask create-admin      # crear un administrador
+$COMPOSE exec web flask create-admin      # crear un administrador (o sobrescribirlo)
 $COMPOSE exec web flask create-user       # crear una cuenta con rol
 $COMPOSE exec web flask seed              # recargar catálogos y ajustes
 $COMPOSE exec web flask ai-health         # comprobar los proveedores de IA
@@ -193,6 +193,11 @@ export TRAVEL_ADMIN_PASSWORD='...'
 $COMPOSE exec -T -e TRAVEL_ADMIN_PASSWORD web flask create-admin \
   --username admin --email admin@empresa.test --nombre Ana
 ```
+
+Si la cuenta ya existe, ambos comandos ofrecen sobrescribirla: contraseña
+nueva, roles reemplazados y sesiones cerradas. Interactivamente muestran qué
+cambia y piden confirmación; sin terminal hace falta `--overwrite`. Queda
+registrado en la auditoría como `user.overwritten`.
 
 ### Registro y diagnóstico
 

@@ -191,12 +191,18 @@ def _resolve_field(value, etiqueta, rol, default=None, required=True):
 @click.option('--apellidos', default=None, help='Apellidos.')
 @click.option('--password', default=None,
               help=f'Contraseña. Preferible usar la variable {PASSWORD_ENV}.')
+@click.option('--overwrite', is_flag=True, default=False,
+              help='Sobrescribir la cuenta si ya existe, sin preguntar.')
 @with_appcontext
-def create_admin(username, email, nombre, apellidos, password):
-    """Crear una cuenta de administrador.
+def create_admin(username, email, nombre, apellidos, password, overwrite):
+    """Crear una cuenta de administrador, o sobrescribir la existente.
 
     Sin opciones, pide los datos por pantalla. Para automatizarlo, páselos como
     opciones y la contraseña en la variable TRAVEL_ADMIN_PASSWORD.
+
+    Si ya existe una cuenta con ese nombre o correo, se ofrece sobrescribirla:
+    contraseña nueva, roles reemplazados y sesiones abiertas invalidadas. Sin
+    terminal hace falta --overwrite para confirmarlo.
     """
     # Checked first: a password supplied up front that will be rejected should
     # not cost the operator four fields of typing.
@@ -209,7 +215,8 @@ def create_admin(username, email, nombre, apellidos, password):
                                required=False)
     password = _resolve_password(password, 'admin')
 
-    _create(username, email, nombre, apellidos, password, 'administrador')
+    _create(username, email, nombre, apellidos, password, 'administrador',
+            overwrite=overwrite)
 
 
 @click.command('create-user')
@@ -221,9 +228,11 @@ def create_admin(username, email, nombre, apellidos, password):
               default=None, help='Rol asignado a la cuenta.')
 @click.option('--password', default=None,
               help=f'Contraseña. Preferible usar la variable {PASSWORD_ENV}.')
+@click.option('--overwrite', is_flag=True, default=False,
+              help='Sobrescribir la cuenta si ya existe, sin preguntar.')
 @with_appcontext
-def create_user(username, email, nombre, apellidos, rol, password):
-    """Crear una cuenta con el rol indicado."""
+def create_user(username, email, nombre, apellidos, rol, password, overwrite):
+    """Crear una cuenta con el rol indicado, o sobrescribir la existente."""
     password = _precheck_password(password, 'user')
 
     username = _resolve_field(username, 'Nombre de usuario', 'user')
@@ -234,31 +243,90 @@ def create_user(username, email, nombre, apellidos, rol, password):
     rol = _resolve_field(rol, 'Rol', 'user', default='usuario', required=False)
     password = _resolve_password(password, 'user')
 
-    _create(username, email, nombre, apellidos, password, rol)
+    _create(username, email, nombre, apellidos, password, rol, overwrite=overwrite)
 
 
-def _create(username, email, nombre, apellidos, password, rol):
-    """Create the account, validating the password and the role first."""
-    from app.models.enums import UserStatus
+def _find_existing(username, email):
+    """Locate an account matching the username or the email.
+
+    Returns ``(usuario, motivo)``. Raises when the two identifiers point at
+    *different* accounts: overwriting then would mean silently choosing one and
+    leaving the other holding a now-duplicate email.
+    """
+    from app.models.user import User
+
+    por_username = User.query.filter(
+        db.func.lower(User.username) == username.strip().lower()
+    ).first()
+    por_email = User.query.filter(
+        db.func.lower(User.email) == email.strip().lower()
+    ).first()
+
+    if por_username and por_email and por_username.id != por_email.id:
+        click.echo(click.style(
+            'El nombre de usuario y el correo pertenecen a cuentas distintas:',
+            fg='red', bold=True,
+        ))
+        click.echo(f'  «{username}» → {por_username.email}')
+        click.echo(f'  «{email}» → {por_email.username}')
+        click.echo()
+        click.echo('No está claro cuál debería sobrescribirse. Corrija uno de los dos '
+                   'datos, o edite las cuentas desde Administración → Usuarios.')
+        raise click.Abort()
+
+    if por_username:
+        return por_username, 'nombre de usuario'
+    if por_email:
+        return por_email, 'correo electrónico'
+    return None, None
+
+
+def _confirm_overwrite(user, rol, overwrite):
+    """Decide whether to overwrite an existing account.
+
+    Overwriting replaces the password and the roles and ends every open
+    session, so it is not something to do by accident. Interactively the
+    operator is shown what changes and asked; from a script it takes an
+    explicit ``--overwrite``, because a deployment job should not be able to
+    reset an administrator's password because a username happened to collide.
+    """
+    click.echo(click.style(
+        f'Ya existe la cuenta «{user.username}» ({user.email}).', fg='yellow', bold=True
+    ))
+    click.echo('  Sobrescribirla supone:')
+    click.echo('    · establecer una contraseña nueva')
+    click.echo(f'    · dejar los roles en: {rol}'
+               f'   (ahora: {", ".join(user.role_codes) or "ninguno"})')
+    click.echo('    · cerrar todas sus sesiones abiertas')
+    if user.is_deleted:
+        click.echo('    · reactivar la cuenta, que está eliminada')
+    click.echo()
+
+    if overwrite:
+        return True
+
+    if not _interactive():
+        click.echo(click.style(
+            'Añada --overwrite para confirmarlo sin terminal.', fg='red'
+        ))
+        raise click.Abort()
+
+    return click.confirm('¿Sobrescribir la cuenta?', default=False)
+
+
+def _create(username, email, nombre, apellidos, password, rol, overwrite=False):
+    """Create the account, or overwrite it when one already exists."""
+    from app.models.enums import AuditResourceType, UserStatus
     from app.models.user import Role, User
-    from app.services.identity.local import validate_password_strength
+    from app.services import audit_service
     from app.services.seed_service import seed_roles
     from app.utils.crypto import hash_password
     from app.utils.timeutil import utcnow
 
-    problems = validate_password_strength(password)
+    problems = _password_problems(password)
     if problems:
         click.echo(click.style('La contraseña no cumple los requisitos:', fg='red'))
-        for problem in problems:
-            click.echo(click.style(f'  ✗ {problem}', fg='red'))
-        raise click.Abort()
-
-    if User.query.filter(
-        db.or_(User.username == username, User.email == email)
-    ).first():
-        click.echo(click.style(
-            'Ya existe un usuario con ese nombre o correo electrónico.', fg='red'
-        ))
+        _report_problems(problems)
         raise click.Abort()
 
     seed_roles()
@@ -266,6 +334,63 @@ def _create(username, email, nombre, apellidos, password, rol):
     if role is None:
         click.echo(click.style(f'El rol «{rol}» no existe.', fg='red'))
         raise click.Abort()
+
+    existing, _motivo = _find_existing(username, email)
+
+    if existing is not None:
+        if not _confirm_overwrite(existing, rol, overwrite):
+            click.echo('Operación cancelada; la cuenta no se ha tocado.')
+            raise click.Abort()
+
+        antes = {
+            'email': existing.email,
+            'roles': list(existing.role_codes),
+            'estado': str(existing.estado),
+        }
+
+        existing.username = username
+        existing.email = str(email).strip().lower()
+        existing.nombre = nombre
+        existing.apellidos = apellidos or None
+        existing.password_hash = hash_password(password)
+        existing.password_changed_at = utcnow()
+        existing.must_change_password = False
+        existing.estado = UserStatus.ACTIVO
+        existing.roles = [role]
+        # A new password and a new role set must not leave old sessions valid.
+        existing.bump_session_epoch()
+        # Clear any lockout: the operator has just proven physical access.
+        existing.failed_login_count = 0
+        existing.locked_until = None
+        if existing.is_deleted:
+            existing.restore()
+
+        db.session.commit()
+
+        audit_service.record(
+            'user.overwritten',
+            recurso_tipo=AuditResourceType.USUARIO,
+            recurso_id=str(existing.id),
+            actor=None,
+            metadatos={
+                'username': existing.username,
+                'via': 'cli',
+                'antes': antes,
+                'despues': {
+                    'email': existing.email,
+                    'roles': list(existing.role_codes),
+                    'estado': str(existing.estado),
+                },
+            },
+        )
+
+        click.echo(click.style(
+            f'Usuario «{username}» sobrescrito con el rol «{rol}».', fg='green'
+        ))
+        click.echo(click.style(
+            '  Sus sesiones abiertas han quedado invalidadas.', fg='yellow'
+        ))
+        return existing
 
     user = User(
         username=username,
@@ -280,9 +405,18 @@ def _create(username, email, nombre, apellidos, password, rol):
     db.session.add(user)
     db.session.commit()
 
+    audit_service.record(
+        'user.created',
+        recurso_tipo=AuditResourceType.USUARIO,
+        recurso_id=str(user.id),
+        actor=None,
+        metadatos={'username': user.username, 'roles': user.role_codes, 'via': 'cli'},
+    )
+
     click.echo(click.style(
         f'Usuario «{username}» creado con el rol «{rol}».', fg='green'
     ))
+    return user
 
 
 @click.command('verify-audit')
