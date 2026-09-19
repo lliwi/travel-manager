@@ -5,7 +5,15 @@ catalogues, retention policy, auditing and the AD/LDAP integration parameters.
 """
 import logging
 
-from flask import current_app, flash, redirect, render_template, request, url_for
+from flask import (
+    current_app,
+    flash,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    url_for,
+)
 from flask_login import current_user, login_required
 
 from app.blueprints.admin import admin_bp
@@ -433,6 +441,27 @@ def test_ai_provider(provider_id):
     ok, detail = health_check(provider)
     flash(f'{provider.nombre}: {detail}', 'success' if ok else 'danger')
     return redirect(url_for('admin.ai_providers'))
+
+
+@admin_bp.route('/ia/proveedores/<provider_id>/modelos')
+@login_required
+@require_admin
+def ai_provider_models(provider_id):
+    """The models this provider offers, for the model picker.
+
+    Answers JSON because the form asks for it without reloading. The API key is
+    never part of the exchange: the endpoint is consulted server side with the
+    key already stored, so it is not handed back to the browser.
+    """
+    from app.services import ai_provider_service
+
+    provider = ai_provider_service.get_or_404(provider_id)
+    modelos, error = ai_provider_service.available_models(provider)
+    return jsonify({
+        'modelos': modelos,
+        'error': error,
+        'actual': provider.modelo_por_defecto,
+    })
 
 
 @admin_bp.route('/ia/tareas', methods=['POST'])

@@ -182,6 +182,91 @@
                 {% endif %}
             </div>
         </div>
+
+        {% set estancias = timeline.entries | selectattr('kind', 'equalto', 'alojamiento') | list %}
+        {% if estancias %}
+        {# Same scoped entries the timeline renders, grouped on their own: a
+           stay spans nights, so a single point on a chronology undersells it
+           and is easy to miss between two flights. #}
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-building me-2"></i>Alojamiento</span>
+                {% if Permiso.EDITAR_ITINERARIO in permisos %}
+                <a href="{{ url_for('trips.create_itinerary_item', trip_id=trip.id, kind='alojamiento') }}"
+                   class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-plus-lg me-1"></i>Añadir
+                </a>
+                {% endif %}
+            </div>
+            <ul class="list-group list-group-flush">
+                {% for entrada in estancias %}
+                {% set hotel = entrada.item %}
+                <li class="list-group-item">
+                    <div class="d-flex justify-content-between align-items-start gap-3">
+                        <div>
+                            <strong>{{ hotel.nombre }}</strong>
+                            {% if hotel.ciudad %}
+                            <span class="text-muted">· {{ hotel.ciudad }}</span>
+                            {% endif %}
+                            {% if hotel.direccion %}
+                            <div class="text-muted small">{{ hotel.direccion }}</div>
+                            {% endif %}
+                            {% if hotel.telefono %}
+                            <div class="text-muted small">
+                                <i class="bi bi-telephone me-1"></i>{{ hotel.telefono }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="text-end text-nowrap">
+                            <div>
+                                {{ hotel.check_in_local | local_date }}
+                                <span class="tz-badge">{{ hotel.check_in_tz }}</span>
+                            </div>
+                            <div class="text-muted small">
+                                hasta {{ hotel.check_out_local | local_date }}
+                            </div>
+                            {% if hotel.noches %}
+                            <div class="text-muted small">{{ hotel.noches }} noches</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="timeline-meta mt-2">
+                        {% if hotel.numero_habitaciones %}
+                        <span class="chip"><i class="bi bi-door-closed"></i>
+                            {{ hotel.numero_habitaciones }} hab.</span>
+                        {% endif %}
+                        {% if hotel.regimen %}
+                        <span class="chip"><i class="bi bi-cup-hot"></i>{{ hotel.regimen }}</span>
+                        {% endif %}
+                        {% if hotel.localizador %}
+                        <span class="chip"><i class="bi bi-upc"></i>{{ hotel.localizador }}</span>
+                        {% endif %}
+                        {% if entrada.traveler %}
+                        <span class="chip"><i class="bi bi-person"></i>
+                            {{ entrada.traveler.nombre_completo }}</span>
+                        {% else %}
+                        <span class="chip"><i class="bi bi-people"></i>Todo el viaje</span>
+                        {% endif %}
+                        {% if hotel.requiere_revision %}
+                        <span class="chip chip-warning">
+                            <i class="bi bi-exclamation-triangle"></i>Requiere revisión</span>
+                        {% endif %}
+                        {% if hotel.documento_origen_id %}
+                        <a class="chip chip-primary"
+                           href="{{ url_for('documents.detail', document_id=hotel.documento_origen_id) }}">
+                            <i class="bi bi-file-earmark-text"></i>Documento</a>
+                        {% endif %}
+                        {% if Permiso.EDITAR_ITINERARIO in permisos %}
+                        <a class="chip"
+                           href="{{ url_for('trips.edit_itinerary_item', trip_id=trip.id,
+                                            kind='alojamiento', item_id=hotel.id) }}">
+                            <i class="bi bi-pencil"></i>Editar</a>
+                        {% endif %}
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
     </div>
 
     <div class="col-lg-4">

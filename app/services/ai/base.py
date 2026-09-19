@@ -198,6 +198,19 @@ class AIProvider:
         """Report reachability as ``(ok, detalle)``."""
         raise NotImplementedError
 
+    def list_models(self):
+        """The models this endpoint offers, newest naming first.
+
+        Both backends already ask for this to answer ``health_check``; asking
+        once and returning it lets an administrator pick a model from what the
+        endpoint actually has instead of typing a name and finding out it was
+        wrong the next time a document arrives.
+
+        Returns a list of names. Raises whatever the transport raises: a caller
+        showing a picker needs to tell "none offered" from "could not ask".
+        """
+        return []
+
     @property
     def modelo(self):
         return getattr(self.config, 'modelo_por_defecto', None)

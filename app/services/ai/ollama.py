@@ -96,17 +96,27 @@ class OllamaProvider(AIProvider):
             duracion_ms=int((time.monotonic() - start) * 1000),
         )
 
+    def list_models(self):
+        """The models pulled on this Ollama."""
+        try:
+            with httpx.Client(timeout=15) as client:
+                response = client.get(f'{self.base_url}/api/tags')
+                response.raise_for_status()
+                data = response.json()
+        except httpx.HTTPError as exc:
+            raise AIError(
+                f'No se pudo consultar los modelos de Ollama en {self.base_url}: {exc}'
+            ) from exc
+
+        nombres = [m.get('name', '') for m in (data.get('models') or [])]
+        return sorted(n for n in nombres if n)
+
     def health_check(self):
         """Check that Ollama answers and holds the configured model."""
         try:
-            with httpx.Client(timeout=10) as client:
-                response = client.get(f'{self.base_url}/api/tags')
-                response.raise_for_status()
-                models = [
-                    m.get('name', '') for m in (response.json().get('models') or [])
-                ]
-        except httpx.HTTPError as exc:
-            return False, f'No accesible en {self.base_url}: {exc}'
+            models = self.list_models()
+        except AIError as exc:
+            return False, str(exc)
 
         if not self._modelo:
             return True, f'accesible ({len(models)} modelos disponibles)'

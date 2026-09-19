@@ -298,6 +298,30 @@ def set_binding(actor, tarea, config, modelo=None, activo=True, commit=True):
 # ======================================================================
 # Helpers
 # ======================================================================
+def available_models(config):
+    """The models this provider's endpoint currently offers.
+
+    Asking the endpoint beats trusting a name someone typed: a model that was
+    renamed or never pulled only shows up otherwise when a document is already
+    in the pipeline and the extraction fails.
+
+    Returns ``(modelos, error)``. Both surfaces need to tell an endpoint that
+    offers nothing from one that could not be asked, so the failure is returned
+    rather than raised or swallowed.
+    """
+    from app.services.ai import build_provider
+
+    try:
+        provider = build_provider(config)
+        return provider.list_models(), None
+    except Exception as exc:
+        logger.warning(
+            'No se pudieron listar los modelos de %s: %s', config.nombre, exc
+        )
+        mensaje = getattr(exc, 'mensaje', None) or str(exc)
+        return [], mensaje[:300]
+
+
 def _set_api_key(config, api_key):
     """Encrypt and store the key, keeping only a hint in clear."""
     if not api_key:

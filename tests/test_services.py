@@ -633,3 +633,66 @@ class TestFormularioDeAsignacion:
         respuesta = client.get(f'/api/v1/trips/{trip.id}/travelers/proposed-window')
 
         assert respuesta.status_code == 403
+
+
+@pytest.mark.unit
+class TestZonaHorariaDeUnLugarSinCodigo:
+    """An airport arrives as a code; a hotel arrives as a city name.
+
+    Nothing resolved the latter, so the zone the model guessed stood. A stay in
+    London came back labelled Europe/Madrid, which moves its check-in by an hour
+    and with it the night the alert engine believes is covered.
+    """
+
+    def test_el_alojamiento_toma_la_zona_de_su_ciudad(self, app, seeded):
+        resultado = normalization_service.normalize({'servicios': [{
+            'campos': {
+                'nombre': 'Zedwell Piccadilly Circus',
+                'ciudad': 'London',
+                'pais': 'GB',
+                'check_in': {'local': '2026-10-31T15:00',
+                             'zona_horaria': 'Europe/Madrid'},
+                'check_out': {'local': '2026-11-02T11:00',
+                              'zona_horaria': 'Europe/Madrid'},
+            },
+            'confianzas': {},
+        }]}, clasificacion='hotel')
+
+        campos = resultado.servicios[0]['campos']
+        assert campos['check_in']['zona_horaria'] == 'Europe/London'
+        assert campos['check_out']['zona_horaria'] == 'Europe/London'
+        assert any('Europe/Madrid' in aviso for aviso in resultado.avisos), (
+            'Corregirlo en silencio esconde que el modelo se equivocó.'
+        )
+
+    def test_sin_ciudad_conocida_se_usa_la_del_pais(self, app, seeded):
+        resultado = normalization_service.normalize({'servicios': [{
+            'campos': {
+                'nombre': 'Casa rural',
+                'ciudad': 'Villanueva del Dato Inventado',
+                'pais': 'ES',
+                'check_in': {'local': '2026-06-01T15:00', 'zona_horaria': None},
+            },
+            'confianzas': {},
+        }]}, clasificacion='hotel')
+
+        zona = resultado.servicios[0]['campos']['check_in']['zona_horaria']
+        assert zona == 'Europe/Madrid'
+
+    def test_un_lugar_desconocido_no_se_inventa(self, app, seeded):
+        """Refuse rather than guess: no catalogue entry, no correction."""
+        resultado = normalization_service.normalize({'servicios': [{
+            'campos': {
+                'nombre': 'Hotel',
+                'ciudad': 'Ciudad Inexistente',
+                'pais': None,
+                'check_in': {'local': '2026-06-01T15:00',
+                             'zona_horaria': 'Europe/Lisbon'},
+            },
+            'confianzas': {},
+        }]}, clasificacion='hotel')
+
+        zona = resultado.servicios[0]['campos']['check_in']['zona_horaria']
+        assert zona == 'Europe/Lisbon', (
+            'Sin dato en el catálogo no hay nada mejor que lo que dijo el modelo.'
+        )

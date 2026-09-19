@@ -16,6 +16,40 @@ from app.utils.errors import AIError, TransientError
 
 logger = logging.getLogger(__name__)
 
+#: The two names the output-length limit goes by.
+_OTRO_PARAMETRO = {
+    'max_tokens': 'max_completion_tokens',
+    'max_completion_tokens': 'max_tokens',
+}
+
+#: Parameters an endpoint may refuse, and what to do about each. Order matters
+#: only in that each is tried once.
+_CORRECCIONES = ('max_tokens', 'temperature')
+
+
+def _corregir(payload, detalle, token_param):
+    """Adjust the payload for a parameter the endpoint rejected.
+
+    Returns what was learned, or None when the 400 is about something else --
+    an unknown model, a malformed request -- which is a real error and must not
+    be retried into silence.
+    """
+    texto = (detalle or '').lower()
+
+    if 'max_tokens' in texto or 'max_completion_tokens' in texto:
+        alternativa = _OTRO_PARAMETRO.get(token_param)
+        if alternativa and token_param in payload:
+            payload[alternativa] = payload.pop(token_param)
+            return {'token_param': alternativa}
+
+    if 'temperature' in texto and 'temperature' in payload:
+        # Dropped rather than set to the value it demands: the default is the
+        # only thing it accepts, and naming it here would be a second guess.
+        payload.pop('temperature')
+        return {'sin_temperatura': True}
+
+    return None
+
 #: Defaults per provider code, used when the configuration leaves them blank.
 DEFAULTS = {
     AIProviderCode.OPENAI.value: ('https://api.openai.com/v1', 'gpt-4o-mini'),
@@ -75,9 +109,10 @@ class OpenAICompatibleProvider(AIProvider):
         payload = {
             'model': self._modelo,
             'messages': request.build_messages(),
-            'temperature': float(request.temperatura),
-            'max_tokens': int(request.max_tokens),
+            self._token_param(): int(request.max_tokens),
         }
+        if not self._ajustes().get('sin_temperatura'):
+            payload['temperature'] = float(request.temperatura)
         if request.esquema:
             payload['response_format'] = {'type': 'json_object'}
 
@@ -88,10 +123,7 @@ class OpenAICompatibleProvider(AIProvider):
         start = time.monotonic()
         try:
             with httpx.Client(timeout=self.timeout) as client:
-                response = client.post(
-                    f'{self.base_url}/chat/completions',
-                    json=payload, headers=headers,
-                )
+                response = self._post(client, payload, headers)
                 response.raise_for_status()
                 data = response.json()
         except httpx.TimeoutException as exc:
@@ -134,21 +166,95 @@ class OpenAICompatibleProvider(AIProvider):
             duracion_ms=int((time.monotonic() - start) * 1000),
         )
 
-    def health_check(self):
-        """List the models the endpoint offers."""
+    def _ajustes(self):
+        """What this endpoint has already told us it will not accept."""
+        return getattr(self.config, 'parametros', None) or {}
+
+    def _token_param(self):
+        """Which name this endpoint gives the output-length limit.
+
+        The field was renamed: newer OpenAI models reject «max_tokens» outright
+        and want «max_completion_tokens», while most self-hosted
+        OpenAI-compatible servers only know the original.
+        """
+        return self._ajustes().get('token_param') or 'max_tokens'
+
+    def _post(self, client, payload, headers):
+        """Send the completion, learning what this endpoint refuses.
+
+        An OpenAI-compatible endpoint is a family, not a contract: one model
+        renames the token limit, the next accepts only its default temperature.
+        Guessing from the model name would need editing every time a family
+        appears, so the endpoint is asked, and what it answered is remembered on
+        its configuration -- the wasted round trip happens once, not per
+        document.
+        """
+        url = f'{self.base_url}/chat/completions'
+        aprendido = {}
+
+        for _ in range(len(_CORRECCIONES) + 1):
+            response = client.post(url, json=payload, headers=headers)
+            if response.status_code != 400:
+                if aprendido:
+                    self._recordar(aprendido)
+                return response
+
+            detalle = _safe_detail(response)
+            arreglo = _corregir(payload, detalle, self._token_param())
+            if not arreglo:
+                return response
+            aprendido.update(arreglo)
+            logger.info(
+                'El endpoint %s rechazó un parámetro (%s); se reintenta.',
+                self.codigo, ', '.join(arreglo),
+            )
+
+        return response
+
+    def _recordar(self, ajustes):
+        """Persist what this endpoint accepts, so the retry is not repeated."""
+        if self.config is None:
+            return
+        try:
+            from app.extensions import db
+
+            parametros = dict(self.config.parametros or {})
+            parametros.update(ajustes)
+            self.config.parametros = parametros
+            db.session.commit()
+        except Exception:
+            # Not worth failing an answer we already have.
+            logger.warning('No se pudo recordar la compatibilidad.', exc_info=True)
+
+    def list_models(self):
+        """The models this endpoint offers."""
         key = self._key()
         headers = {'Authorization': f'Bearer {key}'} if key else {}
         try:
-            with httpx.Client(timeout=10) as client:
+            with httpx.Client(timeout=15) as client:
                 response = client.get(f'{self.base_url}/models', headers=headers)
                 response.raise_for_status()
-                models = [m.get('id') for m in (response.json().get('data') or [])]
+                data = response.json()
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 401:
-                return False, 'clave API rechazada'
-            return False, f'devolvió {exc.response.status_code}'
+                raise AIError('La clave API fue rechazada por el endpoint.') from exc
+            raise AIError(
+                f'El endpoint devolvió {exc.response.status_code} al pedir los modelos.'
+            ) from exc
         except httpx.HTTPError as exc:
-            return False, f'no accesible en {self.base_url}: {exc}'
+            raise AIError(
+                f'No se pudo consultar los modelos en {self.base_url}: {exc}'
+            ) from exc
+
+        nombres = [m.get('id') for m in (data.get('data') or [])]
+        return sorted(n for n in nombres if n)
+
+    def health_check(self):
+        """Reachable, and offering the configured model."""
+        try:
+            models = self.list_models()
+        except AIError as exc:
+            return False, str(exc)
 
         if self._modelo and models and self._modelo not in models:
             return True, (
@@ -206,6 +312,9 @@ class StubProvider(AIProvider):
             tokens_salida=0,
             duracion_ms=0,
         )
+
+    def list_models(self):
+        return ['stub-small', 'stub-large']
 
     def health_check(self):
         return True, 'proveedor simulado'

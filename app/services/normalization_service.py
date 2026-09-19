@@ -72,8 +72,9 @@ def normalize(payload, clasificacion=None):
         _normalize_names(campos)
         _normalize_currency(campos, propios)
         _normalize_locations(campos, confianzas, propios, resueltos)
-        _normalize_instants(campos, confianzas, propios, resueltos)
         _normalize_countries(campos)
+        _normalize_place_timezones(campos, propios, resueltos)
+        _normalize_instants(campos, confianzas, propios, resueltos)
 
         # Say which service a warning is about, or a reviewer looking at two
         # flights cannot tell which one has the unresolved timezone.
@@ -312,6 +313,79 @@ def _parse_datetime(raw):
         return parsed.replace(tzinfo=None) if parsed.tzinfo else parsed
     except ValueError:
         return None
+
+
+#: Services located by a place rather than by a station code: which instants
+#: they carry, and which fields say where they happen.
+_LUGARES_CON_INSTANTES = (
+    (('check_in', 'check_out'), ('ciudad',), 'pais'),
+    (('recogida',), ('recogida_ciudad', 'recogida_lugar'), 'recogida_pais'),
+    (('devolucion',), ('devolucion_ciudad', 'devolucion_lugar'), 'devolucion_pais'),
+    (('inicio', 'fin'), ('ciudad', 'lugar'), 'pais'),
+)
+
+
+def _normalize_place_timezones(campos, avisos, resueltos):
+    """Give a hotel, a car or a service the timezone of where it happens.
+
+    Airports arrive with an IATA code the catalogue resolves; a hotel arrives
+    with a city name, so nothing corrected the zone the model guessed. A stay in
+    London came back labelled Europe/Madrid, which moves its check-in by an hour
+    and with it the night the alert engine thinks is covered.
+
+    The catalogue wins over the guess, as it does for airports, and the
+    correction is reported rather than made in silence.
+    """
+    for prefijos, campos_lugar, campo_pais in _LUGARES_CON_INSTANTES:
+        if not any(isinstance(campos.get(p), dict) for p in prefijos):
+            continue
+
+        zona = _zona_de_lugar(
+            [campos.get(c) for c in campos_lugar], campos.get(campo_pais)
+        )
+        if not zona:
+            continue
+
+        for prefijo in prefijos:
+            instante = campos.get(prefijo)
+            if not isinstance(instante, dict):
+                continue
+            anterior = instante.get('zona_horaria')
+            if anterior == zona:
+                continue
+            instante['zona_horaria'] = zona
+            resueltos[f'{prefijo}.zona_horaria'] = zona
+            if anterior:
+                avisos.append(
+                    f'La zona horaria de «{prefijo}» era «{anterior}» y no '
+                    f'corresponde al lugar; se ha corregido a «{zona}».'
+                )
+
+
+def _zona_de_lugar(nombres, pais_codigo):
+    """The timezone of a named place, from the catalogue.
+
+    The city is tried first because a country can span several zones; the
+    country's main zone is the fallback, and a country that has more than one
+    is left alone rather than guessed at.
+    """
+    for nombre in nombres:
+        if not nombre or not isinstance(nombre, str):
+            continue
+        location = Location.query.filter(
+            Location.activo.is_(True),
+            Location.ciudad.ilike(nombre.strip()),
+            Location.zona_horaria.isnot(None),
+        ).first()
+        if location:
+            return location.zona_horaria
+
+    if pais_codigo and isinstance(pais_codigo, str) and len(pais_codigo) == 2:
+        country = Country.query.filter_by(codigo=pais_codigo.upper()).first()
+        if country and country.zona_horaria_principal:
+            return country.zona_horaria_principal
+
+    return None
 
 
 def _normalize_countries(campos):

@@ -240,3 +240,221 @@ class TestSiembra:
         seed_ai_providers()
         assert seed_ai_providers() == 0
         assert AIProviderConfig.query.count() == 1
+
+
+@pytest.mark.unit
+class TestElNombreDelLimiteDeTokens:
+    """The output-length limit goes by two names, and neither works everywhere.
+
+    Newer OpenAI models reject «max_tokens» with a 400 and want
+    «max_completion_tokens»; most self-hosted OpenAI-compatible servers only
+    know the original. Guessing from the model name would need editing every
+    time a family appears, so the endpoint is asked once and the answer kept.
+    """
+
+    def _provider(self, config=None):
+        from app.services.ai.openai_compatible import OpenAICompatibleProvider
+
+        return OpenAICompatibleProvider(
+            config=config, codigo='openai',
+            base_url='https://api.example.test/v1', modelo='gpt-nuevo',
+            api_key='sk-test',
+        )
+
+    def _request(self):
+        from app.services.ai.base import AIRequest
+
+        return AIRequest(
+            tarea='extract_document', sistema='s', instruccion='i',
+            max_tokens=512, temperatura=0.0,
+        )
+
+    def _cliente(self, enviados, rechaza):
+        import httpx
+
+        class _Cliente:
+            def __init__(self, *a, **k):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def post(self, url, json=None, headers=None):
+                enviados.append(json)
+                if rechaza and rechaza in json:
+                    return httpx.Response(
+                        400,
+                        json={'error': {'message':
+                              "Unsupported parameter: 'max_tokens' is not "
+                              "supported with this model. Use "
+                              "'max_completion_tokens' instead."}},
+                        request=httpx.Request('POST', url),
+                    )
+                return httpx.Response(
+                    200,
+                    json={'choices': [{'message': {'content': '{}'}}],
+                          'model': 'gpt-nuevo', 'usage': {}},
+                    request=httpx.Request('POST', url),
+                )
+
+        return _Cliente
+
+    def _ejecutar(self, provider, rechaza):
+        import httpx
+
+        enviados = []
+        original = httpx.Client
+        httpx.Client = self._cliente(enviados, rechaza)
+        try:
+            provider.complete(self._request())
+        finally:
+            httpx.Client = original
+        return enviados
+
+    def test_por_defecto_se_envia_el_nombre_clasico(self):
+        enviados = self._ejecutar(self._provider(), rechaza=None)
+
+        assert 'max_tokens' in enviados[0]
+
+    def test_si_lo_rechaza_se_reintenta_con_el_nuevo(self):
+        enviados = self._ejecutar(self._provider(), rechaza='max_tokens')
+
+        assert len(enviados) == 2
+        assert 'max_completion_tokens' in enviados[1]
+        assert 'max_tokens' not in enviados[1]
+
+    def test_lo_aprendido_se_guarda_en_la_configuracion(self, app, admin):
+        """So the wasted round trip happens once, not on every document."""
+        from app.services import ai_provider_service
+
+        config = ai_provider_service.create(
+            admin, nombre='OpenAI nuevo', proveedor='openai',
+            base_url='https://api.example.test/v1', modelo='gpt-nuevo',
+            api_key='sk-test',
+        )
+
+        self._ejecutar(self._provider(config), rechaza='max_tokens')
+
+        assert (config.parametros or {}).get('token_param') == 'max_completion_tokens'
+
+    def test_con_lo_aprendido_no_hay_reintento(self, app, admin):
+        from app.services import ai_provider_service
+
+        config = ai_provider_service.create(
+            admin, nombre='OpenAI recordado', proveedor='openai',
+            base_url='https://api.example.test/v1', modelo='gpt-nuevo',
+            api_key='sk-test',
+        )
+        config.parametros = {'token_param': 'max_completion_tokens'}
+
+        enviados = self._ejecutar(self._provider(config), rechaza='max_tokens')
+
+        assert len(enviados) == 1
+        assert 'max_completion_tokens' in enviados[0]
+
+    def test_un_400_por_otra_causa_no_se_reintenta(self):
+        """Only the renamed parameter is retried; anything else is the error."""
+        from app.utils.errors import AIError
+
+        with pytest.raises(AIError):
+            self._ejecutar(self._provider(), rechaza='model')
+
+    def test_una_temperatura_rechazada_se_omite(self):
+        """Some models accept only their default temperature.
+
+        Extraction asks for 0.0 so the same document gives the same answer.
+        A model that refuses it still answers at its default, which is worth
+        having -- but it is a real loss of determinism, not a detail.
+        """
+        import httpx
+
+        enviados = []
+        original = httpx.Client
+
+        class _Cliente:
+            def __init__(self, *a, **k):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def post(self, url, json=None, headers=None):
+                enviados.append(dict(json))
+                if 'temperature' in json:
+                    return httpx.Response(
+                        400,
+                        json={'error': {'message':
+                              "Unsupported value: 'temperature' does not support "
+                              "0.0 with this model. Only the default (1) value "
+                              "is supported."}},
+                        request=httpx.Request('POST', url),
+                    )
+                return httpx.Response(
+                    200,
+                    json={'choices': [{'message': {'content': '{}'}}],
+                          'model': 'gpt-nuevo', 'usage': {}},
+                    request=httpx.Request('POST', url),
+                )
+
+        httpx.Client = _Cliente
+        try:
+            self._provider().complete(self._request())
+        finally:
+            httpx.Client = original
+
+        assert 'temperature' in enviados[0]
+        assert 'temperature' not in enviados[-1]
+
+    def test_se_recuerdan_las_dos_incompatibilidades(self, app, admin):
+        from app.services import ai_provider_service
+
+        config = ai_provider_service.create(
+            admin, nombre='OpenAI exigente', proveedor='openai',
+            base_url='https://api.example.test/v1', modelo='gpt-nuevo',
+            api_key='sk-test',
+        )
+        import httpx
+
+        original = httpx.Client
+
+        class _Cliente:
+            def __init__(self, *a, **k):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def post(self, url, json=None, headers=None):
+                if 'max_tokens' in json:
+                    mensaje = "Unsupported parameter: 'max_tokens'."
+                elif 'temperature' in json:
+                    mensaje = "Unsupported value: 'temperature' does not support 0.0."
+                else:
+                    return httpx.Response(
+                        200,
+                        json={'choices': [{'message': {'content': '{}'}}],
+                              'model': 'gpt-nuevo', 'usage': {}},
+                        request=httpx.Request('POST', url),
+                    )
+                return httpx.Response(
+                    400, json={'error': {'message': mensaje}},
+                    request=httpx.Request('POST', url),
+                )
+
+        httpx.Client = _Cliente
+        try:
+            self._provider(config).complete(self._request())
+        finally:
+            httpx.Client = original
+
+        assert config.parametros['token_param'] == 'max_completion_tokens'
+        assert config.parametros['sin_temperatura'] is True
