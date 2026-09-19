@@ -184,6 +184,16 @@ $COMPOSE exec web flask verify-audit      # verificar la cadena de auditoría
 $COMPOSE exec web flask db upgrade        # aplicar migraciones
 ```
 
+`create-admin` y `create-user` piden los datos por pantalla. Para
+automatizarlos, páselos como opciones y la contraseña en la variable
+`TRAVEL_ADMIN_PASSWORD`, que no queda en el historial del intérprete:
+
+```bash
+export TRAVEL_ADMIN_PASSWORD='...'
+$COMPOSE exec -T -e TRAVEL_ADMIN_PASSWORD web flask create-admin \
+  --username admin --email admin@empresa.test --nombre Ana
+```
+
 ### Registro y diagnóstico
 
 ```bash

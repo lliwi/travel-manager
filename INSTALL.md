@@ -125,6 +125,19 @@ $COMPOSE exec web flask seed
 $COMPOSE exec web flask create-admin
 ```
 
+`create-admin` pide los datos por pantalla, así que necesita una terminal.
+Para automatizarlo (o si usa `exec -T`, que no asigna terminal), pase los datos
+como opciones y la contraseña en una variable de entorno:
+
+```bash
+export TRAVEL_ADMIN_PASSWORD='...'
+$COMPOSE exec -T -e TRAVEL_ADMIN_PASSWORD web flask create-admin \
+  --username admin --email admin@empresa.test --nombre Ana --apellidos Gestora
+```
+
+Use la variable y no `--password`: una contraseña escrita en la línea de
+órdenes queda en el historial del intérprete y es visible con `ps`.
+
 ### 4. Comprobación
 
 ```bash
@@ -210,6 +223,21 @@ docker compose -f docker/docker-compose.yml exec worker \
 
 Si la cola no está disponible, el recálculo se ejecuta en línea: será más lento,
 pero las alertas nunca quedan obsoletas por una caída del worker.
+
+### `flask create-admin` termina con «Aborted!»
+
+El comando pide los datos por pantalla y no encontró una terminal. Ocurre con
+`docker compose exec -T`, desde un script o a través de una tubería. O quita
+el `-T`, o pasa los datos como opciones:
+
+```bash
+export TRAVEL_ADMIN_PASSWORD='...'
+docker compose -f docker/docker-compose.yml exec -T \
+  -e TRAVEL_ADMIN_PASSWORD web flask create-admin \
+  --username admin --email admin@empresa.test --nombre Ana
+```
+
+El propio comando explica ambas salidas si lo ejecuta sin terminal.
 
 ### Restablecer la contraseña de un administrador
 
