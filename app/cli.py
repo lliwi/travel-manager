@@ -104,22 +104,68 @@ def _explain_non_interactive(rol):
     ))
 
 
+def _password_problems(password):
+    """Spanish descriptions of why a password is unacceptable, if any."""
+    from app.services.identity.local import validate_password_strength
+
+    return validate_password_strength(password)
+
+
+def _report_problems(problems):
+    for problem in problems:
+        click.echo(click.style(f'  ✗ {problem}', fg='red'))
+
+
+def _precheck_password(password, rol):
+    """Validate a supplied password before anything else is asked for.
+
+    A password given on the command line or in the environment is known up
+    front, so rejecting it here costs the operator nothing. Checking it last
+    would mean typing four fields only to be told the password was never going
+    to be accepted.
+    """
+    supplied = password or os.environ.get(PASSWORD_ENV)
+    if not supplied:
+        return None
+
+    problems = _password_problems(supplied)
+    if problems:
+        click.echo(click.style('La contraseña no cumple los requisitos:', fg='red', bold=True))
+        _report_problems(problems)
+        click.echo()
+        click.echo('Debe tener al menos 12 caracteres e incluir mayúsculas, '
+                   'minúsculas y algún dígito.')
+        raise click.Abort()
+
+    return supplied
+
+
 def _resolve_password(password, rol):
-    """Get the password from the flag, the environment or a prompt."""
+    """Get the password, prompting again when the one typed is too weak."""
     if password:
         return password
-
-    from_env = os.environ.get(PASSWORD_ENV)
-    if from_env:
-        return from_env
 
     if not _interactive():
         _explain_non_interactive(rol)
         raise click.Abort()
 
-    return click.prompt(
-        'Contraseña', hide_input=True, confirmation_prompt=True
-    )
+    # Interactive: ask again rather than abort. Losing the four fields already
+    # typed because of a typo in the password would be needlessly punishing.
+    for intento in range(3):
+        candidata = click.prompt(
+            'Contraseña', hide_input=True, confirmation_prompt=True
+        )
+        problems = _password_problems(candidata)
+        if not problems:
+            return candidata
+
+        click.echo(click.style('La contraseña no cumple los requisitos:', fg='red'))
+        _report_problems(problems)
+        if intento < 2:
+            click.echo(click.style('Inténtelo de nuevo.', fg='yellow'))
+
+    click.echo(click.style('Demasiados intentos.', fg='red'))
+    raise click.Abort()
 
 
 def _resolve_field(value, etiqueta, rol, default=None, required=True):
@@ -152,6 +198,10 @@ def create_admin(username, email, nombre, apellidos, password):
     Sin opciones, pide los datos por pantalla. Para automatizarlo, páselos como
     opciones y la contraseña en la variable TRAVEL_ADMIN_PASSWORD.
     """
+    # Checked first: a password supplied up front that will be rejected should
+    # not cost the operator four fields of typing.
+    password = _precheck_password(password, 'admin')
+
     username = _resolve_field(username, 'Nombre de usuario', 'admin')
     email = _resolve_field(email, 'Correo electrónico', 'admin')
     nombre = _resolve_field(nombre, 'Nombre', 'admin')
@@ -174,6 +224,8 @@ def create_admin(username, email, nombre, apellidos, password):
 @with_appcontext
 def create_user(username, email, nombre, apellidos, rol, password):
     """Crear una cuenta con el rol indicado."""
+    password = _precheck_password(password, 'user')
+
     username = _resolve_field(username, 'Nombre de usuario', 'user')
     email = _resolve_field(email, 'Correo electrónico', 'user')
     nombre = _resolve_field(nombre, 'Nombre', 'user')
