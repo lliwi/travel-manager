@@ -293,6 +293,17 @@ class TestPipelineCompleto:
         assert digest == documento_procesado.hash_sha256
 
 
+def _retroceso_de(document):
+    """The state the last reprocess rewound to.
+
+    Asserting on the document's state instead would prove nothing: the test
+    suite runs Celery eagerly, so the pipeline has already replayed by the time
+    reprocess() returns.
+    """
+    retrocesos = [t for t in document.transitions if t.tarea == 'reprocess']
+    return retrocesos[-1].estado_nuevo
+
+
 @pytest.mark.unit
 class TestReproceso:
     """Reprocessing must actually reprocess.
@@ -369,6 +380,47 @@ class TestReproceso:
 
         with pytest.raises(InvalidTransition, match='solo retrocede'):
             document_service.transition(document, S.APROBADO, retroceso=True)
+
+    def test_desde_el_principio_no_rebobina_mas_alla_del_fichero(
+        self, gestor, documento_procesado
+    ):
+        """"From the start" stops where the inputs stop existing.
+
+        Promotion deletes the quarantine copy, and validation and the antivirus
+        scan read only that copy. Rewinding to «recibido» therefore hands the
+        document to a task that can only fail -- which is how a full reprocess
+        left a reviewable document in error.
+        """
+        document = documento_procesado
+        document.objeto_cuarentena = None
+        db.session.commit()
+
+        document_service.reprocess(gestor, document, from_start=True)
+
+        db.session.refresh(document)
+        assert _retroceso_de(document) is S.ALMACENADO
+
+    def test_desde_el_principio_rebobina_del_todo_si_hay_cuarentena(
+        self, gestor, trip, booking_pdf
+    ):
+        document = _upload(gestor, trip, booking_pdf)
+        document_service.transition(document, S.VALIDADO)
+        assert document.objeto_cuarentena
+
+        document_service.reprocess(gestor, document, from_start=True)
+
+        db.session.refresh(document)
+        assert _retroceso_de(document) is S.RECIBIDO
+
+    def test_sin_copia_del_fichero_no_se_reprocesa(self, gestor, documento_procesado):
+        from app.utils.errors import ConflictError
+
+        documento_procesado.objeto_cuarentena = None
+        documento_procesado.objeto_storage = None
+        db.session.commit()
+
+        with pytest.raises(ConflictError, match='No queda copia'):
+            document_service.reprocess(gestor, documento_procesado, from_start=True)
 
     def test_tras_retroceder_las_tareas_vuelven_a_actuar(
         self, gestor, documento_procesado

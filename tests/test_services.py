@@ -106,48 +106,68 @@ class TestNormalizacion:
 
     def test_el_localizador_se_normaliza(self, app, seeded):
         resultado = normalization_service.normalize(
-            {'campos': {'localizador': ' xyz 12a '}, 'confianzas': {'localizador': 1.0}}
+            {'servicios': [{'campos': {'localizador': ' xyz 12a '}, 'confianzas': {'localizador': 1.0}}]}
         )
-        assert resultado.campos['localizador'] == 'XYZ12A'
+        assert resultado.servicios[0]['campos']['localizador'] == 'XYZ12A'
 
     def test_un_localizador_raro_baja_la_confianza(self, app, seeded):
         resultado = normalization_service.normalize(
-            {'campos': {'localizador': 'AB'}, 'confianzas': {'localizador': 1.0}}
+            {'servicios': [{'campos': {'localizador': 'AB'}, 'confianzas': {'localizador': 1.0}}]}
         )
-        assert resultado.confianzas['localizador'] < 1.0
+        assert resultado.servicios[0]['confianzas']['localizador'] < 1.0
         assert resultado.avisos
 
     def test_el_aeropuerto_aporta_su_zona_horaria(self, app, seeded):
         """The catalogue is reference data; it wins over a model's guess."""
-        resultado = normalization_service.normalize({
+        resultado = normalization_service.normalize({'servicios': [{
             'campos': {
                 'origen_codigo': 'mad',
                 'salida': {'local': '2026-06-01T10:00', 'zona_horaria': None},
             },
             'confianzas': {'origen_codigo': 0.9, 'salida': 0.9},
-        })
+        }]})
 
-        assert resultado.campos['origen_codigo'] == 'MAD'
-        assert resultado.campos['origen_pais'] == 'ES'
-        assert resultado.campos['salida']['zona_horaria'] == 'Europe/Madrid'
+        assert resultado.servicios[0]['campos']['origen_codigo'] == 'MAD'
+        assert resultado.servicios[0]['campos']['origen_pais'] == 'ES'
+        assert resultado.servicios[0]['campos']['salida']['zona_horaria'] == 'Europe/Madrid'
+
+    def test_el_aeropuerto_corrige_una_zona_horaria_equivocada(self, app, seeded):
+        """Filling the gap is not enough; the guess has to be overruled.
+
+        Taken from a real Vueling confirmation whose Barcelona departure came
+        back labelled Europe/London. Accepting it moves that flight an hour and
+        every connection margin computed from it.
+        """
+        resultado = normalization_service.normalize({'servicios': [{
+            'campos': {
+                'origen_codigo': 'MAD',
+                'salida': {'local': '2026-06-01T10:00', 'zona_horaria': 'Europe/London'},
+            },
+            'confianzas': {'origen_codigo': 0.9, 'salida': 0.9},
+        }]})
+
+        assert resultado.servicios[0]['campos']['salida']['zona_horaria'] == 'Europe/Madrid'
+        assert any('Europe/London' in aviso for aviso in resultado.avisos), (
+            'Corregir en silencio esconde que el modelo se equivocó.'
+        )
 
     def test_un_aeropuerto_desconocido_baja_la_confianza(self, app, seeded):
-        resultado = normalization_service.normalize({
+        resultado = normalization_service.normalize({'servicios': [{
             'campos': {'origen_codigo': 'ZZZ'},
             'confianzas': {'origen_codigo': 1.0},
-        })
+        }]})
         assert resultado.avisos
-        assert resultado.confianzas['origen_codigo'] < 1.0
+        assert resultado.servicios[0]['confianzas']['origen_codigo'] < 1.0
 
     def test_una_zona_horaria_asumida_baja_la_confianza(self, app, seeded):
         """A guessed timezone makes every derived margin a guess too."""
-        resultado = normalization_service.normalize({
+        resultado = normalization_service.normalize({'servicios': [{
             'campos': {'salida': {'local': '2026-06-01T10:00', 'zona_horaria': None}},
             'confianzas': {'salida': 1.0},
-        })
+        }]})
 
-        assert resultado.campos['salida']['zona_horaria'] == 'Europe/Madrid'
-        assert resultado.confianzas['salida'] < 1.0
+        assert resultado.servicios[0]['campos']['salida']['zona_horaria'] == 'Europe/Madrid'
+        assert resultado.servicios[0]['confianzas']['salida'] < 1.0
         assert any('zona horaria' in a for a in resultado.avisos)
 
     @pytest.mark.parametrize('entrada,esperado', [
@@ -159,33 +179,33 @@ class TestNormalizacion:
     ])
     def test_formatos_de_fecha_habituales(self, app, seeded, entrada, esperado):
         """European documents are day-first; parsing must not flip the month."""
-        resultado = normalization_service.normalize({
+        resultado = normalization_service.normalize({'servicios': [{
             'campos': {'salida': {'local': entrada, 'zona_horaria': 'Europe/Madrid'}},
             'confianzas': {},
-        })
-        assert resultado.campos['salida']['local'] == esperado
+        }]})
+        assert resultado.servicios[0]['campos']['salida']['local'] == esperado
 
     def test_una_fecha_ilegible_se_señala(self, app, seeded):
-        resultado = normalization_service.normalize({
+        resultado = normalization_service.normalize({'servicios': [{
             'campos': {'salida': {'local': 'el martes que viene',
                                   'zona_horaria': 'Europe/Madrid'}},
             'confianzas': {'salida': 0.8},
-        })
-        assert resultado.campos['salida']['local'] is None
+        }]})
+        assert resultado.servicios[0]['campos']['salida']['local'] is None
         assert any('interpretar' in a for a in resultado.avisos)
 
     def test_la_moneda_se_normaliza(self, app, seeded):
-        resultado = normalization_service.normalize({
+        resultado = normalization_service.normalize({'servicios': [{
             'campos': {'moneda': '€', 'importe': '1.234,50'},
             'confianzas': {},
-        })
-        assert resultado.campos['moneda'] == 'EUR'
+        }]})
+        assert resultado.servicios[0]['campos']['moneda'] == 'EUR'
 
     def test_la_confianza_global_es_la_media(self, app, seeded):
-        resultado = normalization_service.normalize({
+        resultado = normalization_service.normalize({'servicios': [{
             'campos': {'a': 'x', 'b': 'y'},
             'confianzas': {'a': 0.8, 'b': 1.0},
-        })
+        }]})
         assert resultado.confianza_global == pytest.approx(0.9)
 
 

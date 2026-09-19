@@ -96,8 +96,14 @@ def create_version(document, payload, metodo=ExtractionMethod.IA, proveedor=None
 
 def set_normalized(extraction, result, schema_version='1.0', commit=True):
     """Store the normalised payload alongside the raw one."""
-    extraction.payload_normalizado = {'campos': result.campos}
-    extraction.confianzas = result.confianzas
+    extraction.payload_normalizado = {'servicios': result.servicios}
+    # Kept flat for the listing screens, which only need a rough figure: the
+    # per-service confidences are inside each service.
+    extraction.confianzas = {
+        k: v
+        for servicio in result.servicios
+        for k, v in (servicio.get('confianzas') or {}).items()
+    }
     extraction.confianza_global = result.confianza_global
     extraction.avisos = result.avisos
     extraction.schema_version = schema_version
@@ -109,76 +115,140 @@ def set_normalized(extraction, result, schema_version='1.0', commit=True):
 # ======================================================================
 # The review screen
 # ======================================================================
-def review_fields(extraction):
-    """Rows for the review screen: value, confidence, origin and source page.
+def servicios_de(extraction):
+    """The services an extraction describes, whatever shape it was stored in.
 
-    Specification section 2.3 requires the reviewer to see the confidence and the
-    reference document or page for each extracted value; this is what builds
-    that view.
+    Extractions written before a document could describe more than one service
+    are still in the database; they are read as a single service rather than
+    migrated, because the payload is a record of what the model answered and
+    rewriting it would falsify that.
     """
     datos = extraction.datos or {}
-    campos = datos.get('campos', datos) if isinstance(datos, dict) else {}
-    procedencias = (extraction.payload or {}).get('procedencias') or {}
+
+    servicios = datos.get('servicios')
+    if isinstance(servicios, list) and servicios:
+        return servicios
+
+    campos = datos.get('campos')
+    if isinstance(campos, dict):
+        return [{
+            'campos': campos,
+            'confianzas': extraction.confianzas or {},
+            'procedencias': (extraction.payload or {}).get('procedencias') or {},
+        }]
+
+    return []
+
+
+def review_fields(extraction):
+    """Rows for the review screen, grouped by service.
+
+    Specification section 2.3 requires the reviewer to see the confidence and
+    the reference document or page for each extracted value; this is what
+    builds that view. One group per service, because a return booking's two
+    flights are reviewed and corrected independently.
+    """
     threshold = _review_threshold()
+    grupos = []
 
-    rows = []
-    for name, value in sorted(campos.items()):
-        if name.endswith('_location_id'):
-            continue
+    for indice, servicio in enumerate(servicios_de(extraction)):
+        campos = servicio.get('campos') or {}
+        confianzas = servicio.get('confianzas') or {}
+        procedencias = servicio.get('procedencias') or {}
 
-        confianza = extraction.confianza_de(name)
-        procedencia = procedencias.get(name) or {}
-        fragmento = procedencia.get('fragmento')
+        filas = []
+        for name, value in sorted(campos.items()):
+            if name.endswith('_location_id'):
+                continue
 
-        rows.append({
-            'campo': name,
-            'etiqueta': _label_for(name),
-            'valor': _display(value),
-            'valor_bruto': value,
-            'es_instante': isinstance(value, dict) and 'local' in value,
-            'confianza': confianza,
-            'confianza_pct': int(confianza * 100) if confianza is not None else None,
-            'requiere_revision': confianza is None or confianza < threshold,
-            'origen': (
-                ProvenanceOrigin.DOCUMENTO if fragmento else ProvenanceOrigin.IA
-            ),
-            'pagina': procedencia.get('pagina'),
-            'fragmento': fragmento,
+            confianza = confianzas.get(name)
+            confianza = float(confianza) if isinstance(confianza, (int, float)) else None
+            procedencia = procedencias.get(name) or {}
+            fragmento = procedencia.get('fragmento')
+
+            filas.append({
+                'campo': name,
+                'indice': indice,
+                # The form field name carries the service, so a correction to
+                # the return flight cannot land on the outbound one.
+                'nombre_form': f'campo__{indice}__{name}',
+                'etiqueta': _label_for(name),
+                'valor': _display(value),
+                'valor_bruto': value,
+                'es_instante': isinstance(value, dict) and 'local' in value,
+                'confianza': confianza,
+                'confianza_pct': int(confianza * 100) if confianza is not None else None,
+                'requiere_revision': confianza is None or confianza < threshold,
+                'origen': (
+                    ProvenanceOrigin.DOCUMENTO if fragmento else ProvenanceOrigin.IA
+                ),
+                'pagina': procedencia.get('pagina'),
+                'fragmento': fragmento,
+            })
+
+        grupos.append({
+            'indice': indice,
+            'titulo': _titulo_servicio(servicio, indice),
+            'campos': filas,
         })
-    return rows
+
+    return grupos
+
+
+def _titulo_servicio(servicio, indice):
+    """A heading a reviewer can tell one service from another by."""
+    campos = servicio.get('campos') or {}
+
+    numero = campos.get('numero_vuelo') or campos.get('numero_tren')
+    origen = campos.get('origen_codigo') or campos.get('origen_ciudad')
+    destino = campos.get('destino_codigo') or campos.get('destino_ciudad')
+    if origen and destino:
+        ruta = f'{origen} → {destino}'
+        return f'{numero} {ruta}' if numero else ruta
+
+    nombre = campos.get('nombre') or campos.get('proveedor')
+    if nombre:
+        return str(nombre)
+
+    return f'Servicio {indice + 1}'
 
 
 def parse_review_form(extraction, form):
     """Read the reviewer's corrections out of a submitted form.
 
-    Returns ``{campo: valor}`` containing only what the reviewer actually
-    changed, so an untouched field keeps its machine provenance.
+    Returns ``{indice_servicio: {campo: valor}}`` containing only what actually
+    changed, so an untouched field keeps the provenance the extraction gave it.
     """
-    datos = extraction.datos or {}
-    campos = datos.get('campos', datos) if isinstance(datos, dict) else {}
     correcciones = {}
 
-    for name, original in campos.items():
-        if isinstance(original, dict) and 'local' in original:
-            local = form.get(f'campo__{name}__local')
-            zona = form.get(f'campo__{name}__zona')
-            if local is None and zona is None:
-                continue
-            nuevo = {
-                'local': local or None,
-                'zona_horaria': zona or original.get('zona_horaria'),
-            }
-            if nuevo != original:
-                correcciones[name] = nuevo
-            continue
+    for indice, servicio in enumerate(servicios_de(extraction)):
+        campos = servicio.get('campos') or {}
+        del_servicio = {}
 
-        field = f'campo__{name}'
-        if field not in form:
-            continue
-        nuevo = form.get(field)
-        nuevo = nuevo if nuevo not in ('', None) else None
-        if nuevo != (str(original) if original is not None else None):
-            correcciones[name] = nuevo
+        for name, original in campos.items():
+            base = f'campo__{indice}__{name}'
+
+            if isinstance(original, dict) and 'local' in original:
+                local = form.get(f'{base}__local')
+                zona = form.get(f'{base}__zona')
+                if local is None and zona is None:
+                    continue
+                nuevo = {
+                    'local': local or None,
+                    'zona_horaria': zona or original.get('zona_horaria'),
+                }
+                if nuevo != original:
+                    del_servicio[name] = nuevo
+                continue
+
+            if base not in form:
+                continue
+            nuevo = form.get(base) or None
+            if nuevo != (str(original) if original is not None else None):
+                del_servicio[name] = nuevo
+
+        if del_servicio:
+            correcciones[indice] = del_servicio
 
     return correcciones
 
@@ -204,19 +274,40 @@ def approve(actor, extraction, correcciones=None, comentario=None):
         document.clasificacion, ('servicio', OtherService)
     )
 
-    entity, outcome, applied_fields = _apply_to_itinerary(
-        actor, document, extraction, target_kind, model
+    servicios = servicios_de(extraction)
+    applications = []
+    entities = []
+
+    for indice, servicio in enumerate(servicios):
+        entity, outcome, applied_fields = _apply_to_itinerary(
+            actor, document, extraction, target_kind, model, servicio, indice
+        )
+
+        applications.append(ExtractionApplication(
+            extraction_id=extraction.id,
+            entidad_tipo=target_kind,
+            entidad_id=entity.id if entity is not None else None,
+            resultado=outcome,
+            campos_aplicados=applied_fields,
+            motivo=(
+                None if entity is not None
+                else 'No había datos suficientes que aplicar.'
+            ),
+        ))
+        if entity is not None:
+            entities.append(entity)
+
+    # A re-approval that found fewer services than the previous one leaves rows
+    # describing something the document no longer says. They are withdrawn
+    # rather than left behind, and the withdrawal is recorded.
+    applications.extend(
+        _retirar_sobrantes(
+            actor, document, extraction, model, target_kind, len(servicios)
+        )
     )
 
-    application = ExtractionApplication(
-        extraction_id=extraction.id,
-        entidad_tipo=target_kind,
-        entidad_id=entity.id if entity is not None else None,
-        resultado=outcome,
-        campos_aplicados=applied_fields,
-        motivo=None if entity is not None else 'No había datos suficientes que aplicar.',
-    )
-    db.session.add(application)
+    for application in applications:
+        db.session.add(application)
 
     extraction.estado = ExtractionState.APROBADA
     extraction.aprobado_por_id = actor.id
@@ -230,7 +321,7 @@ def approve(actor, extraction, correcciones=None, comentario=None):
         tarea='extraction.approve', actor=actor, commit=False,
     )
 
-    if entity is not None:
+    for entity in entities:
         provenance_service.recalculate_rollup(entity, target_kind, commit=False)
 
     # A trip created from its documents has no dates of its own until the
@@ -254,8 +345,8 @@ def approve(actor, extraction, correcciones=None, comentario=None):
             'version': extraction.version,
             'entidad': target_kind,
             'entidad_id': str(entity.id) if entity else None,
-            'resultado': str(outcome),
-            'campos': applied_fields,
+            'servicios': len(servicios),
+            'entidades': [str(e.id) for e in entities],
             'fechas_del_viaje_deducidas': fechas or None,
         },
     )
@@ -270,8 +361,10 @@ def approve(actor, extraction, correcciones=None, comentario=None):
 
     return {
         'extraction': extraction,
-        'applications': [application],
-        'entity': entity,
+        'applications': applications,
+        'entities': entities,
+        # Kept for callers that only ever expected one.
+        'entity': entities[0] if entities else None,
     }
 
 
@@ -304,31 +397,47 @@ def reject(actor, extraction, comentario=None, commit=True):
 
 
 def _apply_corrections(actor, extraction, correcciones):
-    """Create version N+1 carrying the reviewer's corrections plus a diff."""
-    datos = dict(extraction.datos or {})
-    campos = dict(datos.get('campos', {}))
+    """Create version N+1 carrying the reviewer's corrections plus a diff.
+
+    ``correcciones`` is keyed by service index, so a correction to the return
+    flight cannot land on the outbound one.
+    """
+    servicios = [
+        {
+            'campos': dict(s.get('campos') or {}),
+            'confianzas': dict(s.get('confianzas') or {}),
+            'procedencias': dict(s.get('procedencias') or {}),
+        }
+        for s in servicios_de(extraction)
+    ]
 
     diff = {}
-    for name, nuevo in correcciones.items():
-        anterior = campos.get(name)
-        if anterior != nuevo:
-            diff[name] = {'antes': anterior, 'despues': nuevo}
-            campos[name] = nuevo
+    for indice, cambios in (correcciones or {}).items():
+        if indice >= len(servicios):
+            continue
+        servicio = servicios[indice]
 
-    confianzas = dict(extraction.confianzas or {})
-    # A human typed it, so it is certain -- and it will be recorded with origin
-    # 'manual', which is what makes that certainty auditable.
-    for name in diff:
-        confianzas[name] = 1.0
+        for name, nuevo in cambios.items():
+            anterior = servicio['campos'].get(name)
+            if anterior == nuevo:
+                continue
+            diff.setdefault(str(indice), {})[name] = {
+                'antes': anterior, 'despues': nuevo,
+            }
+            servicio['campos'][name] = nuevo
+            # A person typed it, and it will be recorded with origin 'manual',
+            # which is what makes that certainty auditable.
+            servicio['confianzas'][name] = 1.0
+            servicio['procedencias'][name] = {'pagina': None, 'fragmento': None}
 
     nueva = create_version(
         extraction.document,
-        payload={'campos': campos, 'procedencias': (extraction.payload or {}).get('procedencias', {})},
+        payload={'servicios': servicios},
         metodo=ExtractionMethod.MANUAL,
         proveedor=extraction.proveedor,
         modelo=extraction.modelo,
         ai_run_id=extraction.ai_run_id,
-        confianzas=confianzas,
+        confianzas=extraction.confianzas,
         confianza_global=extraction.confianza_global,
         avisos=extraction.avisos,
         estado=ExtractionState.EN_REVISION,
@@ -336,20 +445,46 @@ def _apply_corrections(actor, extraction, correcciones):
         diff_previa=diff,
         commit=False,
     )
-    nueva.payload_normalizado = {'campos': campos}
+    nueva.payload_normalizado = {'servicios': servicios}
     db.session.flush()
     return nueva
 
 
-def _apply_to_itinerary(actor, document, extraction, kind, model):
-    """Write the approved fields onto an itinerary entity.
+def _retirar_sobrantes(actor, document, extraction, model, kind, cuantos):
+    """Withdraw entities from services a later extraction no longer describes."""
+    sobrantes = model.query.filter(
+        model.documento_origen_id == document.id,
+        model.is_deleted.is_(False),
+        model.documento_origen_indice.isnot(None),
+        model.documento_origen_indice >= cuantos,
+    ).all()
 
-    Re-approving a document updates the entity it created before rather than
-    creating a second one, which is what keeps a corrected booking from
-    appearing twice on the timeline.
+    aplicaciones = []
+    for entity in sobrantes:
+        entity.soft_delete(actor)
+        aplicaciones.append(ExtractionApplication(
+            # The withdrawal belongs to the approval that caused it, so it is
+            # findable from the extraction rather than floating unattached.
+            extraction_id=extraction.id,
+            entidad_tipo=kind,
+            entidad_id=entity.id,
+            resultado=ApplicationOutcome.IGNORADA,
+            motivo=(
+                'La nueva extracción no describe este servicio; se retira del '
+                'itinerario.'
+            ),
+        ))
+    return aplicaciones
+
+
+def _apply_to_itinerary(actor, document, extraction, kind, model, servicio, indice):
+    """Write one service's approved fields onto an itinerary entity.
+
+    Matched by ``(documento_origen_id, documento_origen_indice)``: re-approving
+    updates the row this service created before rather than adding a second
+    one, and the index is what keeps a return booking's two flights apart.
     """
-    datos = extraction.datos or {}
-    campos = datos.get('campos', {}) if isinstance(datos, dict) else {}
+    campos = (servicio.get('campos') or {}) if isinstance(servicio, dict) else {}
     if not campos:
         return None, ApplicationOutcome.IGNORADA, []
 
@@ -359,6 +494,7 @@ def _apply_to_itinerary(actor, document, extraction, kind, model):
     existing = model.query.filter_by(
         trip_id=document.trip_id,
         documento_origen_id=document.id,
+        documento_origen_indice=indice,
         is_deleted=False,
     ).first()
 
@@ -366,6 +502,7 @@ def _apply_to_itinerary(actor, document, extraction, kind, model):
         trip_id=document.trip_id,
         trip_traveler_id=document.trip_traveler_id,
         documento_origen_id=document.id,
+        documento_origen_indice=indice,
     )
     outcome = ApplicationOutcome.ACTUALIZADA if existing else ApplicationOutcome.CREADA
 
@@ -378,15 +515,14 @@ def _apply_to_itinerary(actor, document, extraction, kind, model):
     db.session.flush()
 
     applied = []
-    procedencias = (extraction.payload or {}).get('procedencias') or {}
+    confianzas = servicio.get('confianzas') or {}
+    procedencias = servicio.get('procedencias') or {}
 
     for source, target in mapping.items():
         if source not in campos:
             continue
         value = campos[source]
-        if value is None:
-            continue
-        if not hasattr(entity, target):
+        if value is None or not hasattr(entity, target):
             continue
 
         setattr(entity, target, value)
@@ -395,7 +531,7 @@ def _apply_to_itinerary(actor, document, extraction, kind, model):
         procedencia = procedencias.get(source) or {}
         provenance_service.record_extracted_field(
             entity, kind, target, value, extraction,
-            confianza=extraction.confianza_de(source),
+            confianza=confianzas.get(source),
             pagina=procedencia.get('pagina'),
             fragmento=procedencia.get('fragmento'),
             actor=actor,
@@ -415,14 +551,13 @@ def _apply_to_itinerary(actor, document, extraction, kind, model):
         procedencia = procedencias.get(source) or {}
         provenance_service.record_extracted_field(
             entity, kind, f'{prefix}_local', instant['local'], extraction,
-            confianza=extraction.confianza_de(source),
+            confianza=confianzas.get(source),
             pagina=procedencia.get('pagina'),
             fragmento=procedencia.get('fragmento'),
             actor=actor,
         )
 
     db.session.flush()
-
     return entity, outcome, applied
 
 

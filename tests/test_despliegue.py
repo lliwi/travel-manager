@@ -95,3 +95,48 @@ class TestConfiguracionDeIA:
             assert variable not in plantilla, (
                 f'{variable} sigue en .env.example; se configura en el panel.'
             )
+
+
+@pytest.mark.unit
+class TestSondasDeSalud:
+    """The probes must answer however often they are asked.
+
+    The container healthcheck runs every 30 seconds — 120 requests an hour
+    against a default allowance of 100. Left rate-limited, a perfectly healthy
+    container starts reporting itself unhealthy after an hour.
+    """
+
+    def test_healthz_no_esta_limitado(self, app, client):
+        app.config['RATELIMIT_ENABLED'] = True
+        try:
+            for _ in range(150):
+                assert client.get('/healthz').status_code == 200
+        finally:
+            app.config['RATELIMIT_ENABLED'] = False
+
+    def test_las_dos_sondas_estan_exentas(self, app):
+        """Checked against the limiter's own registry rather than by hammering.
+
+        ``/readyz`` touches PostgreSQL and Redis, so calling it a hundred times
+        would test the fixtures' patience more than the exemption.
+        """
+        from app.extensions import limiter
+
+        # The registry keys by qualified name, so a substring match is what
+        # identifies the view.
+        exentas = ' '.join(limiter._route_exemptions)
+        for sonda in ('healthz', 'readyz'):
+            assert f'.{sonda}' in exentas, f'La sonda {sonda} está sujeta al límite.'
+
+    def test_el_intervalo_del_healthcheck_cabe_en_el_limite(self, compose):
+        """A guard on the arithmetic, in case either side is tuned later."""
+        import re
+
+        prueba = compose['services']['web']['healthcheck']['interval']
+        segundos = int(re.match(r'(\d+)', str(prueba)).group(1))
+        por_hora = 3600 / segundos
+
+        assert por_hora > 100, (
+            'Si esto deja de ser cierto, revise si la exención sigue haciendo '
+            'falta; mientras lo sea, es imprescindible.'
+        )

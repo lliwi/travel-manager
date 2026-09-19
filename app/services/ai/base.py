@@ -99,10 +99,14 @@ class AIRequest:
         if self.bloques:
             system = f'{system}\n\n{INJECTION_GUARD}'
         if self.esquema:
+            # The shape shown is the shape enforced. See esquema_de_generacion.
+            from app.services.ai.schemas import esquema_de_generacion
+
+            visible = esquema_de_generacion(self.esquema) or self.esquema
             system = (
                 f'{system}\n\nDebes responder EXCLUSIVAMENTE con un objeto JSON '
                 f'válido que cumpla este esquema:\n'
-                f'{json.dumps(self.esquema, ensure_ascii=False, indent=2)}\n'
+                f'{json.dumps(visible, ensure_ascii=False, indent=2)}\n'
                 f'No añadas texto antes ni después del JSON.'
             )
 

@@ -37,7 +37,25 @@
 <form method="post">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
+    {% if campos | length > 1 %}
+    <div class="alert alert-secondary">
+        <i class="bi bi-layers me-2"></i>
+        Este documento describe <strong>{{ campos | length }} servicios</strong>.
+        Revíselos por separado: se aplicarán todos al aprobar.
+    </div>
+    {% endif %}
+
+    {% for grupo in campos %}
     <div class="card mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span>
+                <i class="bi bi-{{ 'signpost-split' if campos | length > 1 else 'braces' }} me-2"></i>
+                {{ grupo.titulo }}
+            </span>
+            {% if campos | length > 1 %}
+            <span class="badge text-bg-light">{{ loop.index }} de {{ campos | length }}</span>
+            {% endif %}
+        </div>
         <div class="table-responsive">
             <table class="table align-middle mb-0 review-table">
                 <thead>
@@ -45,26 +63,26 @@
                         <th style="width:15%">Confianza</th><th style="width:25%">Procedencia</th></tr>
                 </thead>
                 <tbody>
-                {% for campo in campos %}
+                {% for campo in grupo.campos %}
                 <tr class="{{ 'table-warning' if campo.requiere_revision }}">
-                    <td><label for="campo__{{ campo.campo }}" class="fw-semibold">{{ campo.etiqueta }}</label></td>
+                    <td><label for="{{ campo.nombre_form }}" class="fw-semibold">{{ campo.etiqueta }}</label></td>
                     <td>
                         {% if campo.es_instante %}
                         <div class="input-group input-group-sm">
                             <input type="text" class="form-control"
-                                   id="campo__{{ campo.campo }}"
-                                   name="campo__{{ campo.campo }}__local"
+                                   id="{{ campo.nombre_form }}"
+                                   name="{{ campo.nombre_form }}__local"
                                    value="{{ campo.valor_bruto.local or '' }}"
                                    placeholder="AAAA-MM-DDTHH:MM">
                             <input type="text" class="form-control"
-                                   name="campo__{{ campo.campo }}__zona"
+                                   name="{{ campo.nombre_form }}__zona"
                                    value="{{ campo.valor_bruto.zona_horaria or '' }}"
                                    placeholder="Europe/Madrid">
                         </div>
                         {% else %}
                         <input type="text" class="form-control form-control-sm"
-                               id="campo__{{ campo.campo }}"
-                               name="campo__{{ campo.campo }}"
+                               id="{{ campo.nombre_form }}"
+                               name="{{ campo.nombre_form }}"
                                value="{{ campo.valor }}">
                         {% endif %}
                     </td>
@@ -94,6 +112,7 @@
             </table>
         </div>
     </div>
+    {% endfor %}
 
     <div class="card mb-3">
         <div class="card-body">
@@ -105,7 +124,7 @@
 
     <div class="d-flex gap-2">
         <button type="submit" name="accion" value="aprobar" class="btn btn-success">
-            <i class="bi bi-check-lg me-1"></i>Aprobar y aplicar al itinerario
+            <i class="bi bi-check-lg me-1"></i>Aprobar y aplicar al itinerario{% if campos | length > 1 %} ({{ campos | length }} servicios){% endif %}
         </button>
         <button type="submit" name="accion" value="descartar" class="btn btn-outline-danger"
                 onclick="return confirm('¿Descartar estos datos extraídos? El documento original se conserva.');">

@@ -342,48 +342,52 @@ class TestAnclajeEnElDocumento:
     def test_un_valor_literal_se_marca_como_del_documento(self):
         from app.services.ai_service import CONFIANZA_LITERAL, _ground_in_document
 
-        datos = {'campos': {'localizador': 'ODIVYR'}}
+        datos = {'servicios': [{'campos': {'localizador': 'ODIVYR'}}]}
         r = _ground_in_document(datos, self._blocks('Confirmación ODIVYR para su vuelo'))
 
-        assert r['confianzas']['localizador'] == CONFIANZA_LITERAL
-        assert r['procedencias']['localizador']['fragmento']
-        assert r['procedencias']['localizador']['pagina'] == 1
+        servicio = r['servicios'][0]
+        assert servicio['confianzas']['localizador'] == CONFIANZA_LITERAL
+        assert servicio['procedencias']['localizador']['fragmento']
+        assert servicio['procedencias']['localizador']['pagina'] == 1
 
     def test_el_espaciado_no_impide_reconocerlo(self):
         """The model normalises ``FR 8342`` to ``FR8342``; both are the same value."""
         from app.services.ai_service import CONFIANZA_LITERAL, _ground_in_document
 
-        datos = {'campos': {'numero_vuelo': 'FR8342'}}
+        datos = {'servicios': [{'campos': {'numero_vuelo': 'FR8342'}}]}
         r = _ground_in_document(datos, self._blocks('Flight FR 8342 BCN - LGW'))
 
-        assert r['confianzas']['numero_vuelo'] == CONFIANZA_LITERAL
+        assert r['servicios'][0]['confianzas']['numero_vuelo'] == CONFIANZA_LITERAL
 
     def test_un_valor_inferido_baja_de_confianza(self):
         from app.services.ai_service import CONFIANZA_INFERIDA, _ground_in_document
 
-        datos = {'campos': {'aerolinea': 'Ryanair'}}
+        datos = {'servicios': [{'campos': {'aerolinea': 'Ryanair'}}]}
         r = _ground_in_document(datos, self._blocks('Vuelo FR 8342 BCN - LGW'))
 
-        assert r['confianzas']['aerolinea'] == CONFIANZA_INFERIDA
-        assert r['procedencias']['aerolinea']['fragmento'] is None
+        servicio = r['servicios'][0]
+        assert servicio['confianzas']['aerolinea'] == CONFIANZA_INFERIDA
+        assert servicio['procedencias']['aerolinea']['fragmento'] is None
 
     def test_un_campo_vacio_tiene_confianza_cero(self):
         from app.services.ai_service import _ground_in_document
 
-        r = _ground_in_document({'campos': {'clase': None}}, self._blocks('texto'))
-        assert r['confianzas']['clase'] == 0.0
+        r = _ground_in_document(
+            {'servicios': [{'campos': {'clase': None}}]}, self._blocks('texto')
+        )
+        assert r['servicios'][0]['confianzas']['clase'] == 0.0
 
     def test_no_se_cree_la_confianza_que_reporta_el_modelo(self):
         """A model claiming 0.99 for something it invented is still inventing."""
         from app.services.ai_service import CONFIANZA_INFERIDA, _ground_in_document
 
-        datos = {
+        datos = {'servicios': [{
             'campos': {'aerolinea': 'Inventada'},
             'confianzas': {'aerolinea': 0.99},
-        }
+        }]}
         r = _ground_in_document(datos, self._blocks('Nada que ver'))
 
-        assert r['confianzas']['aerolinea'] == CONFIANZA_INFERIDA
+        assert r['servicios'][0]['confianzas']['aerolinea'] == CONFIANZA_INFERIDA
 
     def test_ni_lo_literal_alcanza_la_aprobacion_automatica(self):
         """Copying is not correctness: «Payment details» is in the document too."""
@@ -399,7 +403,7 @@ class TestAnclajeEnElDocumento:
     def test_la_confianza_global_es_la_media(self):
         from app.services.ai_service import _ground_in_document
 
-        datos = {'campos': {'a': 'ODIVYR', 'b': 'Inventado'}}
+        datos = {'servicios': [{'campos': {'a': 'ODIVYR', 'b': 'Inventado'}}]}
         r = _ground_in_document(datos, self._blocks('Referencia ODIVYR'))
 
         assert r['confianza_global'] == pytest.approx(0.675, abs=0.01)
@@ -414,17 +418,19 @@ class TestEnvoltorioTolerante:
         from app.services.ai_service import _coerce_envelope
 
         plano = {'numero_vuelo': 'IB3210', 'origen_codigo': 'MAD'}
-        r = _coerce_envelope(plano, SCHEMAS['extract_vuelo'])
+        r = _coerce_envelope(dict(plano), SCHEMAS['extract_vuelo'])
 
-        assert r['campos'] == plano
-        assert r['confianzas'] == {}
+        assert len(r['servicios']) == 1
+        assert r['servicios'][0]['campos'] == plano
 
     def test_un_payload_correcto_no_se_toca(self):
         from app.services.ai.schemas import SCHEMAS
         from app.services.ai_service import _coerce_envelope
 
-        bueno = {'campos': {'numero_vuelo': 'IB3210'}, 'confianzas': {}}
-        assert _coerce_envelope(bueno, SCHEMAS['extract_vuelo']) == bueno
+        bueno = {'servicios': [{'campos': {'numero_vuelo': 'IB3210'},
+                                'confianzas': {}, 'procedencias': {}}]}
+        r = _coerce_envelope(dict(bueno), SCHEMAS['extract_vuelo'])
+        assert r['servicios'] == bueno['servicios']
 
 
 @pytest.mark.unit
@@ -432,33 +438,121 @@ class TestEsquemaDeDecodificacion:
     """What Ollama is asked to generate, versus what we validate."""
 
     def test_se_aplana_a_los_campos(self):
-        from app.services.ai.ollama import _decoding_schema
-        from app.services.ai.schemas import SCHEMAS
+        from app.services.ai.schemas import SCHEMAS, esquema_de_generacion
 
-        d = _decoding_schema(SCHEMAS['extract_vuelo'])
+        d = esquema_de_generacion(SCHEMAS['extract_vuelo'])
+        items = d['properties']['servicios']['items']
 
-        assert d['type'] == 'object'
-        assert 'numero_vuelo' in d['properties'], 'Los campos, sin envoltorio.'
-        assert 'confianzas' not in d['properties'], (
+        assert 'numero_vuelo' in items['properties'], 'Los campos, sin envoltorio.'
+        assert 'confianzas' not in items['properties'], (
             'Pedirle al modelo que se autoevalúe es lento y no aporta nada.'
+        )
+        assert d['properties']['servicios']['minItems'] == 1, (
+            'Un documento describe al menos un servicio.'
         )
 
     def test_todos_los_campos_son_obligatorios(self):
         """An omitted field is indistinguishable from one never looked for."""
-        from app.services.ai.ollama import _decoding_schema
-        from app.services.ai.schemas import SCHEMAS
+        from app.services.ai.schemas import SCHEMAS, esquema_de_generacion
 
-        d = _decoding_schema(SCHEMAS['extract_vuelo'])
-        assert set(d['required']) == set(d['properties'])
+        items = esquema_de_generacion(
+            SCHEMAS['extract_vuelo'])['properties']['servicios']['items']
+        assert set(items['required']) == set(items['properties'])
 
     def test_se_quita_lo_que_la_gramatica_no_expresa(self):
         import json
 
-        from app.services.ai.ollama import _decoding_schema
+        from app.services.ai.schemas import SCHEMAS, esquema_de_generacion
+
+        rendered = json.dumps(esquema_de_generacion(SCHEMAS['extract_hotel']))
+        assert 'additionalProperties' not in rendered
+
+    def test_el_prompt_ensena_lo_que_la_gramatica_exige(self):
+        """One shape, shown and enforced.
+
+        The prompt used to embed the full validation schema -- nested, with
+        confidences and provenance -- while decoding was constrained to the
+        flat one. Asked for a shape it was not allowed to produce, the model
+        filled the slots it had not planned with plausible invention: on a real
+        Vueling confirmation, a flight «VU123 BCN->LHR» that appears nowhere in
+        the document.
+        """
+        import json
+
+        from app.services.ai.base import AIRequest, UntrustedBlock
+        from app.services.ai.ollama import _formato
         from app.services.ai.schemas import SCHEMAS
 
-        rendered = json.dumps(_decoding_schema(SCHEMAS['extract_hotel']))
-        assert 'additionalProperties' not in rendered
+        esquema = SCHEMAS['extract_vuelo']
+        request = AIRequest(
+            tarea='extract_document', sistema='Eres un asistente.',
+            instruccion='Extrae.', esquema=esquema,
+            bloques=[UntrustedBlock('texto', referencia='doc-1', pagina=1)],
+        )
+
+        sistema = request.build_messages()[0]['content']
+
+        assert json.dumps(_formato(esquema), ensure_ascii=False, indent=2) in sistema
+        assert '"confianzas"' not in sistema, (
+            'Enseñarle un envoltorio que la gramática no admite es peor que no '
+            'enseñarle ninguno.'
+        )
+
+
+@pytest.mark.unit
+class TestDeliberacionEnLaExtraccion:
+    """Extraction is transcription, and thinking out loud corrupts it.
+
+    On a real Vueling confirmation a reasoning model spent 244 s with thinking
+    on against 51 s with it off, and spent them arguing itself from the
+    document's «31 October 2026» to a 2023 that appears nowhere in it.
+    """
+
+    def _payload(self, esquema):
+        import httpx
+
+        from app.services.ai.base import AIRequest
+        from app.services.ai.ollama import OllamaProvider
+
+        capturado = {}
+
+        class _Cliente:
+            def __init__(self, *a, **k):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def post(self, url, json=None):
+                capturado.update(json)
+                return httpx.Response(
+                    200, json={'message': {'content': '{}'}, 'model': 'qwen3:8b'},
+                    request=httpx.Request('POST', url),
+                )
+
+        provider = OllamaProvider(base_url='http://ollama:11434', modelo='qwen3:8b')
+        original = httpx.Client
+        httpx.Client = _Cliente
+        try:
+            provider.complete(AIRequest(
+                tarea='extract_document', sistema='Eres un asistente.',
+                instruccion='Extrae.', esquema=esquema,
+            ))
+        finally:
+            httpx.Client = original
+        return capturado
+
+    def test_se_desactiva_cuando_hay_esquema(self):
+        from app.services.ai.schemas import SCHEMAS
+
+        assert self._payload(SCHEMAS['extract_vuelo'])['think'] is False
+
+    def test_una_pregunta_libre_conserva_el_comportamiento_del_modelo(self):
+        """Without a schema the answer is prose, and deliberation may help."""
+        assert 'think' not in self._payload(None)
 
 
 @pytest.mark.unit
@@ -475,14 +569,14 @@ class TestAnosInventados:
     def test_un_ano_ausente_del_documento_se_avisa(self):
         from app.services.ai_service import _ground_in_document
 
-        datos = {'campos': {
+        datos = {'servicios': [{'campos': {
             'salida': {'local': '2023-10-15T19:55', 'zona_horaria': 'Europe/Madrid'},
-        }}
+        }}]}
         r = _ground_in_document(
             datos, self._blocks('Outbound Saturday, 31 October 2026 Barcelona')
         )
 
-        assert r['confianzas']['salida'] == 0.0, (
+        assert r['servicios'][0]['confianzas']['salida'] == 0.0, (
             'Una fecha con año inventado no puede aprobarse sin revisión.'
         )
         assert any('2023' in a for a in r['avisos'])
@@ -490,23 +584,23 @@ class TestAnosInventados:
     def test_un_ano_presente_no_se_avisa(self):
         from app.services.ai_service import _ground_in_document
 
-        datos = {'campos': {
+        datos = {'servicios': [{'campos': {
             'salida': {'local': '2026-10-31T19:55', 'zona_horaria': 'Europe/Madrid'},
-        }}
+        }}]}
         r = _ground_in_document(
             datos, self._blocks('Outbound Saturday, 31 October 2026 Barcelona')
         )
 
         assert r['avisos'] == []
-        assert r['confianzas']['salida'] > 0
+        assert r['servicios'][0]['confianzas']['salida'] > 0
 
     def test_sin_años_en_el_documento_no_se_inventan_avisos(self):
         """An OCR'd scan with no legible year must not flood the review screen."""
         from app.services.ai_service import _ground_in_document
 
-        datos = {'campos': {
+        datos = {'servicios': [{'campos': {
             'salida': {'local': '2026-10-31T19:55', 'zona_horaria': 'Europe/Madrid'},
-        }}
+        }}]}
         r = _ground_in_document(datos, self._blocks('texto sin ninguna fecha'))
 
         assert r['avisos'] == []
@@ -515,9 +609,9 @@ class TestAnosInventados:
         """The manager needs to know which year to correct it to."""
         from app.services.ai_service import _ground_in_document
 
-        datos = {'campos': {
+        datos = {'servicios': [{'campos': {
             'salida': {'local': '2023-01-01T10:00', 'zona_horaria': 'UTC'},
-        }}
+        }}]}
         r = _ground_in_document(datos, self._blocks('Vuelo el 31 October 2026'))
 
         assert '2026' in r['avisos'][0]

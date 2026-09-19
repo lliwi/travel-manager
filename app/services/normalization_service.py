@@ -28,19 +28,23 @@ _CURRENCY_RE = re.compile(r'^[A-Z]{3}$')
 
 
 class NormalizationResult:
-    """The normalised payload plus what could not be resolved."""
+    """The normalised services plus what could not be resolved."""
 
-    def __init__(self, campos, confianzas, avisos, resueltos):
-        self.campos = campos
-        self.confianzas = confianzas
+    def __init__(self, servicios, avisos, resueltos):
+        self.servicios = servicios
         self.avisos = avisos
         #: ``{campo: descripcion}`` of what normalisation actually resolved.
         self.resueltos = resueltos
 
     @property
     def confianza_global(self):
-        """The mean per-field confidence, or None when nothing was extracted."""
-        values = [v for v in self.confianzas.values() if isinstance(v, (int, float))]
+        """The mean per-field confidence across every service."""
+        values = [
+            v
+            for servicio in self.servicios
+            for v in (servicio.get('confianzas') or {}).values()
+            if isinstance(v, (int, float))
+        ]
         return round(sum(values) / len(values), 2) if values else None
 
 
@@ -48,25 +52,60 @@ def normalize(payload, clasificacion=None):
     """Normalise an extraction payload.
 
     Args:
-        payload: The model's raw answer, ``{'campos': ..., 'confianzas': ...}``.
+        payload: The model's answer, one or more services.
         clasificacion: The document class, which decides which fields exist.
 
     Returns:
         A :class:`NormalizationResult`.
     """
-    campos = dict((payload or {}).get('campos') or {})
-    confianzas = dict((payload or {}).get('confianzas') or {})
+    servicios = _servicios_del_payload(payload)
     avisos = list((payload or {}).get('avisos') or [])
     resueltos = {}
+    normalizados = []
 
-    _normalize_locators(campos, confianzas, avisos)
-    _normalize_names(campos)
-    _normalize_currency(campos, avisos)
-    _normalize_locations(campos, confianzas, avisos, resueltos)
-    _normalize_instants(campos, confianzas, avisos, resueltos)
-    _normalize_countries(campos)
+    for indice, servicio in enumerate(servicios):
+        campos = dict(servicio.get('campos') or {})
+        confianzas = dict(servicio.get('confianzas') or {})
+        propios = []
 
-    return NormalizationResult(campos, confianzas, avisos, resueltos)
+        _normalize_locators(campos, confianzas, propios)
+        _normalize_names(campos)
+        _normalize_currency(campos, propios)
+        _normalize_locations(campos, confianzas, propios, resueltos)
+        _normalize_instants(campos, confianzas, propios, resueltos)
+        _normalize_countries(campos)
+
+        # Say which service a warning is about, or a reviewer looking at two
+        # flights cannot tell which one has the unresolved timezone.
+        prefijo = f'Servicio {indice + 1}: ' if len(servicios) > 1 else ''
+        avisos.extend(f'{prefijo}{a}' for a in propios)
+
+        normalizados.append({
+            'campos': campos,
+            'confianzas': confianzas,
+            'procedencias': dict(servicio.get('procedencias') or {}),
+        })
+
+    return NormalizationResult(normalizados, avisos, resueltos)
+
+
+def _servicios_del_payload(payload):
+    """Read the services out of either payload shape."""
+    payload = payload or {}
+
+    servicios = payload.get('servicios')
+    if isinstance(servicios, list) and servicios:
+        return servicios
+
+    campos = payload.get('campos')
+    if isinstance(campos, dict):
+        return [{
+            'campos': campos,
+            'confianzas': payload.get('confianzas') or {},
+            'procedencias': payload.get('procedencias') or {},
+        }]
+
+    return []
 
 
 def _normalize_locators(campos, confianzas, avisos):
@@ -166,12 +205,22 @@ def _normalize_locations(campos, confianzas, avisos, resueltos):
         resueltos[code_field] = f'{location.codigo} — {location.nombre}'
 
         # The catalogue's timezone wins over anything the model guessed: it is
-        # reference data, the model's answer is an inference.
+        # reference data, the model's answer is an inference. Filling it in only
+        # when absent left the guess standing, and a flight out of BCN whose
+        # departure was labelled Europe/London moves the whole itinerary by an
+        # hour -- along with every margin the alert engine computes from it.
         instant = campos.get(instant_field)
         if isinstance(instant, dict) and location.zona_horaria:
-            if not instant.get('zona_horaria'):
+            anterior = instant.get('zona_horaria')
+            if anterior != location.zona_horaria:
                 instant['zona_horaria'] = location.zona_horaria
                 resueltos[f'{instant_field}.zona_horaria'] = location.zona_horaria
+                if anterior:
+                    avisos.append(
+                        f'La zona horaria de «{instant_field}» era «{anterior}» y '
+                        f'no corresponde a {location.codigo}; se ha corregido a '
+                        f'«{location.zona_horaria}».'
+                    )
 
 
 def _find_by_name(name, city=None):

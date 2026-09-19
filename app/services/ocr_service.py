@@ -229,18 +229,41 @@ def _preprocess(image):
 
 _TAG_RE = re.compile(r'<[^>]+>')
 _WS_RE = re.compile(r'\n{3,}')
+_BLOCK_RE = re.compile(r'(?i)<br\s*/?>|</(p|div|tr|table|li|h[1-6])\s*>')
+_CELL_RE = re.compile(r'(?i)</(td|th)\s*>')
+_SEP_RUN_RE = re.compile(r'(?:\|\s*){2,}')
 
 
 def _strip_html(html):
-    """Crude HTML-to-text, adequate for a booking confirmation email."""
+    """Crude HTML-to-text, adequate for a booking confirmation email.
+
+    Airlines lay booking confirmations out as tables, and a table only means
+    anything if a row survives as a row: the flight number, the airport and the
+    two times belong together. So a cell boundary becomes a separator and a row
+    boundary becomes the newline, while the newlines the HTML source happens to
+    contain between tags are discarded -- keeping them scatters each cell onto
+    its own line and leaves an extractor, human or model, guessing which time
+    goes with which flight.
+    """
     text = re.sub(r'(?is)<(script|style).*?</\1>', ' ', html)
-    text = re.sub(r'(?i)<br\s*/?>|</p>|</div>|</tr>', '\n', text)
+    # A line break in HTML source is insignificant whitespace; the structure is
+    # in the tags. Discarding those breaks first is what makes the rules below
+    # the only thing that starts a new line.
+    text = re.sub(r'\s+', ' ', text)
+    text = _BLOCK_RE.sub('\n', text)
+    text = _CELL_RE.sub(' | ', text)
     text = _TAG_RE.sub(' ', text)
     import html as html_module
 
-    text = html_module.unescape(text)
-    text = re.sub(r'[ \t]{2,}', ' ', text)
-    return _WS_RE.sub('\n\n', text).strip()
+    text = html_module.unescape(text).replace('\xa0', ' ')
+
+    lineas = []
+    for linea in text.split('\n'):
+        linea = _SEP_RUN_RE.sub('| ', ' '.join(linea.split()))
+        linea = linea.strip().strip('|').strip()
+        lineas.append(linea)
+
+    return _WS_RE.sub('\n\n', '\n'.join(lineas)).strip()
 
 
 def _ocr_available():

@@ -40,9 +40,19 @@ _AVISOS = {
 }
 
 
-def _extraction_schema(campos, required=('campos', 'confianzas')):
-    """Build an extraction schema around a field specification."""
-    return {
+def _extraction_schema(campos):
+    """Build an extraction schema around a field specification.
+
+    A document describes one *or more* services: a return booking is a single
+    confirmation email covering two flights, and a hotel confirmation can cover
+    two rooms with different dates. Forcing one service per document meant
+    silently dropping everything after the first.
+
+    So the payload is a list. Confidence and provenance live inside each
+    service, because they are per-value facts and a flat map could not say
+    which flight a locator belonged to.
+    """
+    servicio = {
         'type': 'object',
         'properties': {
             'campos': {
@@ -52,11 +62,39 @@ def _extraction_schema(campos, required=('campos', 'confianzas')):
             },
             'confianzas': _CONFIANZAS,
             'procedencias': _PROCEDENCIAS,
+        },
+        'required': ['campos'],
+    }
+
+    return {
+        'type': 'object',
+        'properties': {
+            'servicios': {
+                'type': 'array',
+                'items': servicio,
+                'minItems': 1,
+                'description': (
+                    'Un elemento por cada servicio que describa el documento: '
+                    'cada vuelo de un billete de ida y vuelta, cada habitación '
+                    'de una reserva de hotel.'
+                ),
+            },
             'confianza_global': {'type': 'number', 'minimum': 0, 'maximum': 1},
             'avisos': _AVISOS,
         },
-        'required': list(required),
+        'required': ['servicios'],
     }
+
+
+#: The field specification of each extraction schema, kept accessible so the
+#: decoding schema can be built from the fields alone.
+def campos_de(esquema):
+    """The field properties an extraction schema expects, or None."""
+    servicios = (esquema.get('properties') or {}).get('servicios')
+    if not isinstance(servicios, dict):
+        return None
+    campos = ((servicios.get('items') or {}).get('properties') or {}).get('campos')
+    return (campos or {}).get('properties')
 
 
 _STR = {'type': ['string', 'null']}
@@ -379,3 +417,73 @@ SCHEMAS = {
 }
 
 __all__ = ['SCHEMAS']
+
+
+def esquema_de_generacion(esquema):
+    """What the model is actually asked to produce.
+
+    Two reductions from the validation schema. The envelope of confidences and
+    provenance is dropped: a small model's self-reported confidence is a guess,
+    while whether a value appears literally in the document is something we
+    check ourselves. And the nesting goes, because the grammar for the full
+    schema takes longer to apply than the answer is worth -- measured on a real
+    booking email, the difference between an answer in seconds and one that
+    does not arrive.
+
+    What remains is a list of services, each a flat map of fields. This is the
+    one shape the model ever sees: the prompt shows it and constrained decoding
+    enforces it. Showing one shape while enforcing another is worse than either
+    alone -- the model plans the answer it was shown, the grammar admits only
+    the other, and the fields it never planned get filled with invention.
+    """
+    if not isinstance(esquema, dict):
+        return None
+
+    campos = campos_de(esquema)
+    if not campos:
+        return _podar(esquema)
+
+    propiedades = _podar(campos)
+    return {
+        'type': 'object',
+        'properties': {
+            'servicios': {
+                'type': 'array',
+                'minItems': 1,
+                'items': {
+                    'type': 'object',
+                    'properties': propiedades,
+                    # Every field required, nulls allowed: a model that must
+                    # emit the key says "null" for what it cannot find, and an
+                    # omitted field is indistinguishable from one it never
+                    # looked for.
+                    'required': sorted(propiedades),
+                },
+            },
+        },
+        'required': ['servicios'],
+    }
+
+
+def _podar(node):
+    """Remove what constrained decoding cannot express.
+
+    Anything dropped here is still checked by the validator once the answer is
+    back, so nothing is lost; leaving it in risks the provider rejecting the
+    schema outright and falling back to unconstrained generation.
+    """
+    if isinstance(node, dict):
+        limpio = {}
+        for clave, valor in node.items():
+            if clave in ('additionalProperties', 'description'):
+                continue
+            limpio[clave] = _podar(valor)
+
+        if limpio.get('type') == 'object' and not limpio.get('properties'):
+            limpio.pop('required', None)
+        return limpio
+
+    if isinstance(node, list):
+        return [_podar(v) for v in node]
+
+    return node

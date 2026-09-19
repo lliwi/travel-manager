@@ -235,7 +235,11 @@ def _placeholder(spec):
         kind = next((k for k in kind if k != 'null'), 'string')
 
     if kind == 'array':
-        return []
+        # Respect minItems: an extraction must describe at least one service,
+        # and an empty list would fail the very contract this is standing in for.
+        minimo = int(spec.get('minItems') or 0)
+        items = spec.get('items') or {}
+        return [_placeholder(items) for _ in range(minimo)]
     if kind == 'object':
         return _empty_for_schema(spec)
     if kind == 'number':

@@ -195,6 +195,7 @@ def register_blueprints(app):
         return redirect(url_for('auth.login'))
 
     @app.route('/healthz')
+    @limiter.exempt
     @talisman(force_https=False)
     def healthz():
         """Liveness probe: the process is up. Never touches dependencies.
@@ -202,15 +203,22 @@ def register_blueprints(app):
         Exempt from the HTTPS redirect: TLS is terminated at Nginx, and a probe
         that talks to the container directly has no forwarded-proto header. A
         302 here would make the container look unhealthy while it is fine.
+
+        Exempt from rate limiting too, and for the same reason: the container
+        healthcheck runs every 30 seconds, which is 120 requests an hour
+        against a default allowance of 100. Left limited, the container starts
+        reporting itself unhealthy after an hour of being perfectly fine.
         """
         return jsonify({'status': 'ok', 'version': __version__})
 
     @app.route('/readyz')
+    @limiter.exempt
     @talisman(force_https=False)
     def readyz():
         """Readiness probe: the dependencies this process needs are reachable.
 
-        Exempt from the HTTPS redirect, for the same reason as ``/healthz``.
+        Exempt from the HTTPS redirect and from rate limiting, for the same
+        reasons as ``/healthz``.
         """
         from sqlalchemy import text
 

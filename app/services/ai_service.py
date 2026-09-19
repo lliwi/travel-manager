@@ -164,41 +164,86 @@ def _audit(run, actor, resultado_denegado=False):
 #: Keys of the extraction envelope. Anything else at the top level of an
 #: extraction answer is a field the model put there directly.
 _ENVELOPE_KEYS = frozenset({
-    'campos', 'confianzas', 'procedencias', 'confianza_global', 'avisos',
+    'servicios', 'campos', 'confianzas', 'procedencias', 'confianza_global',
+    'avisos',
 })
 
 
 def _coerce_envelope(datos, esquema):
-    """Accept an extraction answered without its wrapper.
+    """Normalise an extraction answer into a list of services.
 
-    The ``{campos: {...}, confianzas: {...}}`` envelope is our own convenience.
-    A model that returns the fields flat has done the work that matters, and
-    rejecting it would throw away a good answer over a formatting detail. The
-    wrapper is rebuilt, and the missing confidences default to empty -- which
-    leaves ``confianza_global`` unknown and therefore forces human review, so
-    being liberal here cannot make a value look more trustworthy than it is.
+    Three shapes arrive here and all of them are legitimate:
+
+    * ``{servicios: [...]}`` -- what is asked for now;
+    * ``{campos: {...}}`` -- one service, which is what every extraction stored
+      before documents could describe more than one, and which must keep
+      working for the rows already in the database;
+    * a flat map of fields -- a model that answered without any wrapper, having
+      done the work that matters.
+
+    Rejecting the last two would throw away good answers over a formatting
+    detail. Missing confidences default to empty, which leaves the global
+    confidence unknown and therefore forces human review, so being liberal here
+    cannot make a value look more trustworthy than it is.
     """
     if not isinstance(datos, dict):
         return datos
-    if 'campos' in datos:
+    if not _espera_servicios(esquema):
         return datos
-    if not isinstance(esquema, dict):
+
+    if isinstance(datos.get('servicios'), list) and datos['servicios']:
+        datos['servicios'] = [_normalizar_servicio(s) for s in datos['servicios']]
         return datos
-    if 'campos' not in (esquema.get('properties') or {}):
+
+    if isinstance(datos.get('campos'), dict):
+        servicio = {
+            'campos': datos.pop('campos'),
+            'confianzas': datos.pop('confianzas', {}) or {},
+            'procedencias': datos.pop('procedencias', {}) or {},
+        }
+        datos['servicios'] = [servicio]
         return datos
 
     sueltos = {k: v for k, v in datos.items() if k not in _ENVELOPE_KEYS}
-    if not sueltos:
-        return datos
+    if sueltos:
+        logger.info(
+            'La respuesta llegó sin envoltorio; se reconstruye un servicio con '
+            '%s campos.', len(sueltos),
+        )
+        envoltorio = {k: v for k, v in datos.items() if k in _ENVELOPE_KEYS}
+        envoltorio['servicios'] = [
+            {'campos': sueltos, 'confianzas': {}, 'procedencias': {}}
+        ]
+        return envoltorio
 
-    logger.info(
-        'La respuesta llegó sin el envoltorio «campos»; se reconstruye con %s campos.',
-        len(sueltos),
-    )
-    envoltorio = {k: v for k, v in datos.items() if k in _ENVELOPE_KEYS}
-    envoltorio['campos'] = sueltos
-    envoltorio.setdefault('confianzas', {})
-    return envoltorio
+    return datos
+
+
+def _espera_servicios(esquema):
+    """True when this schema is an extraction, which is what has services."""
+    if not isinstance(esquema, dict):
+        return False
+    return 'servicios' in (esquema.get('properties') or {})
+
+
+def _normalizar_servicio(servicio):
+    """Give a service its three sections, whatever the model sent."""
+    if not isinstance(servicio, dict):
+        return {'campos': {}, 'confianzas': {}, 'procedencias': {}}
+
+    if isinstance(servicio.get('campos'), dict):
+        return {
+            'campos': servicio['campos'],
+            'confianzas': servicio.get('confianzas') or {},
+            'procedencias': servicio.get('procedencias') or {},
+        }
+
+    # The model put the fields straight in the service object.
+    return {
+        'campos': {k: v for k, v in servicio.items() if k not in _ENVELOPE_KEYS},
+        'confianzas': servicio.get('confianzas') or {},
+        'procedencias': servicio.get('procedencias') or {},
+    }
 
 
 def _parse(response, tarea, esquema=None):
@@ -246,10 +291,14 @@ def extract_document(document, clasificacion=None, actor=None):
         sistema=PROMPTS['extract_document'],
         instruccion=(
             f'Extrae los datos estructurados del siguiente documento de tipo '
-            f'«{clasificacion}». Para cada campo indica tu confianza entre 0 y 1 y, '
-            f'cuando el valor aparezca literalmente en el texto, el número de página '
-            f'y el fragmento exacto que lo respalda. Si un dato no aparece, usa null '
-            f'y confianza 0; no lo inventes.'
+            f'«{clasificacion}».\n\n'
+            f'Devuelve un elemento en «servicios» por CADA servicio que el '
+            f'documento describa. Si es un billete de ida y vuelta, son dos '
+            f'vuelos y debes devolver los dos, cada uno con su ruta y sus '
+            f'horarios propios. Revisa el documento entero antes de responder: '
+            f'quedarte con el primero deja el itinerario a medias.\n\n'
+            f'Si un dato no aparece, usa null; no lo inventes. Copia las fechas '
+            f'tal como figuran en el documento, con su año.'
         ),
         bloques=blocks,
         esquema=esquema,
@@ -301,49 +350,55 @@ def _ground_in_document(datos, blocks):
     exactly the distinction the specification draws between a value that came
     from the document and one the model inferred (section 2.3).
 
-    Confidences the model volunteered are kept only where we found no literal
-    match, and capped: they are a hint, not evidence.
+    Done per service: a return booking's two flights are grounded separately,
+    so the outbound locator cannot lend its confidence to the return leg.
     """
-    campos = datos.get('campos')
-    if not isinstance(campos, dict):
+    servicios = datos.get('servicios')
+    if not isinstance(servicios, list):
         return datos
 
     paginas = [(b.pagina or 1, b.contenido or '') for b in blocks]
+    todas = []
 
-    confianzas = dict(datos.get('confianzas') or {})
-    procedencias = dict(datos.get('procedencias') or {})
+    for servicio in servicios:
+        campos = servicio.get('campos')
+        if not isinstance(campos, dict):
+            continue
 
-    for nombre, valor in campos.items():
-        literal = _find_literal(valor, paginas)
+        confianzas = dict(servicio.get('confianzas') or {})
+        procedencias = dict(servicio.get('procedencias') or {})
 
-        if literal is not None:
-            pagina, fragmento = literal
-            confianzas[nombre] = CONFIANZA_LITERAL
-            procedencias[nombre] = {'pagina': pagina, 'fragmento': fragmento}
-        elif valor in (None, '', {}):
-            confianzas[nombre] = 0.0
-            procedencias[nombre] = {'pagina': None, 'fragmento': None}
-        else:
-            reportada = confianzas.get(nombre)
-            confianzas[nombre] = min(
-                float(reportada) if isinstance(reportada, (int, float)) else
-                CONFIANZA_INFERIDA,
-                CONFIANZA_INFERIDA,
-            )
-            procedencias[nombre] = {'pagina': None, 'fragmento': None}
+        for nombre, valor in campos.items():
+            literal = _find_literal(valor, paginas)
 
-    datos['confianzas'] = confianzas
-    datos['procedencias'] = procedencias
+            if literal is not None:
+                pagina, fragmento = literal
+                confianzas[nombre] = CONFIANZA_LITERAL
+                procedencias[nombre] = {'pagina': pagina, 'fragmento': fragmento}
+            elif valor in (None, '', {}):
+                confianzas[nombre] = 0.0
+                procedencias[nombre] = {'pagina': None, 'fragmento': None}
+            else:
+                reportada = confianzas.get(nombre)
+                confianzas[nombre] = min(
+                    float(reportada) if isinstance(reportada, (int, float))
+                    else CONFIANZA_INFERIDA,
+                    CONFIANZA_INFERIDA,
+                )
+                procedencias[nombre] = {'pagina': None, 'fragmento': None}
 
-    _flag_invented_years(datos, paginas, confianzas)
+        servicio['confianzas'] = confianzas
+        servicio['procedencias'] = procedencias
+        _flag_invented_years(datos, paginas, confianzas, campos)
+        todas.extend(confianzas.values())
 
-    valores = [v for v in confianzas.values() if isinstance(v, (int, float))]
+    valores = [v for v in todas if isinstance(v, (int, float))]
     datos['confianza_global'] = round(sum(valores) / len(valores), 2) if valores else None
 
     return datos
 
 
-def _flag_invented_years(datos, paginas, confianzas):
+def _flag_invented_years(datos, paginas, confianzas, campos):
     """Warn when an extracted date lands in a year the document never mentions.
 
     A wrong year on a flight is not a detail: it moves the whole itinerary and
@@ -369,7 +424,7 @@ def _flag_invented_years(datos, paginas, confianzas):
         datos['avisos'] = avisos
         return
 
-    for nombre, valor in (datos.get('campos') or {}).items():
+    for nombre, valor in (campos or {}).items():
         local = valor.get('local') if isinstance(valor, dict) else None
         if not local:
             continue

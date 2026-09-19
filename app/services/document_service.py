@@ -372,11 +372,10 @@ def reprocess(actor, document, from_start=False):
         )
 
     if from_start:
-        start_from = 'validate'
-        destino = S.RECIBIDO
+        destino = _earliest_replayable_state(document)
     else:
         destino = _last_successful_state(document)
-        start_from = RESUME_FROM.get(destino, 'validate')
+    start_from = RESUME_FROM.get(destino, 'validate')
 
     # Rewind first. Each task exits without acting unless the document is in
     # its own input state, so enqueuing the chain over a finished document
@@ -407,6 +406,26 @@ def reprocess(actor, document, from_start=False):
 #: classification -- which is what a manager wants after changing the model or
 #: correcting the classification.
 _REPROCESS_CEILING = S.CLASIFICADO
+
+
+def _earliest_replayable_state(document):
+    """How far back a full reprocess can actually go.
+
+    "From the start" is bounded by what is still on disk. Promotion deletes the
+    quarantine object once the definitive one is stored and its hash verified,
+    so validation and the antivirus scan -- both of which read the quarantine
+    copy -- have nothing left to read. Rewinding past that point sends the
+    document to a task that can only fail, which is how a reprocess turned a
+    reviewable document into an errored one.
+    """
+    if document.objeto_cuarentena:
+        return S.RECIBIDO
+    if document.objeto_storage:
+        return S.ALMACENADO
+    raise ConflictError(
+        'No queda copia del fichero original, así que el documento no puede '
+        'reprocesarse.'
+    )
 
 
 def _last_successful_state(document):

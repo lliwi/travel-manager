@@ -128,12 +128,17 @@ def review(document_id, document):
                 correcciones = extraction_service.parse_review_form(
                     extraction, request.form
                 )
-                extraction_service.approve(
+                resultado = extraction_service.approve(
                     actor, extraction,
                     correcciones=correcciones,
                     comentario=request.form.get('comentario'),
                 )
-                flash('Datos aprobados y aplicados al itinerario.', 'success')
+                cuantos = len(resultado.get('entities') or [])
+                flash(
+                    f'{cuantos} servicios aplicados al itinerario.' if cuantos != 1
+                    else 'Datos aprobados y aplicados al itinerario.',
+                    'success',
+                )
         except AppError as error:
             flash(error.mensaje, 'danger')
             return redirect(url_for('documents.review', document_id=document.id))

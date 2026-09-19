@@ -85,8 +85,13 @@ def review_document(document_id, document):
         correcciones=payload.get('correcciones') or {},
         comentario=payload.get('comentario'),
     )
+    entidades = result.get('entities') or []
     return ok({
-        'mensaje': 'Datos aprobados y aplicados al itinerario.',
+        'mensaje': (
+            f'{len(entidades)} servicio(s) aplicado(s) al itinerario.'
+            if len(entidades) != 1
+            else 'Datos aprobados y aplicados al itinerario.'
+        ),
         'extraccion': result['extraction'].to_dict(),
         'aplicaciones': [a.to_dict() for a in result['applications']],
     })
