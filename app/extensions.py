@@ -39,24 +39,42 @@ login_manager.session_protection = 'strong'
 
 
 @login_manager.user_loader
-def load_user(user_id):
-    """Load a user by its UUID primary key.
+def load_user(session_id):
+    """Load the user a session belongs to.
 
-    The business key is the immutable UUID, never the login name -- see
-    specification section 3.3.
+    The session identifier is ``<uuid>:<session_epoch>``, produced by
+    ``User.get_id()``. The epoch is what makes a password change, a role change
+    or a deactivation end every open session at once: if the stored epoch has
+    moved on, the cookie refers to a session that is no longer valid and the
+    user is not loaded.
     """
     import uuid
 
     from app.models.user import User
 
+    raw = str(session_id or '')
+    identifier, _, epoch = raw.partition(':')
+
     try:
-        uid = uuid.UUID(str(user_id))
+        uid = uuid.UUID(identifier)
     except (ValueError, AttributeError, TypeError):
         return None
 
     user = db.session.get(User, uid)
     if user is None or user.is_deleted or not user.is_active_account:
         return None
+
+    # A cookie with no epoch predates this scheme, or was not produced by
+    # get_id(); either way it is not a session this application issued.
+    if not epoch:
+        return None
+
+    try:
+        if int(epoch) != (user.session_epoch or 0):
+            return None
+    except (TypeError, ValueError):
+        return None
+
     return user
 
 

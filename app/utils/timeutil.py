@@ -198,12 +198,32 @@ _MONTHS_ES = (
 )
 
 
+def _as_local(value, tz_name):
+    """Resolve a value to the wall-clock time to display.
+
+    Both kinds of column reach these filters:
+
+    * a ``_local`` column, naive, already the wall time on the ticket, and
+    * a ``_utc`` column, timezone-aware, which has to be converted.
+
+    Converting a value that is *already* local would shift it by the offset and
+    show the wrong time -- which is exactly what happened: a departure entered
+    as 08:00 in Madrid was displayed as 10:00.
+    """
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        # Already a wall time; the zone is only a label for it.
+        return value
+    return to_local(value, tz_name) if tz_name else value
+
+
 def format_local(value, tz_name=None, with_tz=True):
     """Render an instant as ``dd mmm yyyy HH:MM (tz)`` in Spanish."""
+    value = _as_local(value, tz_name)
     if value is None:
         return '—'
-    if tz_name:
-        value = to_local(value, tz_name)
+
     stamp = (
         f'{value.day:02d} {_MONTHS_ES[value.month - 1]} {value.year} '
         f'{value.hour:02d}:{value.minute:02d}'
@@ -215,19 +235,17 @@ def format_local(value, tz_name=None, with_tz=True):
 
 def format_local_date(value, tz_name=None):
     """Render just the date part."""
+    value = _as_local(value, tz_name)
     if value is None:
         return '—'
-    if tz_name:
-        value = to_local(value, tz_name)
     return f'{value.day:02d} {_MONTHS_ES[value.month - 1]} {value.year}'
 
 
 def format_local_time(value, tz_name=None):
     """Render just ``HH:MM``."""
+    value = _as_local(value, tz_name)
     if value is None:
         return '—'
-    if tz_name:
-        value = to_local(value, tz_name)
     return f'{value.hour:02d}:{value.minute:02d}'
 
 

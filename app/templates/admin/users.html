@@ -1,5 +1,6 @@
 {% extends "base.html" %}
-{% from "macros/forms.html" import badge, pagination %}
+{# Alias para no tapar la variable «pagination» que pasa la vista. #}
+{% from "macros/forms.html" import badge, pagination as render_pagination %}
 {% block title %}Usuarios — {{ app_name }}{% endblock %}
 {% block breadcrumb_items %}
 <li class="breadcrumb-item"><a href="{{ url_for('admin.index') }}">Administración</a></li>
@@ -70,5 +71,5 @@
     </div>
 </div>
 
-<div class="mt-3">{{ pagination(pagination, 'admin.users', {'buscar': buscar or None}) }}</div>
+<div class="mt-3">{{ render_pagination(pagination, 'admin.users', {'buscar': buscar or None}) }}</div>
 {% endblock %}

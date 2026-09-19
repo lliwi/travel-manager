@@ -143,3 +143,36 @@ class TestFormato:
         assert '01 jun 2026' in rendered
         assert '10:00' in rendered
         assert 'Madrid' in rendered
+
+    def test_una_hora_local_no_se_convierte_otra_vez(self):
+        """A ``_local`` column is already the wall time on the ticket.
+
+        Converting it as if it were UTC shifts it by the offset: a departure
+        entered as 08:00 in Madrid would be shown as 10:00.
+        """
+        local = datetime(2026, 6, 1, 8, 0)
+
+        assert '08:00' in timeutil.format_local(local, 'Europe/Madrid')
+        assert '08:00' in timeutil.format_local_time(local, 'Europe/Madrid')
+
+    def test_las_dos_columnas_muestran_la_misma_hora(self):
+        """``_local`` and ``_utc`` are the same instant and must read alike."""
+        local = datetime(2026, 6, 1, 8, 0)
+        utc = timeutil.to_utc(local, 'Europe/Madrid')
+
+        assert (timeutil.format_local(local, 'Europe/Madrid')
+                == timeutil.format_local(utc, 'Europe/Madrid'))
+
+    def test_un_instante_utc_si_se_convierte_a_su_zona(self):
+        """An aware value is a real instant and must be localised."""
+        utc = timeutil.to_utc(datetime(2026, 6, 1, 8, 0), 'Europe/Madrid')
+
+        assert '15:00' in timeutil.format_local(utc, 'Asia/Tokyo'), (
+            'Las 08:00 de Madrid son las 15:00 en Tokio.'
+        )
+
+    def test_la_fecha_tambien_respeta_la_hora_local(self):
+        """Near midnight a spurious conversion would change the day."""
+        local = datetime(2026, 6, 1, 23, 30)
+
+        assert '01 jun 2026' in timeutil.format_local_date(local, 'Europe/Madrid')

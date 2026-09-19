@@ -1,5 +1,7 @@
 {% extends "base.html" %}
-{% from "macros/forms.html" import badge, pagination %}
+{# El macro se importa con alias: «pagination» a secas taparía la variable
+   del mismo nombre que pasa la vista, y {{ pagination.total }} quedaría vacío. #}
+{% from "macros/forms.html" import badge, pagination as render_pagination %}
 {% block title %}Viajes — {{ app_name }}{% endblock %}
 {% block breadcrumb_items %}<li class="breadcrumb-item active">Viajes</li>{% endblock %}
 
@@ -82,7 +84,7 @@
 </div>
 
 <div class="mt-3">
-    {{ pagination(pagination, 'trips.index', {
+    {{ render_pagination(pagination, 'trips.index', {
         'buscar': form.buscar.data or None,
         'estado': form.estado.data or None,
         'orden': form.orden.data or None}) }}
