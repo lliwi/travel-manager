@@ -13,7 +13,13 @@ from wtforms import (
 )
 from wtforms.validators import DataRequired, Length, NumberRange, Optional
 
-from app.models.enums import TravelerRole, TripPurpose, TripStatus
+from app.models.enums import (
+    SegmentType,
+    ServiceType,
+    TravelerRole,
+    TripPurpose,
+    TripStatus,
+)
 
 #: HTML datetime-local inputs submit this format.
 DATETIME_FORMAT = '%Y-%m-%dT%H:%M'
@@ -167,3 +173,150 @@ class TripFilterForm(FlaskForm):
         default='inicio_desc',
         validators=[Optional()],
     )
+
+
+def _tz_field(label, description=None):
+    """A timezone field that refuses a name the runtime does not know.
+
+    Rejecting «CEST» or a typo here is the cheapest place to do it: accepted,
+    it would produce an instant whose UTC column is wrong and every connection
+    margin computed from it with it.
+    """
+    from wtforms.validators import ValidationError as WTFValidationError
+
+    def _valid(form, field):
+        from app.utils.timeutil import is_valid_timezone
+
+        if field.data and not is_valid_timezone(field.data):
+            raise WTFValidationError(
+                'Zona horaria desconocida. Use un nombre IANA, '
+                'por ejemplo «Europe/Madrid».'
+            )
+
+    return StringField(
+        label,
+        validators=[Optional(), Length(max=64), _valid],
+        description=description or 'En blanco: se usa la del viaje.',
+    )
+
+
+class ItineraryItemForm(FlaskForm):
+    """Fields every itinerary item shares.
+
+    Manual entry captures wall-clock time plus its zone, exactly as extraction
+    does: the service layer derives the UTC column from the pair, and nothing
+    else ever writes it.
+    """
+
+    trip_traveler_id = SelectField(
+        'Persona viajera', validators=[Optional()],
+        description='En blanco: aplica a todo el viaje.',
+    )
+    localizador = StringField('Localizador', validators=[Optional(), Length(max=60)])
+    proveedor = StringField('Proveedor', validators=[Optional(), Length(max=200)])
+    observaciones = TextAreaField('Observaciones', validators=[Optional()])
+    submit = SubmitField('Guardar')
+
+
+class SegmentForm(ItineraryItemForm):
+    """A flight, train, bus or ferry leg."""
+
+    tipo = SelectField('Medio', choices=_optional_choices(SegmentType), validators=[Optional()])
+    numero = StringField('Número', validators=[Optional(), Length(max=30)])
+    operado_por = StringField('Operado por', validators=[Optional(), Length(max=200)])
+    clase = StringField('Clase', validators=[Optional(), Length(max=60)])
+    asiento = StringField('Asiento', validators=[Optional(), Length(max=30)])
+
+    origen_codigo = StringField('Código de origen', validators=[Optional(), Length(max=10)])
+    origen_nombre = StringField('Origen', validators=[Optional(), Length(max=200)])
+    origen_ciudad = StringField('Ciudad de origen', validators=[Optional(), Length(max=160)])
+    terminal_origen = StringField('Terminal de origen', validators=[Optional(), Length(max=30)])
+    salida_local = DateTimeLocalField('Salida', format=DATETIME_FORMAT, validators=[Optional()])
+    salida_tz = _tz_field('Zona horaria de salida')
+
+    destino_codigo = StringField('Código de destino', validators=[Optional(), Length(max=10)])
+    destino_nombre = StringField('Destino', validators=[Optional(), Length(max=200)])
+    destino_ciudad = StringField('Ciudad de destino', validators=[Optional(), Length(max=160)])
+    terminal_destino = StringField('Terminal de destino', validators=[Optional(), Length(max=30)])
+    llegada_local = DateTimeLocalField('Llegada', format=DATETIME_FORMAT, validators=[Optional()])
+    llegada_tz = _tz_field('Zona horaria de llegada')
+
+
+class AccommodationForm(ItineraryItemForm):
+    """A hotel or apartment stay."""
+
+    nombre = StringField(
+        'Nombre', validators=[DataRequired(message='Indique el alojamiento.'), Length(max=200)]
+    )
+    direccion = StringField('Dirección', validators=[Optional(), Length(max=300)])
+    ciudad = StringField('Ciudad', validators=[Optional(), Length(max=160)])
+    telefono = StringField('Teléfono', validators=[Optional(), Length(max=60)])
+    email = StringField('Correo', validators=[Optional(), Length(max=200)])
+
+    check_in_local = DateTimeLocalField(
+        'Entrada', format=DATETIME_FORMAT, validators=[Optional()]
+    )
+    check_in_tz = _tz_field('Zona horaria de entrada')
+    check_out_local = DateTimeLocalField(
+        'Salida', format=DATETIME_FORMAT, validators=[Optional()]
+    )
+    check_out_tz = _tz_field('Zona horaria de salida')
+
+    numero_habitaciones = IntegerField(
+        'Habitaciones', validators=[Optional(), NumberRange(min=1)]
+    )
+    tipo_habitacion = StringField('Tipo de habitación', validators=[Optional(), Length(max=120)])
+    regimen = StringField('Régimen', validators=[Optional(), Length(max=120)])
+
+
+class VehicleRentalForm(ItineraryItemForm):
+    """A rental car."""
+
+    categoria = StringField('Categoría', validators=[Optional(), Length(max=120)])
+    modelo = StringField('Modelo', validators=[Optional(), Length(max=160)])
+    matricula = StringField('Matrícula', validators=[Optional(), Length(max=30)])
+    transmision = StringField('Transmisión', validators=[Optional(), Length(max=60)])
+
+    recogida_lugar = StringField('Lugar de recogida', validators=[Optional(), Length(max=200)])
+    recogida_ciudad = StringField('Ciudad de recogida', validators=[Optional(), Length(max=160)])
+    recogida_local = DateTimeLocalField(
+        'Recogida', format=DATETIME_FORMAT, validators=[Optional()]
+    )
+    recogida_tz = _tz_field('Zona horaria de recogida')
+
+    devolucion_lugar = StringField('Lugar de devolución', validators=[Optional(), Length(max=200)])
+    devolucion_ciudad = StringField(
+        'Ciudad de devolución', validators=[Optional(), Length(max=160)]
+    )
+    devolucion_local = DateTimeLocalField(
+        'Devolución', format=DATETIME_FORMAT, validators=[Optional()]
+    )
+    devolucion_tz = _tz_field('Zona horaria de devolución')
+
+    conductor_nombre = StringField('Conductor', validators=[Optional(), Length(max=200)])
+    franquicia = StringField('Franquicia', validators=[Optional(), Length(max=120)])
+
+
+class OtherServiceForm(ItineraryItemForm):
+    """Anything else on the itinerary: a transfer, an insurance, a visa."""
+
+    tipo = SelectField('Tipo', choices=_optional_choices(ServiceType), validators=[Optional()])
+    nombre = StringField(
+        'Nombre', validators=[DataRequired(message='Indique el servicio.'), Length(max=200)]
+    )
+    lugar = StringField('Lugar', validators=[Optional(), Length(max=200)])
+    ciudad = StringField('Ciudad', validators=[Optional(), Length(max=160)])
+
+    inicio_local = DateTimeLocalField('Inicio', format=DATETIME_FORMAT, validators=[Optional()])
+    inicio_tz = _tz_field('Zona horaria de inicio')
+    fin_local = DateTimeLocalField('Fin', format=DATETIME_FORMAT, validators=[Optional()])
+    fin_tz = _tz_field('Zona horaria de fin')
+
+
+#: The form and the field groups the template renders, per itinerary kind.
+ITINERARY_FORMS = {
+    'segmento': (SegmentForm, 'tramo'),
+    'alojamiento': (AccommodationForm, 'alojamiento'),
+    'vehiculo': (VehicleRentalForm, 'vehículo'),
+    'servicio': (OtherServiceForm, 'servicio'),
+}

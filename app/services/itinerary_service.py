@@ -294,6 +294,7 @@ def create_item(actor, trip, kind, instants=None, commit=True, **campos):
             actor=actor,
             metadatos={'trip_id': str(trip.id)},
         )
+        _schedule_alert_recalculation(trip, actor)
     return item
 
 
@@ -343,6 +344,7 @@ def update_item(actor, trip, kind, item_id, instants=None, commit=True, **campos
                 actor=actor,
                 metadatos={'campos': sorted(set(cambiados))},
             )
+            _schedule_alert_recalculation(trip, actor)
     return item
 
 
@@ -362,7 +364,34 @@ def delete_item(actor, trip, kind, item_id, commit=True):
             recurso_id=str(item.id),
             actor=actor,
         )
+        _schedule_alert_recalculation(trip, actor)
     return item
+
+
+def _schedule_alert_recalculation(trip, actor):
+    """Re-evaluate the trip's alerts after the itinerary changed by hand.
+
+    A margin that no longer holds, or one that now does, is the whole point of
+    the alert engine. Leaving this to the nightly pass meant a manager who
+    corrected a departure time saw the old alert until the next morning.
+    """
+    from app.models.enums import AlertTrigger
+    from app.services import alert_service
+
+    alert_service.schedule_recalculation(
+        trip.id, trigger=AlertTrigger.ITINERARIO, actor=actor
+    )
+
+
+def get_item(trip, kind, item_id):
+    """One itinerary item of this trip, or 404.
+
+    The edit form needs the row before it can show it, and it must be the same
+    lookup the write paths use -- an item belonging to another trip is not
+    found here either.
+    """
+    model, _ = _resolve_kind(kind)
+    return _load_item(model, trip, item_id)
 
 
 def _resolve_kind(kind):

@@ -18,6 +18,7 @@ from flask_login import current_user, login_required
 
 from app.blueprints.trips import trips_bp
 from app.blueprints.trips.forms import (
+    ITINERARY_FORMS,
     DestinationForm,
     TravelerForm,
     TripFilterForm,
@@ -30,7 +31,7 @@ from app.models.user import User
 from app.services import trip_service
 from app.services.authorization_service import Permiso, permissions_for
 from app.utils.decorators import require_permiso, require_trip_access
-from app.utils.errors import AppError
+from app.utils.errors import AppError, ResourceNotFound
 
 logger = logging.getLogger(__name__)
 
@@ -312,6 +313,150 @@ def remove_traveler(trip_id, user_id, trip):
 # ======================================================================
 # Destinations
 # ======================================================================
+# ======================================================================
+# Itinerary
+# ======================================================================
+def _itinerary_form(kind, item=None):
+    """The form for an itinerary kind, bound to an item when editing."""
+    entry = ITINERARY_FORMS.get(str(kind))
+    if entry is None:
+        raise ResourceNotFound('Ese tipo de elemento de itinerario no existe.')
+    form_cls, etiqueta = entry
+    return form_cls(obj=item), etiqueta
+
+
+def _traveler_choices(trip):
+    """Travellers on this trip, plus the "applies to everyone" option."""
+    return [('', '— Todo el viaje —')] + [
+        (str(t.id), t.user.nombre_completo) for t in trip.active_travelers
+    ]
+
+
+def _itinerary_payload(kind, form):
+    """Split the submitted form into instant triples and plain columns.
+
+    The same split ``/api/v1`` does, for the same reason: a timestamp only ever
+    reaches the database as a local value plus its zone, so no caller can set a
+    UTC column and let the three drift apart.
+    """
+    from app.services.itinerary_service import ENTITY_MAP
+
+    _, prefixes = ENTITY_MAP[kind]
+
+    instants = {}
+    for prefijo in prefixes:
+        local = getattr(form, f'{prefijo}_local', None)
+        if local is None:
+            continue
+        tz = getattr(form, f'{prefijo}_tz', None)
+        instants[prefijo] = (local.data, (tz.data or None) if tz else None)
+
+    modelo, _ = ENTITY_MAP[kind]
+    columnas = modelo.__table__.columns
+
+    omitidos = {'submit', 'csrf_token'}
+    campos = {}
+    for field in form:
+        nombre = field.name
+        if nombre in omitidos or nombre.endswith(('_local', '_tz')):
+            continue
+
+        valor = field.data
+        if isinstance(valor, str):
+            valor = valor.strip() or None
+
+        if valor is None:
+            columna = columnas.get(nombre)
+            # A blank field means "no value", which a nullable column stores as
+            # NULL. On a column that is not nullable it means "leave it alone":
+            # writing NULL there fails, and an unfilled select is not the
+            # manager saying the segment has no kind.
+            if columna is not None and not columna.nullable:
+                continue
+
+        campos[nombre] = valor
+
+    return instants, campos
+
+
+@trips_bp.route('/<trip_id>/itinerario/<kind>/nuevo', methods=['GET', 'POST'])
+@login_required
+@require_trip_access(Permiso.EDITAR_ITINERARIO)
+def create_itinerary_item(trip_id, kind, trip):
+    """Add an itinerary item by hand."""
+    from app.services import itinerary_service
+
+    form, etiqueta = _itinerary_form(kind)
+    form.trip_traveler_id.choices = _traveler_choices(trip)
+
+    if form.validate_on_submit():
+        instants, campos = _itinerary_payload(kind, form)
+        try:
+            itinerary_service.create_item(
+                current_user._get_current_object(), trip, kind,
+                instants=instants, **campos,
+            )
+        except AppError as error:
+            flash(error.mensaje, 'danger')
+        else:
+            flash(f'Se ha añadido el {etiqueta} al itinerario.', 'success')
+            return redirect(url_for('trips.detail', trip_id=trip.id))
+
+    return render_template(
+        'trips/itinerary_form.html',
+        trip=trip, form=form, kind=kind, etiqueta=etiqueta, item=None,
+    )
+
+
+@trips_bp.route('/<trip_id>/itinerario/<kind>/<item_id>/editar', methods=['GET', 'POST'])
+@login_required
+@require_trip_access(Permiso.EDITAR_ITINERARIO)
+def edit_itinerary_item(trip_id, kind, item_id, trip):
+    """Edit an itinerary item by hand."""
+    from app.services import itinerary_service
+
+    item = itinerary_service.get_item(trip, kind, item_id)
+    form, etiqueta = _itinerary_form(kind, item if request.method == 'GET' else None)
+    form.trip_traveler_id.choices = _traveler_choices(trip)
+    if request.method == 'GET':
+        form.trip_traveler_id.data = str(item.trip_traveler_id or '')
+
+    if form.validate_on_submit():
+        instants, campos = _itinerary_payload(kind, form)
+        try:
+            itinerary_service.update_item(
+                current_user._get_current_object(), trip, kind, item_id,
+                instants=instants, **campos,
+            )
+        except AppError as error:
+            flash(error.mensaje, 'danger')
+        else:
+            flash(f'Se ha actualizado el {etiqueta}.', 'success')
+            return redirect(url_for('trips.detail', trip_id=trip.id))
+
+    return render_template(
+        'trips/itinerary_form.html',
+        trip=trip, form=form, kind=kind, etiqueta=etiqueta, item=item,
+    )
+
+
+@trips_bp.route('/<trip_id>/itinerario/<kind>/<item_id>/eliminar', methods=['POST'])
+@login_required
+@require_trip_access(Permiso.EDITAR_ITINERARIO)
+def delete_itinerary_item(trip_id, kind, item_id, trip):
+    """Remove an itinerary item. Soft-deleted, like every other record."""
+    from app.services import itinerary_service
+
+    try:
+        itinerary_service.delete_item(
+            current_user._get_current_object(), trip, kind, item_id
+        )
+        flash('Elemento del itinerario eliminado.', 'info')
+    except AppError as error:
+        flash(error.mensaje, 'danger')
+    return redirect(url_for('trips.detail', trip_id=trip.id))
+
+
 @trips_bp.route('/<trip_id>/destinos', methods=['GET', 'POST'])
 @login_required
 @require_trip_access(Permiso.EDITAR_VIAJE)

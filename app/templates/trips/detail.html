@@ -52,6 +52,28 @@
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span><i class="bi bi-list-ol me-2"></i>Itinerario consolidado</span>
+                {% if Permiso.EDITAR_ITINERARIO in permisos %}
+                <div class="dropdown">
+                    <button class="btn btn-sm btn-outline-primary dropdown-toggle" type="button"
+                            data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="bi bi-plus-lg me-1"></i>Añadir
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        {% for clave, nombre, icono in [
+                            ('segmento', 'Trayecto', 'airplane'),
+                            ('alojamiento', 'Alojamiento', 'building'),
+                            ('vehiculo', 'Vehículo', 'car-front'),
+                            ('servicio', 'Otro servicio', 'ticket-perforated')] %}
+                        <li>
+                            <a class="dropdown-item"
+                               href="{{ url_for('trips.create_itinerary_item', trip_id=trip.id, kind=clave) }}">
+                                <i class="bi bi-{{ icono }} me-2"></i>{{ nombre }}
+                            </a>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
                 {% if Permiso.RECALCULAR_ALERTAS in permisos %}
                 <form method="post" action="{{ url_for('alerts.recalculate', trip_id=trip.id) }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -123,6 +145,12 @@
                                 <a class="chip chip-primary"
                                    href="{{ url_for('documents.detail', document_id=item.documento_origen_id) }}">
                                     <i class="bi bi-file-earmark-text"></i>Documento</a>
+                                {% endif %}
+                                {% if Permiso.EDITAR_ITINERARIO in permisos %}
+                                <a class="chip"
+                                   href="{{ url_for('trips.edit_itinerary_item', trip_id=trip.id,
+                                                    kind=entrada.kind, item_id=item.id) }}">
+                                    <i class="bi bi-pencil"></i>Editar</a>
                                 {% endif %}
                             </div>
                         </div>

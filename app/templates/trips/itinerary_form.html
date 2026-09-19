@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import render_field %}
+{% set accion = 'Editar' if item else 'Añadir' %}
+{% block title %}{{ accion }} {{ etiqueta }} — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('trips.index') }}">Viajes</a></li>
+<li class="breadcrumb-item"><a href="{{ url_for('trips.detail', trip_id=trip.id) }}">{{ trip.referencia }}</a></li>
+<li class="breadcrumb-item active">{{ accion }} {{ etiqueta }}</li>
+{% endblock %}
+
+{% macro instante(campo_local, campo_tz) %}
+<div class="row">
+    <div class="col-md-7">{{ render_field(campo_local) }}</div>
+    <div class="col-md-5">{{ render_field(campo_tz, placeholder='Europe/Madrid') }}</div>
+</div>
+{% endmacro %}
+
+{% block content %}
+<div class="page-header">
+    <h1>{{ accion }} {{ etiqueta }}</h1>
+    <p class="text-muted mb-0">{{ trip.titulo }} · <code>{{ trip.referencia }}</code></p>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <form method="post" novalidate>
+            {{ form.hidden_tag() }}
+
+            <div class="card mb-3">
+                <div class="card-header">
+                    {% if kind == 'segmento' %}Trayecto
+                    {% elif kind == 'alojamiento' %}Alojamiento
+                    {% elif kind == 'vehiculo' %}Vehículo
+                    {% else %}Servicio{% endif %}
+                </div>
+                <div class="card-body">
+                    {% if kind == 'segmento' %}
+                        <div class="row">
+                            <div class="col-md-4">{{ render_field(form.tipo) }}</div>
+                            <div class="col-md-4">{{ render_field(form.numero, placeholder='VY7604') }}</div>
+                            <div class="col-md-4">{{ render_field(form.operado_por) }}</div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6">{{ render_field(form.clase) }}</div>
+                            <div class="col-md-6">{{ render_field(form.asiento) }}</div>
+                        </div>
+                    {% elif kind == 'alojamiento' %}
+                        {{ render_field(form.nombre, placeholder='Hotel Gatwick') }}
+                        {{ render_field(form.direccion) }}
+                        <div class="row">
+                            <div class="col-md-6">{{ render_field(form.ciudad) }}</div>
+                            <div class="col-md-6">{{ render_field(form.telefono) }}</div>
+                        </div>
+                        {{ render_field(form.email) }}
+                        <div class="row">
+                            <div class="col-md-4">{{ render_field(form.numero_habitaciones) }}</div>
+                            <div class="col-md-4">{{ render_field(form.tipo_habitacion) }}</div>
+                            <div class="col-md-4">{{ render_field(form.regimen) }}</div>
+                        </div>
+                    {% elif kind == 'vehiculo' %}
+                        <div class="row">
+                            <div class="col-md-4">{{ render_field(form.categoria) }}</div>
+                            <div class="col-md-4">{{ render_field(form.modelo) }}</div>
+                            <div class="col-md-4">{{ render_field(form.matricula) }}</div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-4">{{ render_field(form.transmision) }}</div>
+                            <div class="col-md-4">{{ render_field(form.conductor_nombre) }}</div>
+                            <div class="col-md-4">{{ render_field(form.franquicia) }}</div>
+                        </div>
+                    {% else %}
+                        <div class="row">
+                            <div class="col-md-4">{{ render_field(form.tipo) }}</div>
+                            <div class="col-md-8">{{ render_field(form.nombre, placeholder='Traslado al hotel') }}</div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6">{{ render_field(form.lugar) }}</div>
+                            <div class="col-md-6">{{ render_field(form.ciudad) }}</div>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header">Horarios</div>
+                <div class="card-body">
+                    <p class="form-text mb-3">
+                        Indique la hora tal y como figura en la reserva, que es la hora
+                        local del lugar, y su zona horaria. El sistema deriva el instante
+                        en UTC: es lo que permite calcular márgenes de conexión entre
+                        husos distintos.
+                    </p>
+                    {% if kind == 'segmento' %}
+                        <div class="row">
+                            <div class="col-md-4">{{ render_field(form.origen_codigo, placeholder='BCN') }}</div>
+                            <div class="col-md-5">{{ render_field(form.origen_nombre) }}</div>
+                            <div class="col-md-3">{{ render_field(form.terminal_origen) }}</div>
+                        </div>
+                        {{ render_field(form.origen_ciudad) }}
+                        {{ instante(form.salida_local, form.salida_tz) }}
+                        <hr>
+                        <div class="row">
+                            <div class="col-md-4">{{ render_field(form.destino_codigo, placeholder='LGW') }}</div>
+                            <div class="col-md-5">{{ render_field(form.destino_nombre) }}</div>
+                            <div class="col-md-3">{{ render_field(form.terminal_destino) }}</div>
+                        </div>
+                        {{ render_field(form.destino_ciudad) }}
+                        {{ instante(form.llegada_local, form.llegada_tz) }}
+                    {% elif kind == 'alojamiento' %}
+                        {{ instante(form.check_in_local, form.check_in_tz) }}
+                        {{ instante(form.check_out_local, form.check_out_tz) }}
+                    {% elif kind == 'vehiculo' %}
+                        <div class="row">
+                            <div class="col-md-7">{{ render_field(form.recogida_lugar) }}</div>
+                            <div class="col-md-5">{{ render_field(form.recogida_ciudad) }}</div>
+                        </div>
+                        {{ instante(form.recogida_local, form.recogida_tz) }}
+                        <hr>
+                        <div class="row">
+                            <div class="col-md-7">{{ render_field(form.devolucion_lugar) }}</div>
+                            <div class="col-md-5">{{ render_field(form.devolucion_ciudad) }}</div>
+                        </div>
+                        {{ instante(form.devolucion_local, form.devolucion_tz) }}
+                    {% else %}
+                        {{ instante(form.inicio_local, form.inicio_tz) }}
+                        {{ instante(form.fin_local, form.fin_tz) }}
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header">Asignación y referencia</div>
+                <div class="card-body">
+                    {{ render_field(form.trip_traveler_id) }}
+                    <div class="row">
+                        <div class="col-md-6">{{ render_field(form.localizador) }}</div>
+                        <div class="col-md-6">{{ render_field(form.proveedor) }}</div>
+                    </div>
+                    {{ render_field(form.observaciones, rows=3) }}
+                </div>
+            </div>
+
+            <div class="d-flex gap-2">
+                {{ form.submit }}
+                <a href="{{ url_for('trips.detail', trip_id=trip.id) }}" class="btn btn-outline-secondary">Cancelar</a>
+            </div>
+        </form>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header">Sobre este elemento</div>
+            <div class="card-body">
+                {% if item %}
+                    <p class="text-muted small mb-2">
+                        {% if item.documento_origen_id %}
+                            Procede de un documento. Lo que corrija aquí queda
+                            registrado como manual, con su nombre, y sustituye a
+                            lo que se extrajo.
+                        {% else %}
+                            Introducido a mano.
+                        {% endif %}
+                    </p>
+                    <form method="post"
+                          action="{{ url_for('trips.delete_itinerary_item', trip_id=trip.id, kind=kind, item_id=item.id) }}"
+                          onsubmit="return confirm('¿Eliminar este elemento del itinerario?');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn btn-outline-danger btn-sm">
+                            <i class="bi bi-trash me-1"></i>Eliminar del itinerario
+                        </button>
+                    </form>
+                {% else %}
+                    <p class="text-muted small mb-0">
+                        Todo lo que escriba aquí se registra con procedencia
+                        <strong>manual</strong> y con su nombre, para distinguirlo
+                        de lo que se extrajo de un documento.
+                    </p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
