@@ -291,3 +291,103 @@ class TestPipelineCompleto:
         stream = storage_service.open_document(documento_procesado)
         digest, _ = sha256_stream(stream)
         assert digest == documento_procesado.hash_sha256
+
+
+@pytest.mark.unit
+class TestReproceso:
+    """Reprocessing must actually reprocess.
+
+    Every task declines to act unless the document is in its own input state --
+    the property that makes a Celery redelivery harmless. Without rewinding
+    first, enqueuing the chain over a finished document runs every step and
+    changes nothing, which made the «Reintentar» button do nothing at all.
+    """
+
+    def test_un_documento_terminado_vuelve_a_extraerse(
+        self, gestor, documento_procesado
+    ):
+        """The rewind is a means, not the end: what matters is a new extraction.
+
+        Reprocessing rewinds and then runs the pipeline again, so the document
+        ends back at review -- but with a new version, which is what it never
+        produced before.
+        """
+        from app.models.extraction import Extraction
+
+        document = documento_procesado
+        assert document.estado_proceso is S.PENDIENTE_REVISION
+        antes = Extraction.query.filter_by(document_id=document.id).count()
+
+        document_service.reprocess(gestor, document)
+
+        db.session.refresh(document)
+        assert Extraction.query.filter_by(document_id=document.id).count() > antes, (
+            'Reprocesar debe producir una extracción nueva, no dar un rodeo '
+            'por el proceso sin hacer nada.'
+        )
+        assert any(
+            t.estado_nuevo is S.CLASIFICADO and t.tarea == 'reprocess'
+            for t in document.transitions
+        ), 'El retroceso hasta la clasificación debe constar.'
+
+    def test_el_retroceso_queda_registrado(self, gestor, documento_procesado):
+        document_service.reprocess(gestor, documento_procesado)
+
+        db.session.refresh(documento_procesado)
+        assert any(
+            t.tarea == 'reprocess' for t in documento_procesado.transitions
+        ), 'El retroceso debe constar en el histórico de transiciones.'
+
+    def test_se_limpia_el_error_anterior(self, gestor, trip, booking_pdf):
+        document = _upload(gestor, trip, booking_pdf)
+        document_service.mark_failed(document, 'algo', 'falló algo', 'validate')
+        assert document.error_codigo
+
+        document_service.reprocess(gestor, document)
+
+        db.session.refresh(document)
+        assert document.error_codigo is None, (
+            'Un error resuelto no debe seguir mostrándose tras reintentar.'
+        )
+
+    def test_no_se_reprocesa_un_documento_infectado(self, gestor, trip, booking_pdf):
+        from app.utils.errors import ConflictError
+
+        document = _upload(gestor, trip, booking_pdf)
+        document_service.transition(document, S.VALIDADO)
+        document_service.transition(document, S.INFECTADO)
+
+        with pytest.raises(ConflictError):
+            document_service.reprocess(gestor, document)
+
+    def test_el_retroceso_solo_va_hacia_atras(self, gestor, trip, booking_pdf):
+        """A rewind is not a shortcut to a later state."""
+        from app.utils.errors import InvalidTransition
+
+        document = _upload(gestor, trip, booking_pdf)
+        document_service.transition(document, S.VALIDADO)
+
+        with pytest.raises(InvalidTransition, match='solo retrocede'):
+            document_service.transition(document, S.APROBADO, retroceso=True)
+
+    def test_tras_retroceder_las_tareas_vuelven_a_actuar(
+        self, gestor, documento_procesado
+    ):
+        """The point of the rewind: the pipeline produces a new extraction."""
+        from app.models.extraction import Extraction
+        from app.tasks import document_tasks
+
+        document = documento_procesado
+        versiones_antes = Extraction.query.filter_by(document_id=document.id).count()
+
+        document_service.reprocess(gestor, document)
+        db.session.refresh(document)
+
+        for _, task in document_tasks.PIPELINE:
+            task.run(str(document.id))
+
+        db.session.refresh(document)
+        assert document.estado_proceso is S.PENDIENTE_REVISION
+        assert Extraction.query.filter_by(document_id=document.id).count() > versiones_antes, (
+            'El reproceso debe generar una extracción nueva.'
+        )

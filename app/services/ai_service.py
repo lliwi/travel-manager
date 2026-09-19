@@ -335,10 +335,61 @@ def _ground_in_document(datos, blocks):
     datos['confianzas'] = confianzas
     datos['procedencias'] = procedencias
 
+    _flag_invented_years(datos, paginas, confianzas)
+
     valores = [v for v in confianzas.values() if isinstance(v, (int, float))]
     datos['confianza_global'] = round(sum(valores) / len(valores), 2) if valores else None
 
     return datos
+
+
+def _flag_invented_years(datos, paginas, confianzas):
+    """Warn when an extracted date lands in a year the document never mentions.
+
+    A wrong year on a flight is not a detail: it moves the whole itinerary and
+    every margin computed from it. Models do produce them -- a real Vueling
+    confirmation reading «31 October 2026» came back as 2023, a year absent from
+    the document entirely.
+
+    A year is cheap to check and unambiguous, unlike the day or the hour, which
+    legitimately appear in many forms. Anything flagged here drops to zero
+    confidence so it cannot be approved without someone looking at it.
+    """
+    import re
+
+    anos_documento = set()
+    for _pagina, texto in paginas:
+        anos_documento.update(re.findall(r'\b(20\d{2})\b', texto))
+
+    avisos = list(datos.get('avisos') or [])
+
+    if not anos_documento:
+        # A scan with no legible year gives nothing to check against; flagging
+        # every date would bury the review screen in noise.
+        datos['avisos'] = avisos
+        return
+
+    for nombre, valor in (datos.get('campos') or {}).items():
+        local = valor.get('local') if isinstance(valor, dict) else None
+        if not local:
+            continue
+
+        encontrado = re.match(r'\s*(20\d{2})', str(local))
+        if not encontrado:
+            continue
+
+        ano = encontrado.group(1)
+        if ano in anos_documento:
+            continue
+
+        confianzas[nombre] = 0.0
+        avisos.append(
+            f'La fecha de «{nombre}» está en {ano}, un año que no aparece en el '
+            f'documento (contiene {", ".join(sorted(anos_documento))}). '
+            f'Compruébela antes de aprobar.'
+        )
+
+    datos['avisos'] = avisos
 
 
 #: How much text around a match to keep as the supporting excerpt.

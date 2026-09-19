@@ -66,11 +66,19 @@ ALLOWED_TRANSITIONS = {
 
 
 def transition(document, nuevo, tarea=None, actor=None, motivo=None,
-               duracion_ms=None, commit=True):
+               duracion_ms=None, retroceso=False, commit=True):
     """Move a document to a new pipeline state.
 
     The *only* supported way to change ``estado_proceso``. A test asserts that
     no other module assigns that attribute.
+
+    Args:
+        retroceso: Allow moving *backwards* along the pipeline, which is what
+            reprocessing needs. Every task refuses to act unless the document is
+            in its own input state -- the property that makes a Celery
+            redelivery harmless -- so without rewinding first, reprocessing a
+            finished document runs the whole chain and changes nothing. Still
+            only backwards, still recorded, still never out of a terminal state.
 
     Raises:
         InvalidTransition: The move is not allowed from the current state.
@@ -83,12 +91,15 @@ def transition(document, nuevo, tarea=None, actor=None, motivo=None,
     if actual is nuevo:
         return document
 
-    allowed = ALLOWED_TRANSITIONS.get(actual, set())
-    if nuevo not in allowed:
-        raise InvalidTransition(
-            f'No se permite pasar de «{actual.label}» a «{nuevo.label}».',
-            detalles={'actual': str(actual), 'solicitado': str(nuevo)},
-        )
+    if retroceso:
+        _validar_retroceso(actual, nuevo)
+    else:
+        allowed = ALLOWED_TRANSITIONS.get(actual, set())
+        if nuevo not in allowed:
+            raise InvalidTransition(
+                f'No se permite pasar de «{actual.label}» a «{nuevo.label}».',
+                detalles={'actual': str(actual), 'solicitado': str(nuevo)},
+            )
 
     from app.models.document import DocumentStateTransition
 
@@ -110,6 +121,36 @@ def transition(document, nuevo, tarea=None, actor=None, motivo=None,
     if commit:
         db.session.commit()
     return document
+
+
+def _validar_retroceso(actual, nuevo):
+    """Check that a rewind goes backwards along the pipeline and nowhere else."""
+    from app.models.enums import DOCUMENT_PIPELINE_ORDER
+
+    if actual in DOCUMENT_TERMINAL_STATES:
+        raise InvalidTransition(
+            f'Un documento en estado «{actual.label}» no puede reprocesarse.'
+        )
+
+    if nuevo not in DOCUMENT_PIPELINE_ORDER:
+        raise InvalidTransition(
+            f'«{nuevo.label}» no es un paso del proceso al que se pueda volver.'
+        )
+
+    # ERROR sits outside the happy path, so any pipeline step is "earlier".
+    if actual is S.ERROR:
+        return
+
+    if actual not in DOCUMENT_PIPELINE_ORDER:
+        raise InvalidTransition(
+            f'No se puede reprocesar desde «{actual.label}».'
+        )
+
+    if DOCUMENT_PIPELINE_ORDER.index(nuevo) >= DOCUMENT_PIPELINE_ORDER.index(actual):
+        raise InvalidTransition(
+            f'«{nuevo.label}» no es anterior a «{actual.label}»; un reproceso '
+            'solo retrocede.'
+        )
 
 
 def mark_failed(document, codigo, mensaje, tarea=None, estado=None, commit=True):
@@ -330,12 +371,24 @@ def reprocess(actor, document, from_start=False):
             'reprocesarse.'
         )
 
-    last_good = _last_successful_state(document) if not from_start else S.RECIBIDO
-    start_from = RESUME_FROM.get(last_good, 'validate')
+    if from_start:
+        start_from = 'validate'
+        destino = S.RECIBIDO
+    else:
+        destino = _last_successful_state(document)
+        start_from = RESUME_FROM.get(destino, 'validate')
 
-    if document.estado_proceso is S.ERROR:
-        transition(document, last_good, tarea='reprocess', actor=actor,
-                   motivo='Reproceso solicitado', commit=False)
+    # Rewind first. Each task exits without acting unless the document is in
+    # its own input state, so enqueuing the chain over a finished document
+    # would run every step and change nothing at all.
+    if document.estado_proceso is not destino:
+        transition(
+            document, destino, tarea='reprocess', actor=actor,
+            motivo='Reproceso solicitado', retroceso=True, commit=False,
+        )
+
+    document.error_codigo = None
+    document.error_mensaje = None
     db.session.commit()
 
     audit_service.record(
@@ -349,18 +402,35 @@ def reprocess(actor, document, from_start=False):
     return document
 
 
+#: Furthest point a reprocess rewinds to. Beyond this the pipeline has nothing
+#: left to do, so a document that already reached review is sent back to
+#: classification -- which is what a manager wants after changing the model or
+#: correcting the classification.
+_REPROCESS_CEILING = S.CLASIFICADO
+
+
 def _last_successful_state(document):
-    """The furthest state this document actually reached before failing."""
+    """Where a reprocess should resume from.
+
+    The furthest pipeline state this document actually reached, capped so that
+    a finished document rewinds far enough to produce a new extraction rather
+    than replaying steps that would all decline to act.
+    """
     from app.models.enums import DOCUMENT_PIPELINE_ORDER
 
     reached = {
         t.estado_nuevo for t in document.transitions
         if t.estado_nuevo in DOCUMENT_PIPELINE_ORDER
     }
+
     best = S.RECIBIDO
     for state in DOCUMENT_PIPELINE_ORDER:
         if state in reached:
             best = state
+
+    tope = DOCUMENT_PIPELINE_ORDER.index(_REPROCESS_CEILING)
+    if DOCUMENT_PIPELINE_ORDER.index(best) > tope:
+        return _REPROCESS_CEILING
     return best
 
 

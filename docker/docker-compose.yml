@@ -198,7 +198,13 @@ services:
     environment: *app_env
     volumes:
       - app_logs:/app/logs
-    networks: [backend]
+    # On `frontend` as well as `backend`: the worker is what calls the AI
+    # provider and fetches the allow-listed public sources, and `backend` is
+    # internal, so on it alone the worker has no route off the Docker bridge at
+    # all. It was silently failing every extraction. It publishes no ports, so
+    # this grants outbound access without exposing anything inbound; the
+    # datastores stay on `backend` only.
+    networks: [frontend, backend]
     extra_hosts:
       - 'host.docker.internal:host-gateway'
     depends_on:

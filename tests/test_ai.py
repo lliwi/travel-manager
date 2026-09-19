@@ -459,3 +459,65 @@ class TestEsquemaDeDecodificacion:
 
         rendered = json.dumps(_decoding_schema(SCHEMAS['extract_hotel']))
         assert 'additionalProperties' not in rendered
+
+
+@pytest.mark.unit
+class TestAnosInventados:
+    """A wrong year moves the whole itinerary and every margin computed from it.
+
+    Taken from a real Vueling confirmation reading «31 October 2026» that came
+    back as 2023 — a year absent from the document entirely.
+    """
+
+    def _blocks(self, texto):
+        return [UntrustedBlock(texto, referencia='doc-1', pagina=1)]
+
+    def test_un_ano_ausente_del_documento_se_avisa(self):
+        from app.services.ai_service import _ground_in_document
+
+        datos = {'campos': {
+            'salida': {'local': '2023-10-15T19:55', 'zona_horaria': 'Europe/Madrid'},
+        }}
+        r = _ground_in_document(
+            datos, self._blocks('Outbound Saturday, 31 October 2026 Barcelona')
+        )
+
+        assert r['confianzas']['salida'] == 0.0, (
+            'Una fecha con año inventado no puede aprobarse sin revisión.'
+        )
+        assert any('2023' in a for a in r['avisos'])
+
+    def test_un_ano_presente_no_se_avisa(self):
+        from app.services.ai_service import _ground_in_document
+
+        datos = {'campos': {
+            'salida': {'local': '2026-10-31T19:55', 'zona_horaria': 'Europe/Madrid'},
+        }}
+        r = _ground_in_document(
+            datos, self._blocks('Outbound Saturday, 31 October 2026 Barcelona')
+        )
+
+        assert r['avisos'] == []
+        assert r['confianzas']['salida'] > 0
+
+    def test_sin_años_en_el_documento_no_se_inventan_avisos(self):
+        """An OCR'd scan with no legible year must not flood the review screen."""
+        from app.services.ai_service import _ground_in_document
+
+        datos = {'campos': {
+            'salida': {'local': '2026-10-31T19:55', 'zona_horaria': 'Europe/Madrid'},
+        }}
+        r = _ground_in_document(datos, self._blocks('texto sin ninguna fecha'))
+
+        assert r['avisos'] == []
+
+    def test_el_aviso_dice_que_años_hay(self):
+        """The manager needs to know which year to correct it to."""
+        from app.services.ai_service import _ground_in_document
+
+        datos = {'campos': {
+            'salida': {'local': '2023-01-01T10:00', 'zona_horaria': 'UTC'},
+        }}
+        r = _ground_in_document(datos, self._blocks('Vuelo el 31 October 2026'))
+
+        assert '2026' in r['avisos'][0]
