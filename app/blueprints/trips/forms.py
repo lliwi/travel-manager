@@ -320,3 +320,23 @@ ITINERARY_FORMS = {
     'vehiculo': (VehicleRentalForm, 'vehículo'),
     'servicio': (OtherServiceForm, 'servicio'),
 }
+
+
+class AssistantForm(FlaskForm):
+    """One question about one trip.
+
+    Deliberately not a conversation. Each question is answered on its own from
+    the trip data the asker may already see, and nothing is carried over: there
+    is no thread for an earlier answer to contaminate, and no history to leak
+    into the next question's context.
+    """
+
+    pregunta = TextAreaField(
+        'Pregunta',
+        validators=[
+            DataRequired(message='Escriba la pregunta.'),
+            Length(max=500, message='La pregunta no puede pasar de 500 caracteres.'),
+        ],
+        description='Una pregunta concreta sobre este viaje.',
+    )
+    submit = SubmitField('Preguntar')

@@ -212,6 +212,14 @@ def _as_local(value, tz_name):
     """
     if value is None:
         return None
+    if isinstance(value, str):
+        # Some values reach a template already serialised -- an AI answer
+        # carries the moment its data was read as an ISO string. Rendering it
+        # raw put a full timestamp with microseconds on the page.
+        try:
+            value = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        except ValueError:
+            return None
     if value.tzinfo is None:
         # Already a wall time; the zone is only a label for it.
         return value

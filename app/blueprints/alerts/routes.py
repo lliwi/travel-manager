@@ -7,8 +7,12 @@ from flask_login import current_user, login_required
 from app.blueprints.alerts import alerts_bp
 from app.models.enums import AlertSeverity, AlertState
 from app.services import alert_service
-from app.services.authorization_service import Permiso
-from app.utils.decorators import require_alert_access, require_trip_access
+from app.services.authorization_service import Permiso, can
+from app.utils.decorators import (
+    rate_limited,
+    require_alert_access,
+    require_trip_access,
+)
 from app.utils.errors import AppError
 
 logger = logging.getLogger(__name__)
@@ -39,11 +43,51 @@ def index(trip_id, trip):
 @require_alert_access(Permiso.VER_ALERTA)
 def detail(alert_id, alert):
     """Alert detail with the evidence that produced it (section 5.3)."""
+    actor = current_user._get_current_object()
     return render_template(
         'alerts/detail.html',
         alert=alert,
         trip=alert.trip,
         evidencia=alert_service.render_evidence(alert),
+        puede_consultar_ia=bool(can(actor, Permiso.CONSULTAR_IA, alert)),
+    )
+
+
+@alerts_bp.route('/<alert_id>/explicar', methods=['POST'])
+@login_required
+@require_alert_access(Permiso.CONSULTAR_IA)
+@rate_limited('10 per minute; 60 per hour')
+def explain(alert_id, alert):
+    """Explain one alert in plain language, with corrective actions.
+
+    A concrete question about a concrete alert: the model reads the evidence
+    the engine already recorded and nothing else, so it can restate and advise
+    but never discover a problem the rules did not find.
+    """
+    from app.services import ai_service
+
+    explicacion = None
+    try:
+        explicacion = ai_service.explain_alert(
+            current_user._get_current_object(), alert
+        )
+    except AppError as error:
+        flash(error.mensaje, 'danger')
+    except Exception:
+        logger.exception('Fallo al explicar la alerta %s', alert.id)
+        flash(
+            'El asistente no está disponible en este momento. '
+            'Inténtelo de nuevo en unos minutos.',
+            'danger',
+        )
+
+    return render_template(
+        'alerts/detail.html',
+        alert=alert,
+        trip=alert.trip,
+        evidencia=alert_service.render_evidence(alert),
+        explicacion=explicacion,
+        puede_consultar_ia=True,
     )
 
 

@@ -19,6 +19,7 @@ from flask_login import current_user, login_required
 from app.blueprints.trips import trips_bp
 from app.blueprints.trips.forms import (
     ITINERARY_FORMS,
+    AssistantForm,
     DestinationForm,
     TravelerForm,
     TripFilterForm,
@@ -30,7 +31,7 @@ from app.models.enums import DocumentType, RoleCode, TripPurpose, TripStatus
 from app.models.user import User
 from app.services import trip_service
 from app.services.authorization_service import Permiso, permissions_for
-from app.utils.decorators import require_permiso, require_trip_access
+from app.utils.decorators import rate_limited, require_permiso, require_trip_access
 from app.utils.errors import AppError, ResourceNotFound
 
 logger = logging.getLogger(__name__)
@@ -313,6 +314,62 @@ def remove_traveler(trip_id, user_id, trip):
 # ======================================================================
 # Destinations
 # ======================================================================
+# ======================================================================
+# Assistant
+# ======================================================================
+#: Questions worth one click, phrased the way a manager would ask them. They
+#: are a shortcut into the same field, not a menu: anything else can be typed.
+PREGUNTAS_SUGERIDAS = (
+    '¿A qué hora salgo y desde dónde?',
+    '¿Cuánto margen tengo entre un trayecto y el siguiente?',
+    '¿Dónde me alojo cada noche?',
+    '¿Queda alguna noche sin alojamiento?',
+    '¿Qué documentación necesito para este destino?',
+)
+
+
+@trips_bp.route('/<trip_id>/asistente', methods=['GET', 'POST'])
+@login_required
+@require_trip_access(Permiso.CONSULTAR_IA)
+@rate_limited('10 per minute; 60 per hour')
+def assistant(trip_id, trip):
+    """Answer one concrete question about this trip.
+
+    Not a conversation: one question in, one answer out, nothing kept between
+    them. The model only ever sees what this asker may already see, because
+    ``build_ai_context`` builds its view from the same scoped queries the
+    timeline uses -- which is why a traveller cannot ask their way into another
+    traveller's itinerary.
+    """
+    from app.services import ai_service
+
+    form = AssistantForm()
+    respuesta = None
+
+    if form.validate_on_submit():
+        try:
+            respuesta = ai_service.answer_trip_question(
+                actor=current_user._get_current_object(),
+                trip=trip,
+                pregunta=form.pregunta.data.strip(),
+            )
+        except AppError as error:
+            flash(error.mensaje, 'danger')
+        except Exception:
+            logger.exception('Fallo del asistente en el viaje %s', trip.id)
+            flash(
+                'El asistente no está disponible en este momento. '
+                'Inténtelo de nuevo en unos minutos.',
+                'danger',
+            )
+
+    return render_template(
+        'trips/assistant.html',
+        trip=trip, form=form, respuesta=respuesta,
+        sugeridas=PREGUNTAS_SUGERIDAS,
+    )
+
+
 # ======================================================================
 # Itinerary
 # ======================================================================

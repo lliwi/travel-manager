@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import render_field %}
+{% block title %}Asistente — {{ trip.referencia }} — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('trips.index') }}">Viajes</a></li>
+<li class="breadcrumb-item"><a href="{{ url_for('trips.detail', trip_id=trip.id) }}">{{ trip.referencia }}</a></li>
+<li class="breadcrumb-item active">Asistente</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Asistente</h1>
+    <p class="text-muted mb-0">{{ trip.titulo }} · <code>{{ trip.referencia }}</code></p>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="card mb-3">
+            <div class="card-body">
+                <form method="post" novalidate>
+                    {{ form.hidden_tag() }}
+                    {{ render_field(form.pregunta, rows=3,
+                                    placeholder='¿Cuánto margen tengo entre los dos vuelos?') }}
+                    <div class="d-flex flex-wrap gap-2 mb-3">
+                        {% for sugerida in sugeridas %}
+                        <button type="button" class="btn btn-sm btn-outline-secondary js-sugerida">
+                            {{ sugerida }}
+                        </button>
+                        {% endfor %}
+                    </div>
+                    {{ form.submit }}
+                </form>
+            </div>
+        </div>
+
+        {% if respuesta %}
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Respuesta</span>
+                {% if respuesta.confianza is not none %}
+                <span class="badge bg-{{ 'success' if respuesta.confianza >= 0.8
+                                         else 'warning' if respuesta.confianza >= 0.5
+                                         else 'secondary' }}">
+                    Confianza {{ '%.0f' | format(respuesta.confianza * 100) }}%
+                </span>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                {% if respuesta.datos_insuficientes %}
+                <div class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle me-1"></i>
+                    El asistente no tiene datos suficientes en este viaje para
+                    responder con seguridad. Lo que sigue puede estar incompleto.
+                </div>
+                {% endif %}
+
+                <p class="mb-0" style="white-space: pre-wrap;">{{ respuesta.respuesta }}</p>
+
+                {% if respuesta.referencias %}
+                <hr>
+                <p class="text-muted small mb-2">Elementos del viaje en los que se basa:</p>
+                <ul class="list-unstyled mb-0">
+                    {% for ref in respuesta.referencias %}
+                    <li class="mb-1">
+                        <span class="chip">
+                            <i class="bi bi-link-45deg"></i>
+                            {{ ref.descripcion or ref.tipo or ref.id }}
+                        </span>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </div>
+            <div class="card-footer text-muted small">
+                Datos del viaje leídos el {{ respuesta.fecha_datos | local_dt }} ·
+                {{ respuesta.proveedor }} / {{ respuesta.modelo }}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header">Qué puede y qué no</div>
+            <div class="card-body small text-muted">
+                <p>Responde <strong>una pregunta cada vez</strong> y no guarda
+                   conversación: cada respuesta se construye desde cero con los
+                   datos de este viaje.</p>
+                <p>Solo ve <strong>lo que usted ya puede ver</strong>. Si no está
+                   asignado a un trayecto, ese trayecto no entra en la consulta y
+                   no puede aparecer en la respuesta.</p>
+                <p class="mb-0">No consulta internet ni fuentes externas. Para
+                   recomendaciones de seguridad del destino, use
+                   <a href="{{ url_for('advisories.index', trip_id=trip.id) }}">Recomendaciones</a>.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    document.querySelectorAll('.js-sugerida').forEach(function (boton) {
+        boton.addEventListener('click', function () {
+            var campo = document.getElementById('pregunta');
+            campo.value = boton.textContent.trim();
+            campo.focus();
+        });
+    });
+</script>
+{% endblock %}

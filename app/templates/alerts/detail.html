@@ -33,6 +33,59 @@
             </div>
         </div>
 
+        {% if puede_consultar_ia %}
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-question-circle me-2"></i>Explicación del asistente</span>
+                {% if not explicacion %}
+                <form method="post" action="{{ url_for('alerts.explain', alert_id=alert.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-sm btn-outline-secondary">
+                        <i class="bi bi-stars me-1"></i>Explicar esta alerta
+                    </button>
+                </form>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                {% if explicacion %}
+                    <p style="white-space: pre-wrap;">{{ explicacion.explicacion }}</p>
+                    {% if explicacion.consecuencias %}
+                    <p class="text-muted"><strong>Consecuencias:</strong>
+                       {{ explicacion.consecuencias }}</p>
+                    {% endif %}
+                    {% if explicacion.acciones %}
+                    <p class="mb-1"><strong>Acciones posibles</strong></p>
+                    <ul class="mb-0">
+                        {% for propuesta in explicacion.acciones %}
+                        {# The schema gives {accion, prioridad}; a bare string
+                           still renders rather than printing a dict. #}
+                        <li>
+                            {{ propuesta.accion if propuesta is mapping else propuesta }}
+                            {% if propuesta is mapping and propuesta.prioridad %}
+                            <span class="badge bg-{{ {'alta': 'danger', 'media': 'warning'}
+                                                     .get(propuesta.prioridad, 'secondary') }}">
+                                {{ propuesta.prioridad }}
+                            </span>
+                            {% endif %}
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% endif %}
+                    <hr>
+                    <p class="text-muted small mb-0">
+                        Redactado por el asistente a partir de la evidencia de arriba.
+                        No añade información que las reglas no hayan detectado.
+                    </p>
+                {% else %}
+                    <p class="text-muted small mb-0">
+                        El asistente puede reformular esta alerta en lenguaje claro
+                        y proponer acciones, leyendo solo la evidencia que ya ve aquí.
+                    </p>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
         <div class="card">
             <div class="card-header"><i class="bi bi-clipboard-data me-2"></i>Evidencia</div>
             <div class="card-body">

@@ -176,3 +176,24 @@ class TestFormato:
         local = datetime(2026, 6, 1, 23, 30)
 
         assert '01 jun 2026' in timeutil.format_local_date(local, 'Europe/Madrid')
+
+
+@pytest.mark.unit
+class TestFiltrosConCadenas:
+    """Not every value reaching a template is still a datetime.
+
+    An AI answer carries the moment its data was read as an ISO string, which
+    the filter used to hand straight to the page: a full timestamp with
+    microseconds and a UTC offset, in the middle of Spanish prose.
+    """
+
+    def test_se_formatea_una_marca_iso(self):
+        from app.utils.timeutil import format_local
+
+        assert format_local('2026-09-19T22:35:39.668979+00:00') != '—'
+        assert '668979' not in format_local('2026-09-19T22:35:39.668979+00:00')
+
+    def test_una_cadena_que_no_es_fecha_no_rompe(self):
+        from app.utils.timeutil import format_local
+
+        assert format_local('la semana que viene') == '—'
