@@ -1,6 +1,9 @@
 """Administration forms."""
 from flask_wtf import FlaskForm
 from wtforms import (
+    BooleanField,
+    DecimalField,
+    IntegerField,
     PasswordField,
     SelectField,
     SelectMultipleField,
@@ -8,9 +11,15 @@ from wtforms import (
     SubmitField,
     widgets,
 )
-from wtforms.validators import DataRequired, Email, Length, Optional
+from wtforms.validators import (
+    DataRequired,
+    Email,
+    Length,
+    NumberRange,
+    Optional,
+)
 
-from app.models.enums import UserStatus
+from app.models.enums import AIProviderCode, AITask, UserStatus
 
 
 class MultiCheckboxField(SelectMultipleField):
@@ -51,18 +60,86 @@ class UserForm(FlaskForm):
 
 
 class AIProviderForm(FlaskForm):
-    """Configure an inference endpoint."""
+    """Configure an inference endpoint.
 
-    nombre = StringField('Nombre', validators=[DataRequired(), Length(max=120)])
-    proveedor = SelectField('Proveedor', validators=[DataRequired()])
-    base_url = StringField('URL base', validators=[Optional(), Length(max=500)])
+    The stored API key is never rendered back: on an edit, leaving the field
+    empty keeps the key that is already there.
+    """
+
+    nombre = StringField(
+        'Nombre', validators=[DataRequired(message='Indique un nombre.'), Length(max=120)],
+        description='Cómo aparecerá en los listados, p. ej. «Ollama local».',
+    )
+    proveedor = SelectField(
+        'Proveedor', choices=AIProviderCode.choices(), validators=[DataRequired()]
+    )
+    base_url = StringField(
+        'URL del endpoint', validators=[Optional(), Length(max=500)],
+        description='Se rellena sola al elegir el proveedor; puede ajustarla.',
+    )
     modelo_por_defecto = StringField(
-        'Modelo por defecto', validators=[Optional(), Length(max=160)]
+        'Modelo', validators=[Optional(), Length(max=160)],
+        description='Nombre exacto del modelo, p. ej. llama3.1:8b',
     )
     api_key = PasswordField(
         'Clave API',
         validators=[Optional()],
-        description='Se almacena cifrada. Deje en blanco para conservar la actual.',
+        description=(
+            'Solo para proveedores externos. Se guarda cifrada y nunca se '
+            'vuelve a mostrar. Al editar, déjela en blanco para conservarla.'
+        ),
         render_kw={'autocomplete': 'new-password'},
     )
+    activo = BooleanField('Activo', default=True)
+    es_por_defecto = BooleanField(
+        'Usar por defecto',
+        description='Atenderá las tareas que no tengan un proveedor asignado.',
+    )
+    timeout_segundos = IntegerField(
+        'Tiempo de espera (segundos)', default=120,
+        validators=[Optional(), NumberRange(min=5, max=900)],
+    )
+    max_tokens = IntegerField(
+        'Máximo de tokens', default=2048,
+        validators=[Optional(), NumberRange(min=64, max=32768)],
+    )
+    temperatura = DecimalField(
+        'Temperatura', places=2, default=0.1,
+        validators=[Optional(), NumberRange(min=0, max=2)],
+        description='0 para extracción de datos; más alto para redacción.',
+    )
     submit = SubmitField('Guardar')
+
+    def validate(self, extra_validators=None):
+        """An external provider without a key cannot answer anything."""
+        if not super().validate(extra_validators):
+            return False
+
+        from app.models.enums import EXTERNAL_AI_PROVIDERS
+
+        proveedor = AIProviderCode.coerce(self.proveedor.data)
+        es_externo = proveedor in EXTERNAL_AI_PROVIDERS
+        # `_existing_key` is set by the edit view; on a create it is False.
+        tiene_clave = bool(self.api_key.data) or getattr(self, '_existing_key', False)
+
+        if es_externo and not tiene_clave:
+            self.api_key.errors.append(
+                'Este proveedor es externo y necesita una clave API.'
+            )
+            return False
+        return True
+
+
+class AITaskBindingForm(FlaskForm):
+    """Assign one task to a provider (specification section 2.5)."""
+
+    tarea = SelectField('Tarea', choices=AITask.choices(), validators=[DataRequired()])
+    provider_config_id = SelectField(
+        'Proveedor', validators=[Optional()],
+        description='Deje «predeterminado» para que use el proveedor general.',
+    )
+    modelo = StringField(
+        'Modelo', validators=[Optional(), Length(max=160)],
+        description='Opcional: sobrescribe el modelo del proveedor para esta tarea.',
+    )
+    submit = SubmitField('Asignar')

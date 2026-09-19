@@ -426,6 +426,44 @@ def _seed_locations():
     return created
 
 
+def seed_ai_providers(commit=True):
+    """Configure the initial local provider.
+
+    Specification section 2.5 prioritises local deployments, so a fresh install
+    is pointed at Ollama on the host. Everything about it -- endpoint, model,
+    whether it is the default -- is editable from Administración → Proveedores
+    de IA; these are only the values that make the system usable before anyone
+    has configured anything.
+    """
+    from app.models.ai import AIProviderConfig
+    from app.models.enums import AIProviderCode
+
+    if AIProviderConfig.query.count():
+        return 0
+
+    from flask import current_app
+
+    config = AIProviderConfig(
+        nombre='Ollama local',
+        proveedor=AIProviderCode.OLLAMA,
+        base_url=current_app.config.get(
+            'OLLAMA_BOOTSTRAP_URL', 'http://host.docker.internal:11434'
+        ),
+        modelo_por_defecto=current_app.config.get(
+            'OLLAMA_BOOTSTRAP_MODEL', 'llama3.1:8b'
+        ),
+        activo=True,
+        es_por_defecto=True,
+        timeout_segundos=120,
+        max_tokens=2048,
+        temperatura=0.1,
+    )
+    db.session.add(config)
+    if commit:
+        db.session.commit()
+    return 1
+
+
 def is_schengen(country_code):
     """True when the country belongs to the Schengen area.
 

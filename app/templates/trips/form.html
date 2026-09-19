@@ -19,7 +19,7 @@
 
 <div class="row">
     <div class="col-lg-8">
-        <form method="post" novalidate>
+        <form method="post" enctype="multipart/form-data" novalidate>
             {{ form.hidden_tag() }}
 
             <div class="card mb-3">
@@ -55,6 +55,29 @@
                     </div>
                 </div>
             </div>
+
+            {% if not trip %}
+            <div class="card mb-3">
+                <div class="card-header">
+                    <i class="bi bi-paperclip me-2"></i>Documentos de reserva
+                    <small class="text-muted ms-2">opcional</small>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted small">
+                        Si ya tiene las reservas, adjúntelas ahora y el sistema
+                        extraerá de ellas los vuelos, alojamientos y vehículos.
+                        Nada entrará en el itinerario hasta que usted lo revise
+                        y lo apruebe.
+                    </p>
+                    {{ render_field(form.documentos, field_class='form-control') }}
+                    <div class="d-flex flex-wrap gap-3 text-muted small">
+                        <span><i class="bi bi-check2 me-1"></i>PDF, JPG, PNG, TIFF y EML</span>
+                        <span><i class="bi bi-check2 me-1"></i>Se analizan con antivirus</span>
+                        <span><i class="bi bi-check2 me-1"></i>El original se conserva con su hash</span>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
 
             {% if feature_flags.costs %}
             <div class="card mb-3">

@@ -44,6 +44,7 @@ def _seed_all(catalogs=True):
     """Idempotent seeding: existing rows are never overwritten."""
     from app.services import settings_service
     from app.services.seed_service import (
+        seed_ai_providers,
         seed_alert_rules,
         seed_catalogs,
         seed_roles,
@@ -54,6 +55,7 @@ def _seed_all(catalogs=True):
     click.echo(f'Ajustes creados: {settings_service.seed_defaults()}')
     click.echo(f'Reglas de alerta creadas: {seed_alert_rules()}')
     click.echo(f'Fuentes web creadas: {seed_web_sources()}')
+    click.echo(f'Proveedores de IA creados: {seed_ai_providers()}')
     if catalogs:
         countries, locations = seed_catalogs()
         click.echo(f'Países creados: {countries} | Localizaciones creadas: {locations}')

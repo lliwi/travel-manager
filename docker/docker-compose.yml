@@ -153,10 +153,12 @@ services:
       CLAMAV_PORT: '3310'
       ANTIVIRUS_BACKEND: ${ANTIVIRUS_BACKEND:-clamav}
 
-      # Ollama runs on the host, not in this compose file.
-      AI_DEFAULT_PROVIDER: ${AI_DEFAULT_PROVIDER:-ollama}
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
-      OLLAMA_DEFAULT_MODEL: ${OLLAMA_DEFAULT_MODEL:-llama3.1:8b}
+      # The AI provider is configured in the application, not here. These two
+      # only seed the first configuration on a fresh install; afterwards they
+      # are ignored and the panel is the source of truth. Ollama runs on the
+      # host, not in this compose file.
+      OLLAMA_BOOTSTRAP_URL: ${OLLAMA_BOOTSTRAP_URL:-http://host.docker.internal:11434}
+      OLLAMA_BOOTSTRAP_MODEL: ${OLLAMA_BOOTSTRAP_MODEL:-llama3.1:8b}
 
       OCR_LANGUAGES: ${OCR_LANGUAGES:-spa+eng}
       DEFAULT_TIMEZONE: ${DEFAULT_TIMEZONE:-Europe/Madrid}

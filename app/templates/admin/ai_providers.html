@@ -7,13 +7,23 @@
 {% endblock %}
 
 {% block content %}
-<div class="page-header"><h1>Proveedores de IA</h1></div>
+<div class="page-header d-flex justify-content-between align-items-center">
+    <div>
+        <h1>Proveedores de IA</h1>
+        <p class="text-muted mb-0">
+            Toda la configuración de IA se hace aquí, no en el despliegue.
+        </p>
+    </div>
+    <a href="{{ url_for('admin.create_ai_provider') }}" class="btn btn-primary">
+        <i class="bi bi-plus-lg me-1"></i>Nuevo proveedor
+    </a>
+</div>
 
 <div class="alert alert-info">
     <i class="bi bi-shield-lock me-2"></i>
-    Las claves API se almacenan cifradas y nunca se muestran ni se envían al
-    navegador. Por defecto, el contenido de los documentos y los datos personales
-    no salen a proveedores externos: eso se habilita expresamente en
+    Las claves API se guardan cifradas y no se muestran nunca. Por defecto, el
+    contenido de los documentos y los datos personales <strong>no</strong> salen
+    a proveedores externos; eso se habilita expresamente en
     <a href="{{ url_for('admin.settings') }}">Ajustes</a>.
 </div>
 
@@ -21,41 +31,80 @@
 <div class="card mb-4">
     <div class="table-responsive">
         <table class="table align-middle mb-0">
-            <thead><tr><th>Nombre</th><th>Proveedor</th><th>Modelo</th>
-                       <th>Clave</th><th>Estado</th><th></th></tr></thead>
+            <thead>
+                <tr><th>Nombre</th><th>Proveedor</th><th>Modelo</th>
+                    <th>Clave</th><th>Estado</th><th class="text-end">Acciones</th></tr>
+            </thead>
             <tbody>
             {% for p in providers %}
             <tr>
-                <td><strong>{{ p.nombre }}</strong>
-                    <div class="text-muted small">{{ p.base_url or '—' }}</div></td>
+                <td>
+                    <strong>{{ p.nombre }}</strong>
+                    {% if p.es_por_defecto %}
+                    <span class="badge text-bg-primary ms-1">
+                        <i class="bi bi-star-fill me-1"></i>predeterminado</span>
+                    {% endif %}
+                    <div class="text-muted small font-monospace">{{ p.base_url or '—' }}</div>
+                </td>
                 <td>
                     {{ p.proveedor.label }}
-                    {% if p.es_externo %}{{ badge('externo', 'warning') }}
-                    {% else %}{{ badge('local', 'success') }}{% endif %}
+                    <div>
+                        {% if p.es_externo %}
+                        {{ badge('externo', 'warning', 'cloud') }}
+                        {% else %}
+                        {{ badge('local', 'success', 'hdd') }}
+                        {% endif %}
+                    </div>
                 </td>
                 <td><code>{{ p.modelo_por_defecto or '—' }}</code></td>
                 <td>
                     {% if p.api_key_encrypted %}
-                    <span class="text-muted">···{{ p.api_key_pista }}</span>
-                    {% else %}<span class="text-muted">—</span>{% endif %}
+                    <span class="text-muted font-monospace">···{{ p.api_key_pista }}</span>
+                    {% elif p.es_externo %}
+                    <span class="text-danger small">
+                        <i class="bi bi-exclamation-triangle"></i> falta</span>
+                    {% else %}
+                    <span class="text-muted">no necesita</span>
+                    {% endif %}
                 </td>
                 <td>
-                    {% if p.ultimo_chequeo_ok is none %}
-                        {{ badge('sin comprobar', 'secondary') }}
+                    {% if not p.activo %}
+                        {{ badge('desactivado', 'secondary') }}
+                    {% elif p.ultimo_chequeo_ok is none %}
+                        {{ badge('sin comprobar', 'light') }}
                     {% elif p.ultimo_chequeo_ok %}
                         {{ badge('accesible', 'success') }}
                     {% else %}
                         {{ badge('no accesible', 'danger') }}
                     {% endif %}
                     {% if p.ultimo_chequeo_detalle %}
-                    <div class="text-muted small">{{ p.ultimo_chequeo_detalle }}</div>{% endif %}
+                    <div class="text-muted small">{{ p.ultimo_chequeo_detalle }}</div>
+                    {% endif %}
                 </td>
-                <td class="text-end">
-                    <form method="post"
+                <td class="text-end text-nowrap">
+                    <form method="post" class="d-inline"
                           action="{{ url_for('admin.test_ai_provider', provider_id=p.id) }}">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <button class="btn btn-sm btn-outline-secondary">
-                            <i class="bi bi-plug me-1"></i>Probar</button>
+                        <button class="btn btn-sm btn-outline-secondary" title="Probar conexión">
+                            <i class="bi bi-plug"></i></button>
+                    </form>
+                    {% if not p.es_por_defecto and p.activo %}
+                    <form method="post" class="d-inline"
+                          action="{{ url_for('admin.set_default_ai_provider', provider_id=p.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="btn btn-sm btn-outline-primary" title="Usar por defecto">
+                            <i class="bi bi-star"></i></button>
+                    </form>
+                    {% endif %}
+                    <a href="{{ url_for('admin.edit_ai_provider', provider_id=p.id) }}"
+                       class="btn btn-sm btn-outline-secondary" title="Editar">
+                        <i class="bi bi-pencil"></i></a>
+                    <form method="post" class="d-inline"
+                          action="{{ url_for('admin.delete_ai_provider', provider_id=p.id) }}"
+                          onsubmit="return confirm('¿Eliminar el proveedor «{{ p.nombre }}»?');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="btn btn-sm btn-outline-danger" title="Eliminar">
+                            <i class="bi bi-trash"></i></button>
                     </form>
                 </td>
             </tr>
@@ -67,40 +116,72 @@
 {% else %}
 <div class="card mb-4"><div class="card-body empty-state">
     <i class="bi bi-cpu"></i>
-    <p>No hay proveedores configurados en base de datos.</p>
+    <p>No hay ningún proveedor configurado.</p>
     <p class="text-muted small">
-        El sistema usa el proveedor definido por entorno
-        (<code>AI_DEFAULT_PROVIDER</code>). Compruébelo con
-        <code>flask ai-health</code>.
+        Sin proveedor, las funciones de IA no están disponibles.
     </p>
+    <a href="{{ url_for('admin.create_ai_provider') }}" class="btn btn-sm btn-primary">
+        Configurar el primero</a>
 </div></div>
 {% endif %}
 
 <div class="card">
-    <div class="card-header">Asignación por tarea</div>
-    {% if bindings %}
+    <div class="card-header">
+        <i class="bi bi-diagram-3 me-2"></i>Asignación por tarea
+        <small class="text-muted ms-2">
+            Cada tarea puede usar un proveedor y un modelo distintos
+        </small>
+    </div>
     <div class="table-responsive">
-        <table class="table mb-0">
-            <thead><tr><th>Tarea</th><th>Proveedor</th><th>Modelo</th><th>Respaldo</th></tr></thead>
+        <table class="table align-middle mb-0">
+            <thead>
+                <tr><th style="width:30%">Tarea</th><th style="width:28%">Proveedor</th>
+                    <th style="width:22%">Modelo</th><th></th></tr>
+            </thead>
             <tbody>
-            {% for b in bindings %}
+            {% for tarea, binding in bindings %}
             <tr>
-                <td>{{ b.tarea.label }}</td>
-                <td>{{ b.provider_config.nombre if b.provider_config else '—' }}</td>
-                <td><code>{{ b.modelo or '—' }}</code></td>
-                <td>{{ b.fallback_config.nombre if b.fallback_config else '—' }}</td>
+                <td>
+                    {{ tarea.label }}
+                    <div class="text-muted small font-monospace">{{ tarea.value }}</div>
+                </td>
+                <form method="post" action="{{ url_for('admin.set_ai_binding') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="tarea" value="{{ tarea.value }}">
+                    <td>
+                        <select name="provider_config_id" class="form-select form-select-sm">
+                            <option value="">— Predeterminado —</option>
+                            {% for p in providers %}
+                            {% if p.activo %}
+                            <option value="{{ p.id }}"
+                                {{ 'selected' if binding and binding.provider_config_id == p.id }}>
+                                {{ p.nombre }}</option>
+                            {% endif %}
+                            {% endfor %}
+                        </select>
+                    </td>
+                    <td>
+                        <input type="text" name="modelo" class="form-control form-control-sm"
+                               value="{{ binding.modelo if binding and binding.modelo else '' }}"
+                               placeholder="del proveedor">
+                    </td>
+                    <td class="text-end">
+                        <button class="btn btn-sm btn-outline-secondary">
+                            <i class="bi bi-check2 me-1"></i>Guardar</button>
+                    </td>
+                </form>
             </tr>
             {% endfor %}
             </tbody>
         </table>
     </div>
-    {% else %}
-    <div class="card-body">
-        <p class="text-muted mb-0">
-            Sin asignaciones específicas: todas las tareas usan el proveedor
-            predeterminado.
+    <div class="card-body border-top">
+        <p class="text-muted small mb-0">
+            <i class="bi bi-info-circle me-1"></i>
+            Una tarea sin asignar usa el proveedor marcado como predeterminado.
+            Conviene, por ejemplo, reservar un modelo mayor para la extracción de
+            documentos y usar uno más rápido para clasificarlos.
         </p>
     </div>
-    {% endif %}
 </div>
 {% endblock %}

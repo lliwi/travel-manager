@@ -326,6 +326,62 @@ def remove_destination(actor, trip, destination_id, commit=True):
     return True
 
 
+def sync_dates_from_itinerary(trip, commit=False):
+    """Fill the trip's dates from its itinerary when they are still empty.
+
+    A trip created from booking documents has no dates of its own: they are in
+    the documents. Once the extracted services are approved the span is known,
+    so taking it from there saves retyping what the system already read -- and
+    avoids the trip sitting with an "faltan fechas" alert that the manager
+    cannot resolve without copying dates by hand.
+
+    Only empty fields are filled. A date a manager typed is never overwritten:
+    they may deliberately have set a wider window than the bookings cover.
+
+    Returns the list of fields actually set.
+    """
+    if trip.inicio_utc is not None and trip.fin_utc is not None:
+        return []
+
+    instantes = []
+    for coleccion, inicio, fin in (
+        (trip.segments, 'salida', 'llegada'),
+        (trip.accommodations, 'check_in', 'check_out'),
+        (trip.vehicle_rentals, 'recogida', 'devolucion'),
+        (trip.other_services, 'inicio', 'fin'),
+    ):
+        for item in coleccion:
+            if item.is_deleted:
+                continue
+            for prefijo in (inicio, fin):
+                utc = getattr(item, f'{prefijo}_utc', None)
+                if utc is not None:
+                    instantes.append((
+                        utc,
+                        getattr(item, f'{prefijo}_local', None),
+                        getattr(item, f'{prefijo}_tz', None),
+                    ))
+
+    if not instantes:
+        return []
+
+    instantes.sort(key=lambda entry: entry[0])
+    primero, ultimo = instantes[0], instantes[-1]
+
+    aplicados = []
+    if trip.inicio_utc is None and primero[1] is not None:
+        set_instant(trip, 'inicio', primero[1], primero[2])
+        aplicados.append('inicio')
+    if trip.fin_utc is None and ultimo[1] is not None:
+        set_instant(trip, 'fin', ultimo[1], ultimo[2])
+        aplicados.append('fin')
+
+    if aplicados and commit:
+        db.session.commit()
+
+    return aplicados
+
+
 # ======================================================================
 # Listing
 # ======================================================================

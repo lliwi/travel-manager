@@ -5,6 +5,7 @@ from wtforms import (
     DateTimeLocalField,
     DecimalField,
     IntegerField,
+    MultipleFileField,
     SelectField,
     StringField,
     SubmitField,
@@ -63,6 +64,22 @@ class TripForm(FlaskForm):
         'Coste estimado', places=2, validators=[Optional(), NumberRange(min=0)]
     )
     moneda = StringField('Moneda', validators=[Optional(), Length(min=3, max=3)])
+
+    #: Booking documents attached while creating the trip. Each one starts the
+    #: usual pipeline -- validation, antivirus, OCR, classification, extraction --
+    #: so the itinerary can come out of the documents instead of being retyped.
+    #: The accepted extensions here only keep the file picker tidy; the real
+    #: check inspects the file's own bytes once it is uploaded.
+    documentos = MultipleFileField(
+        'Documentos de reserva',
+        validators=[Optional()],
+        description=(
+            'Opcional. Adjunte las reservas que ya tenga (PDF, imágenes o '
+            'mensajes EML) y el sistema extraerá de ellas los datos del '
+            'itinerario. Los revisará antes de que se apliquen.'
+        ),
+        render_kw={'accept': '.pdf,.jpg,.jpeg,.png,.tiff,.tif,.eml'},
+    )
 
     submit = SubmitField('Guardar')
 

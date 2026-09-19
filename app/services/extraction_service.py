@@ -233,6 +233,13 @@ def approve(actor, extraction, correcciones=None, comentario=None):
     if entity is not None:
         provenance_service.recalculate_rollup(entity, target_kind, commit=False)
 
+    # A trip created from its documents has no dates of its own until the
+    # services they describe are approved. Empty fields only; a date the
+    # manager typed stands.
+    from app.services import trip_service
+
+    fechas = trip_service.sync_dates_from_itinerary(document.trip, commit=False)
+
     document.trip.touch_itinerary()
     db.session.commit()
 
@@ -249,6 +256,7 @@ def approve(actor, extraction, correcciones=None, comentario=None):
             'entidad_id': str(entity.id) if entity else None,
             'resultado': str(outcome),
             'campos': applied_fields,
+            'fechas_del_viaje_deducidas': fechas or None,
         },
     )
 

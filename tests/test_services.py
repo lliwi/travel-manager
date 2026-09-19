@@ -313,3 +313,126 @@ class TestServicioDeUsuarios:
             'Contrasena-Muy-Segura-2026', role_codes=['usuario'],
         )
         assert usuario.email == 'mayus@example.test'
+
+
+@pytest.mark.unit
+class TestFechasDesdeElItinerario:
+    """A trip created from its documents takes its dates from them."""
+
+    def test_se_deducen_cuando_el_viaje_no_tiene_fechas(
+        self, gestor, seeded, segment_factory
+    ):
+        from datetime import datetime
+
+        from app.services import trip_service
+
+        trip = trip_service.create_trip(gestor, titulo='Sin fechas')
+        assert trip.inicio_utc is None and trip.fin_utc is None
+
+        from app.models.itinerary import TravelSegment
+        from app.utils.timeutil import set_instant
+
+        for salida, llegada in (
+            (datetime(2026, 6, 1, 10, 0), datetime(2026, 6, 1, 12, 30)),
+            (datetime(2026, 6, 4, 18, 0), datetime(2026, 6, 4, 20, 30)),
+        ):
+            seg = TravelSegment(trip_id=trip.id, numero='IB1')
+            set_instant(seg, 'salida', salida, 'Europe/Madrid')
+            set_instant(seg, 'llegada', llegada, 'Europe/Madrid')
+            db.session.add(seg)
+        db.session.commit()
+        db.session.refresh(trip)
+
+        aplicados = trip_service.sync_dates_from_itinerary(trip, commit=True)
+
+        assert set(aplicados) == {'inicio', 'fin'}
+        assert trip.inicio_local == datetime(2026, 6, 1, 10, 0)
+        assert trip.fin_local == datetime(2026, 6, 4, 20, 30)
+        assert trip.inicio_tz == 'Europe/Madrid'
+
+    def test_no_se_pisan_las_fechas_que_puso_el_gestor(
+        self, gestor, seeded, trip, segment_factory
+    ):
+        """A manager may deliberately set a window wider than the bookings."""
+        from app.services import trip_service
+
+        inicio_original = trip.inicio_local
+        segment_factory(numero='IB1')
+        db.session.refresh(trip)
+
+        aplicados = trip_service.sync_dates_from_itinerary(trip, commit=True)
+
+        assert aplicados == []
+        assert trip.inicio_local == inicio_original
+
+    def test_sin_itinerario_no_hace_nada(self, gestor, seeded):
+        from app.services import trip_service
+
+        trip = trip_service.create_trip(gestor, titulo='Vacío')
+        assert trip_service.sync_dates_from_itinerary(trip, commit=True) == []
+        assert trip.inicio_utc is None
+
+
+@pytest.mark.integration
+class TestAdjuntarAlCrearElViaje:
+    """Documents can be attached while the trip is being created."""
+
+    def test_se_adjuntan_y_arranca_el_procesamiento(
+        self, client, login, gestor, seeded, booking_pdf
+    ):
+        import io
+
+        from app.models.document import Document
+        from app.models.trip import Trip
+
+        login(gestor)
+        respuesta = client.post('/trips/nuevo', data={
+            'titulo': 'Viaje con reservas',
+            'estado': 'confirmado',
+            'documentos': [
+                (io.BytesIO(booking_pdf), 'reserva_vuelo.pdf'),
+            ],
+        }, content_type='multipart/form-data', follow_redirects=False)
+
+        assert respuesta.status_code == 302
+
+        trip = Trip.query.filter_by(titulo='Viaje con reservas').first()
+        assert trip is not None, 'El viaje debe crearse.'
+
+        documentos = Document.query.filter_by(trip_id=trip.id).all()
+        assert len(documentos) == 1
+        assert documentos[0].nombre_original == 'reserva_vuelo.pdf'
+        assert documentos[0].hash_sha256
+
+    def test_un_archivo_invalido_no_impide_crear_el_viaje(
+        self, client, login, gestor, seeded
+    ):
+        """Losing the trip because one attachment was unreadable would be cruel."""
+        import io
+
+        from app.models.document import Document
+        from app.models.trip import Trip
+
+        login(gestor)
+        respuesta = client.post('/trips/nuevo', data={
+            'titulo': 'Viaje con adjunto malo',
+            'estado': 'borrador',
+            'documentos': [(io.BytesIO(b'MZ\x90\x00'), 'virus.exe')],
+        }, content_type='multipart/form-data', follow_redirects=False)
+
+        assert respuesta.status_code == 302
+
+        trip = Trip.query.filter_by(titulo='Viaje con adjunto malo').first()
+        assert trip is not None, 'El viaje debe crearse aunque falle el adjunto.'
+        assert Document.query.filter_by(trip_id=trip.id).count() == 0
+
+    def test_sin_adjuntos_todo_sigue_igual(self, client, login, gestor, seeded):
+        from app.models.trip import Trip
+
+        login(gestor)
+        respuesta = client.post('/trips/nuevo', data={
+            'titulo': 'Viaje sin adjuntos', 'estado': 'borrador',
+        }, follow_redirects=False)
+
+        assert respuesta.status_code == 302
+        assert Trip.query.filter_by(titulo='Viaje sin adjuntos').first() is not None

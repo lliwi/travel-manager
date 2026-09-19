@@ -163,17 +163,25 @@ class Config:
     OCR_MIN_CHARS_PER_PAGE = _int('OCR_MIN_CHARS_PER_PAGE', 80)
 
     # ------------------------------------------------------------------
-    # AI layer (section 2.5). Ollama runs on the host by default.
+    # AI layer (section 2.5)
+    #
+    # Providers, endpoints, models, keys and the per-task bindings are
+    # configured in the database, from Administración → Proveedores de IA.
+    # They are deliberately *not* environment variables: changing a model is an
+    # administrative decision, and an API key in the environment is an API key
+    # in plain text.
+    #
+    # What remains here is bootstrap only -- the values used to seed the first
+    # provider so a fresh install answers before anyone has configured
+    # anything -- plus the transport timeout.
     # ------------------------------------------------------------------
-    AI_DEFAULT_PROVIDER = os.environ.get('AI_DEFAULT_PROVIDER', 'ollama')
-    OLLAMA_BASE_URL = os.environ.get('OLLAMA_BASE_URL', 'http://host.docker.internal:11434')
-    OLLAMA_DEFAULT_MODEL = os.environ.get('OLLAMA_DEFAULT_MODEL', 'llama3.1:8b')
+    AI_BOOTSTRAP_PROVIDER = os.environ.get('AI_BOOTSTRAP_PROVIDER', 'ollama')
+    OLLAMA_BOOTSTRAP_URL = os.environ.get(
+        'OLLAMA_BOOTSTRAP_URL', 'http://host.docker.internal:11434'
+    )
+    OLLAMA_BOOTSTRAP_MODEL = os.environ.get('OLLAMA_BOOTSTRAP_MODEL', 'llama3.1:8b')
     AI_REQUEST_TIMEOUT = _int('AI_REQUEST_TIMEOUT', 120)
     AI_MAX_RETRIES = _int('AI_MAX_RETRIES', 2)
-    # Data egress policy: documents and PII never reach an external provider
-    # unless an administrator explicitly enables it (section 2.5).
-    AI_ALLOW_EXTERNAL_DOCUMENTS = _bool('AI_ALLOW_EXTERNAL_DOCUMENTS', False)
-    AI_ALLOW_EXTERNAL_PII = _bool('AI_ALLOW_EXTERNAL_PII', False)
 
     # ------------------------------------------------------------------
     # Web research (section 2.6) -- SSRF hardening
@@ -241,7 +249,7 @@ class TestingConfig(Config):
     STORAGE_BACKEND = 'memory'
     ANTIVIRUS_BACKEND = 'noop'
     OCR_BACKEND = 'noop'
-    AI_DEFAULT_PROVIDER = 'stub'
+    AI_BOOTSTRAP_PROVIDER = 'stub'
     WEB_RESEARCH_ENABLED = False
     LOG_JSON = False
 

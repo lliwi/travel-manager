@@ -30,6 +30,9 @@ Implementa la **fase 1** del
   umbrales configurables desde administración.
 - **Asistente de IA con control de acceso**: responde solo con los datos que
   quien pregunta tiene derecho a ver.
+- **Configuración de IA desde la aplicación**: proveedor, endpoint, modelo,
+  claves y asignación por tarea se administran en el panel, no en el
+  despliegue. Las claves se guardan cifradas.
 - **Recomendaciones de seguridad** con fuente, fecha, confianza y validación
   por un gestor antes de ser visibles.
 - **Auditoría inmutable** encadenada por hash, verificable en cualquier momento.
@@ -59,12 +62,16 @@ Implementa la **fase 1** del
   descargado:
 
   ```bash
-  ollama pull llama3.1:8b
+  ollama pull llama3.1:8b     # o qwen3:8b, mistral-nemo, el que prefiera
   ```
 
   Ollama se ejecuta fuera de Docker a propósito: así aprovecha la GPU del
   equipo sin configuración adicional y el modelo no se descarga dentro de un
   volumen.
+
+  La instalación deja configurado un proveedor apuntando a él. Qué modelo usar,
+  y si añadir otros proveedores, se decide después en
+  **Administración → Proveedores de IA**.
 
 ## Instalación
 

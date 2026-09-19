@@ -70,7 +70,10 @@ Modelos alternativos, según la memoria disponible:
 | `qwen2.5:14b` | ~12 GB | Mejor extracción estructurada |
 | `mistral-nemo` | ~8 GB | Buen rendimiento en español |
 
-Indique el elegido en `OLLAMA_DEFAULT_MODEL`.
+El modelo se elige **en la aplicación**, en Administración → Proveedores de
+IA, no en un archivo de configuración: así cambiarlo no exige reiniciar nada.
+El botón «Probar conexión» comprueba que Ollama responde y que el modelo está
+descargado.
 
 ---
 
@@ -175,6 +178,12 @@ limpio.
 ```bash
 docker compose -f docker/docker-compose.yml logs clamav | tail -20
 ```
+
+### El proveedor aparece como «no accesible»
+
+Abra Administración → Proveedores de IA y pulse «Probar conexión»: el mensaje
+dice exactamente qué falla, incluido el comando para descargar un modelo que
+falte.
 
 ### `flask ai-health` no encuentra Ollama
 

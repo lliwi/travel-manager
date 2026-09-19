@@ -25,7 +25,7 @@ from app.blueprints.trips.forms import (
 )
 from app.extensions import db
 from app.models.catalog import Country
-from app.models.enums import RoleCode, TripPurpose, TripStatus
+from app.models.enums import DocumentType, RoleCode, TripPurpose, TripStatus
 from app.models.user import User
 from app.services import trip_service
 from app.services.authorization_service import Permiso, permissions_for
@@ -42,6 +42,44 @@ def _user_choices(role_codes=None):
     if role_codes:
         users = [u for u in users if u.has_any_role(*role_codes)]
     return [(str(u.id), f'{u.nombre_completo} ({u.username})') for u in users]
+
+
+def _adjuntar_documentos(actor, trip, archivos):
+    """Attach the documents submitted with the trip form.
+
+    Returns ``(adjuntados, fallidos)`` where ``fallidos`` is a list of
+    ``(nombre, motivo)``. Failures are collected rather than raised: one
+    unreadable file should not cost the manager the rest of the upload, nor the
+    trip itself.
+    """
+    from app.services import document_service
+
+    adjuntados = 0
+    fallidos = []
+
+    for archivo in archivos or []:
+        # An empty file input submits a FileStorage with no filename.
+        if archivo is None or not getattr(archivo, 'filename', ''):
+            continue
+        try:
+            document_service.upload(
+                actor, trip, archivo, tipo=DocumentType.RESERVA
+            )
+            adjuntados += 1
+        except AppError as error:
+            logger.info(
+                'No se pudo adjuntar «%s» al viaje %s: %s',
+                archivo.filename, trip.referencia, error.mensaje,
+            )
+            fallidos.append((archivo.filename, error.mensaje))
+        except Exception:
+            logger.exception(
+                'Fallo inesperado al adjuntar «%s» al viaje %s',
+                archivo.filename, trip.referencia,
+            )
+            fallidos.append((archivo.filename, 'error inesperado al procesarlo'))
+
+    return adjuntados, fallidos
 
 
 def _country_choices():
@@ -109,6 +147,22 @@ def create():
             return render_template('trips/form.html', form=form, trip=None)
 
         flash(f'Viaje {trip.referencia} creado.', 'success')
+
+        # Documents are attached after the trip exists, because each one needs
+        # a trip to hang off. A file that fails does not undo the trip: the
+        # manager keeps what was created and is told which file to retry.
+        adjuntados, fallidos = _adjuntar_documentos(actor, trip, form.documentos.data)
+
+        if adjuntados:
+            flash(
+                f'{adjuntados} documento(s) recibido(s). Se están procesando en '
+                'segundo plano; podrá revisar los datos extraídos en unos '
+                'instantes.',
+                'info',
+            )
+        for nombre, motivo in fallidos:
+            flash(f'No se pudo adjuntar «{nombre}»: {motivo}', 'warning')
+
         return redirect(url_for('trips.detail', trip_id=trip.id))
 
     if request.method == 'GET':

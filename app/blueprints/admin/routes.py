@@ -295,36 +295,170 @@ def _coerce_param(current, raw):
 @login_required
 @require_admin
 def ai_providers():
-    """List configured AI providers and their task bindings."""
-    from app.models.ai import AIProviderConfig, AITaskBinding
+    """List configured providers and the per-task assignment."""
+    from app.services import ai_provider_service
 
     return render_template(
         'admin/ai_providers.html',
-        providers=AIProviderConfig.query.order_by(AIProviderConfig.nombre).all(),
-        bindings=AITaskBinding.query.all(),
+        providers=ai_provider_service.list_providers(),
+        bindings=ai_provider_service.list_bindings(),
+        sugerencias=ai_provider_service.SUGERENCIAS,
     )
+
+
+@admin_bp.route('/ia/proveedores/nuevo', methods=['GET', 'POST'])
+@login_required
+@require_admin
+def create_ai_provider():
+    """Configure a new inference endpoint."""
+    from app.blueprints.admin.forms import AIProviderForm
+    from app.services import ai_provider_service
+
+    form = AIProviderForm()
+
+    if form.validate_on_submit():
+        try:
+            config = ai_provider_service.create(
+                actor=current_user._get_current_object(),
+                nombre=form.nombre.data,
+                proveedor=form.proveedor.data,
+                base_url=form.base_url.data,
+                modelo=form.modelo_por_defecto.data,
+                api_key=form.api_key.data or None,
+                activo=form.activo.data,
+                por_defecto=form.es_por_defecto.data,
+                timeout=form.timeout_segundos.data or 120,
+                max_tokens=form.max_tokens.data or 2048,
+                temperatura=form.temperatura.data,
+            )
+        except AppError as error:
+            flash(error.mensaje, 'danger')
+            return render_template('admin/ai_provider_form.html', form=form,
+                                   provider=None,
+                                   sugerencias=ai_provider_service.SUGERENCIAS)
+
+        flash(f'Proveedor «{config.nombre}» configurado.', 'success')
+        return redirect(url_for('admin.ai_providers'))
+
+    return render_template('admin/ai_provider_form.html', form=form, provider=None,
+                           sugerencias=ai_provider_service.SUGERENCIAS)
+
+
+@admin_bp.route('/ia/proveedores/<provider_id>/editar', methods=['GET', 'POST'])
+@login_required
+@require_admin
+def edit_ai_provider(provider_id):
+    """Change a provider's configuration."""
+    from app.blueprints.admin.forms import AIProviderForm
+    from app.services import ai_provider_service
+
+    config = ai_provider_service.get_or_404(provider_id)
+    form = AIProviderForm(obj=config)
+    # Lets the form accept an empty key field on a provider that already has one.
+    form._existing_key = bool(config.api_key_encrypted)
+
+    if form.validate_on_submit():
+        try:
+            ai_provider_service.update(
+                actor=current_user._get_current_object(),
+                config=config,
+                nombre=form.nombre.data,
+                base_url=form.base_url.data,
+                modelo=form.modelo_por_defecto.data,
+                api_key=form.api_key.data or None,
+                activo=form.activo.data,
+                por_defecto=form.es_por_defecto.data,
+                timeout=form.timeout_segundos.data,
+                max_tokens=form.max_tokens.data,
+                temperatura=form.temperatura.data,
+            )
+        except AppError as error:
+            flash(error.mensaje, 'danger')
+            return render_template('admin/ai_provider_form.html', form=form,
+                                   provider=config,
+                                   sugerencias=ai_provider_service.SUGERENCIAS)
+
+        flash('Proveedor actualizado.', 'success')
+        return redirect(url_for('admin.ai_providers'))
+
+    if request.method == 'GET':
+        form.proveedor.data = str(config.proveedor)
+        form.es_por_defecto.data = config.es_por_defecto
+
+    return render_template('admin/ai_provider_form.html', form=form, provider=config,
+                           sugerencias=ai_provider_service.SUGERENCIAS)
+
+
+@admin_bp.route('/ia/proveedores/<provider_id>/eliminar', methods=['POST'])
+@login_required
+@require_admin
+def delete_ai_provider(provider_id):
+    """Remove a provider."""
+    from app.services import ai_provider_service
+
+    config = ai_provider_service.get_or_404(provider_id)
+    try:
+        ai_provider_service.delete(current_user._get_current_object(), config)
+        flash(f'Proveedor «{config.nombre}» eliminado.', 'info')
+    except AppError as error:
+        flash(error.mensaje, 'danger')
+    return redirect(url_for('admin.ai_providers'))
+
+
+@admin_bp.route('/ia/proveedores/<provider_id>/predeterminado', methods=['POST'])
+@login_required
+@require_admin
+def set_default_ai_provider(provider_id):
+    """Make this the provider used when a task has no binding."""
+    from app.services import ai_provider_service
+
+    config = ai_provider_service.get_or_404(provider_id)
+    try:
+        ai_provider_service.set_default(current_user._get_current_object(), config)
+        flash(f'«{config.nombre}» es ahora el proveedor predeterminado.', 'success')
+    except AppError as error:
+        flash(error.mensaje, 'danger')
+    return redirect(url_for('admin.ai_providers'))
 
 
 @admin_bp.route('/ia/proveedores/<provider_id>/probar', methods=['POST'])
 @login_required
 @require_admin
 def test_ai_provider(provider_id):
-    """Check that a provider is reachable."""
-    import uuid
-
-    from app.models.ai import AIProviderConfig
+    """Check that a provider is reachable and holds its model."""
+    from app.services import ai_provider_service
     from app.services.ai import health_check
-    from app.utils.errors import ResourceNotFound
 
-    provider = db.session.get(AIProviderConfig, uuid.UUID(str(provider_id)))
-    if provider is None:
-        raise ResourceNotFound('El proveedor indicado no existe.')
-
+    provider = ai_provider_service.get_or_404(provider_id)
     ok, detail = health_check(provider)
-    flash(
-        f'{provider.nombre}: {detail}',
-        'success' if ok else 'danger',
-    )
+    flash(f'{provider.nombre}: {detail}', 'success' if ok else 'danger')
+    return redirect(url_for('admin.ai_providers'))
+
+
+@admin_bp.route('/ia/tareas', methods=['POST'])
+@login_required
+@require_admin
+def set_ai_binding():
+    """Assign one task to a provider (specification section 2.5)."""
+    from app.services import ai_provider_service
+
+    tarea = request.form.get('tarea')
+    provider_id = request.form.get('provider_config_id') or None
+    modelo = request.form.get('modelo') or None
+
+    try:
+        config = ai_provider_service.get_or_404(provider_id) if provider_id else None
+        ai_provider_service.set_binding(
+            current_user._get_current_object(), tarea, config, modelo=modelo
+        )
+        flash(
+            f'Tarea asignada a «{config.nombre}».' if config
+            else 'La tarea usará el proveedor predeterminado.',
+            'success',
+        )
+    except AppError as error:
+        flash(error.mensaje, 'danger')
+
     return redirect(url_for('admin.ai_providers'))
 
 

@@ -4,7 +4,7 @@ Specification section 2.5: "Selección de proveedor/modelo por entorno y por
 tarea." Resolution order:
 
 1. The ``ai_task_bindings`` row for the task, if active.
-2. Any active provider whose code matches ``AI_DEFAULT_PROVIDER``.
+2. The provider marked as default in Administración → Proveedores de IA.
 3. A provider built straight from the environment, so a fresh deployment with an
    empty database still works against the host's Ollama.
 """
@@ -84,41 +84,52 @@ def fallback_for(tarea):
 
 
 def _default_config():
-    """The active provider matching the configured default code."""
-    preferred = current_app.config['AI_DEFAULT_PROVIDER']
+    """The provider serving tasks with no binding of their own.
+
+    Chosen in the database, from Administración → Proveedores de IA, rather
+    than from the environment: changing model or provider is an administrative
+    decision, not a redeployment.
+    """
     config = AIProviderConfig.query.filter_by(
-        proveedor=preferred, activo=True
+        es_por_defecto=True, activo=True
     ).first()
     if config is not None:
         return config
+
+    # No explicit default (or it was deactivated): fall back to the oldest
+    # active provider rather than leaving every task unserved.
     return AIProviderConfig.query.filter_by(activo=True).order_by(
         AIProviderConfig.created_at.asc()
     ).first()
 
 
 def _from_environment():
-    """Build a provider from configuration alone, with no database row.
+    """Last resort when the database holds no provider at all.
 
-    This is what makes a freshly installed system usable: Ollama on the host
-    answers before an administrator has configured anything.
+    Only two situations reach here: the test suite, which uses the stub, and a
+    deployment whose seeding has not run yet. A real installation configures
+    its providers in the panel, which is why there is no endpoint or model to
+    read from the environment beyond the bootstrap values.
     """
-    code = current_app.config['AI_DEFAULT_PROVIDER']
+    code = current_app.config.get('AI_BOOTSTRAP_PROVIDER', AIProviderCode.OLLAMA.value)
 
     if code == AIProviderCode.STUB.value:
         return StubProvider(), 'stub', {'max_tokens': 512, 'temperatura': 0.0}
 
     if code == AIProviderCode.OLLAMA.value:
-        modelo = current_app.config['OLLAMA_DEFAULT_MODEL']
+        modelo = current_app.config.get('OLLAMA_BOOTSTRAP_MODEL', 'llama3.1:8b')
         provider = OllamaProvider(
-            base_url=current_app.config['OLLAMA_BASE_URL'],
+            base_url=current_app.config.get(
+                'OLLAMA_BOOTSTRAP_URL', 'http://host.docker.internal:11434'
+            ),
             modelo=modelo,
-            timeout=current_app.config['AI_REQUEST_TIMEOUT'],
+            timeout=current_app.config.get('AI_REQUEST_TIMEOUT', 120),
         )
         return provider, modelo, {'max_tokens': 2048, 'temperatura': 0.1}
 
     raise AIError(
-        f'No hay ningún proveedor de IA configurado para «{code}». '
-        'Configúrelo en Administración → Proveedores de IA.'
+        'No hay ningún proveedor de IA configurado. Configúrelo en '
+        'Administración → Proveedores de IA.'
     )
 
 

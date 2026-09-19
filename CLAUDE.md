@@ -57,11 +57,17 @@ test that fails by name.
    duplicate an alert, must refresh changed evidence, must close what no longer
    reproduces, and must never resurrect one a manager accepted or dismissed.
 
-7. **Documents and PII do not leave by default.** `ai/guard.py` refuses to route
+7. **AI configuration lives in the database, not the environment.** Provider,
+   endpoint, model, API keys and the per-task bindings are administered from
+   the panel. Changing a model is an administrative decision, not a redeploy,
+   and a key in the environment is a key in plain text. Only two bootstrap
+   values remain in config, used to seed the first provider on a fresh install.
+
+8. **Documents and PII do not leave by default.** `ai/guard.py` refuses to route
    a sensitive payload to an external provider unless an administrator enabled
    it, and records the refusal as a blocked `ai_runs` row.
 
-8. **Untrusted content is delimited and schema-bound.** Document text and web
+9. **Untrusted content is delimited and schema-bound.** Document text and web
    content enter prompts only as `UntrustedBlock`, and every answer is validated
    against a JSON schema. Injected instructions have nowhere to land.
 

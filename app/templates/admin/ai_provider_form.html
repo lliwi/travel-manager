@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import render_field %}
+{% block title %}{{ 'Editar proveedor' if provider else 'Nuevo proveedor de IA' }} — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('admin.index') }}">Administración</a></li>
+<li class="breadcrumb-item"><a href="{{ url_for('admin.ai_providers') }}">Proveedores de IA</a></li>
+<li class="breadcrumb-item active">{{ provider.nombre if provider else 'Nuevo' }}</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>{{ 'Editar proveedor' if provider else 'Nuevo proveedor de IA' }}</h1>
+</div>
+
+<div class="row">
+    <div class="col-lg-7">
+        <form method="post" novalidate>
+            {{ form.hidden_tag() }}
+
+            <div class="card mb-3">
+                <div class="card-header">Identificación</div>
+                <div class="card-body">
+                    {{ render_field(form.nombre, placeholder='Ollama local') }}
+                    {{ render_field(form.proveedor) }}
+                    {{ render_field(form.base_url, placeholder='http://host.docker.internal:11434') }}
+                    {{ render_field(form.modelo_por_defecto, placeholder='llama3.1:8b') }}
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header">
+                    Credenciales
+                    <small class="text-muted ms-2">solo proveedores externos</small>
+                </div>
+                <div class="card-body">
+                    {% if provider and provider.api_key_encrypted %}
+                    <div class="alert alert-secondary py-2 small mb-3">
+                        <i class="bi bi-key me-1"></i>
+                        Hay una clave guardada (termina en
+                        <code>{{ provider.api_key_pista }}</code>).
+                        Déjelo en blanco para conservarla.
+                    </div>
+                    {% endif %}
+                    {{ render_field(form.api_key) }}
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header">Parámetros</div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4">{{ render_field(form.timeout_segundos) }}</div>
+                        <div class="col-md-4">{{ render_field(form.max_tokens) }}</div>
+                        <div class="col-md-4">{{ render_field(form.temperatura) }}</div>
+                    </div>
+                    {{ render_field(form.activo) }}
+                    {{ render_field(form.es_por_defecto) }}
+                </div>
+            </div>
+
+            <div class="d-flex gap-2">
+                {{ form.submit }}
+                <a href="{{ url_for('admin.ai_providers') }}"
+                   class="btn btn-outline-secondary">Cancelar</a>
+            </div>
+        </form>
+    </div>
+
+    <div class="col-lg-5">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-lightbulb me-2"></i>Sobre cada proveedor</div>
+            <div class="card-body">
+                <dl class="detail-list">
+                    {% for codigo, datos in sugerencias.items() %}
+                    <dt class="text-capitalize">{{ codigo }}</dt>
+                    <dd>
+                        <div class="text-muted small">{{ datos.ayuda }}</div>
+                        {% if datos.base_url %}
+                        <code class="small">{{ datos.base_url }}</code>
+                        {% endif %}
+                    </dd>
+                    {% endfor %}
+                </dl>
+                <hr>
+                <p class="text-muted small mb-0">
+                    <i class="bi bi-shield-lock me-1"></i>
+                    La clave se cifra antes de guardarse y no vuelve a mostrarse.
+                    Aunque configure un proveedor externo, los documentos y los
+                    datos personales no saldrán a él mientras no lo habilite en
+                    <a href="{{ url_for('admin.settings') }}">Ajustes</a>.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Rellenar endpoint y modelo al elegir proveedor, solo si están vacíos:
+// una configuración que el administrador ya ha escrito no debe pisarse.
+(function () {
+    var sugerencias = {{ sugerencias | tojson }};
+    var proveedor = document.getElementById('proveedor');
+    var url = document.getElementById('base_url');
+    var modelo = document.getElementById('modelo_por_defecto');
+    if (!proveedor) { return; }
+
+    proveedor.addEventListener('change', function () {
+        var s = sugerencias[proveedor.value];
+        if (!s) { return; }
+        if (url && !url.value) { url.value = s.base_url || ''; }
+        if (modelo && !modelo.value) { modelo.value = s.modelo || ''; }
+    });
+})();
+</script>
+{% endblock %}
