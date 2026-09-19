@@ -689,12 +689,20 @@ def summarize_trip(actor, trip):
 # ======================================================================
 # 5. analyze_risks
 # ======================================================================
-def analyze_risks(actor, trip, contexto_publico=None):
+def analyze_risks(actor, trip, contexto_publico=None, lugares=None):
     """Analyse the trip's risks (section 2.5).
 
     Feeds the security advisory generator: the public sources gathered by the
     research service are passed in as untrusted blocks alongside the itinerary.
+
+    ``lugares`` names the destination the advisory is for. Each source is cut
+    down to the part that actually mentions it, and one that never does is left
+    out entirely -- an official source often answers with an index of every
+    country, and its opening characters are an alphabetical list, not the
+    destination.
     """
+    from app.services.web_research_service import fragmento_sobre
+
     contexto = build_ai_context(actor, trip)
     esquema = SCHEMAS['analyze_risks']
 
@@ -703,12 +711,23 @@ def analyze_risks(actor, trip, contexto_publico=None):
         referencia=str(trip.id),
         tipo='datos_del_viaje',
     )]
+    descartadas = []
     for fuente in (contexto_publico or []):
+        fragmento = fragmento_sobre(fuente.get('contenido', ''), lugares)
+        if not fragmento:
+            descartadas.append(fuente.get('url'))
+            continue
         bloques.append(UntrustedBlock(
-            contenido=fuente.get('contenido', '')[:6000],
+            contenido=fragmento,
             referencia=fuente.get('url'),
             tipo='fuente_publica',
         ))
+
+    if descartadas:
+        logger.info(
+            'Fuentes sin contenido sobre %s, descartadas: %s',
+            lugares, ', '.join(str(u) for u in descartadas),
+        )
 
     request = AIRequest(
         tarea=AITask.ANALYZE_RISKS.value,
@@ -738,7 +757,7 @@ def analyze_risks(actor, trip, contexto_publico=None):
 
     datos = _parse(response, 'analyze_risks', esquema)
     return {'riesgos': datos.get('riesgos', []), 'nivel_global': datos.get('nivel_global'),
-            'run_id': str(run.id)}
+            'run_id': str(run.id), 'fuentes_descartadas': descartadas}
 
 
 # ======================================================================

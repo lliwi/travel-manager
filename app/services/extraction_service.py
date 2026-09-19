@@ -330,6 +330,14 @@ def approve(actor, extraction, correcciones=None, comentario=None):
     from app.services import trip_service
 
     fechas = trip_service.sync_dates_from_itinerary(document.trip, commit=False)
+    destinos = trip_service.sync_destinations_from_itinerary(
+        actor, document.trip, commit=False,
+    )
+    if destinos:
+        logger.info(
+            'Destinos deducidos del itinerario del viaje %s: %s',
+            document.trip_id, ', '.join(d.ciudad or d.pais_codigo for d in destinos),
+        )
 
     document.trip.touch_itinerary()
     db.session.commit()

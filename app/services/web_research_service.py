@@ -334,3 +334,53 @@ def _to_text(html):
     text = re.sub(r'[ \t\r\f\v]+', ' ', text)
     text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)
     return text.strip()
+
+
+#: How much of a page to hand the model, and how much context to keep around
+#: the place it actually mentions.
+FRAGMENTO_MAX = 6000
+_VENTANA = 2500
+
+
+def fragmento_sobre(texto, lugares, maximo=FRAGMENTO_MAX):
+    """The part of a page that talks about a place, not its first page-worth.
+
+    An official source often answers with an index of every country. Taking its
+    first characters hands the model the top of an alphabetical list: asked
+    about London, it read about Afghanistan and wrote an advisory about
+    Afghanistan, which we then filed under the United Kingdom.
+
+    Returns None when the page never mentions the place. A source that does not
+    talk about the destination has nothing to contribute, and saying so is
+    better than sending a fragment that happens to be about somewhere else.
+    """
+    if not texto:
+        return None
+
+    nombres = [
+        str(lugar).strip() for lugar in (lugares or [])
+        if lugar and str(lugar).strip()
+    ]
+    if not nombres:
+        return texto[:maximo]
+
+    plano = texto.lower()
+    posiciones = []
+    for nombre in nombres:
+        desde = 0
+        aguja = nombre.lower()
+        while len(posiciones) < 12:
+            encontrado = plano.find(aguja, desde)
+            if encontrado < 0:
+                break
+            posiciones.append(encontrado)
+            desde = encontrado + len(aguja)
+
+    if not posiciones:
+        return None
+
+    if len(texto) <= maximo:
+        return texto
+
+    inicio = max(0, min(posiciones) - 400)
+    return texto[inicio:inicio + maximo]

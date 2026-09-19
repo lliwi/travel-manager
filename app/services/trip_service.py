@@ -385,6 +385,91 @@ def propose_traveler_window(trip):
     return None, None, None
 
 
+def sync_destinations_from_itinerary(actor, trip, commit=False):
+    """Derive the trip's destinations from where its itinerary actually goes.
+
+    A trip built from booking documents already says where it goes: the flights
+    name their arrival airports and the hotels their cities, each resolved
+    against the catalogue with a country and a timezone. Making a manager retype
+    that is asking them to copy what the system just read -- and until they do,
+    the security advisories have no destination to work from.
+
+    Only adds what is missing, never removes: a destination someone entered by
+    hand is theirs, and a stopover is not a destination, so an airport a flight
+    only passes through is skipped when another leg departs from it.
+
+    Returns the destinations created.
+    """
+    from app.models.catalog import Country, Location
+
+    existentes = {
+        (d.pais_codigo, (d.ciudad or '').lower())
+        for d in trip.destinations
+    }
+    paises_existentes = {d.pais_codigo for d in trip.destinations if d.pais_codigo}
+
+    salidas = {
+        s.origen_codigo for s in trip.segments
+        if not s.is_deleted and s.origen_codigo
+    }
+
+    candidatos = []
+    for segmento in trip.segments:
+        if segmento.is_deleted or not segmento.destino_codigo:
+            continue
+        # An airport another leg departs from is a connection, not a stay.
+        es_escala = segmento.destino_codigo in salidas
+        candidatos.append((
+            segmento.destino_codigo, segmento.destino_ciudad,
+            segmento.destino_pais, segmento.llegada_tz, es_escala,
+        ))
+
+    for alojamiento in trip.accommodations:
+        if alojamiento.is_deleted or not alojamiento.ciudad:
+            continue
+        candidatos.append((
+            None, alojamiento.ciudad, alojamiento.pais,
+            alojamiento.check_in_tz, False,
+        ))
+
+    creados = []
+    for codigo, ciudad, pais, zona, es_escala in candidatos:
+        if es_escala:
+            continue
+
+        location = None
+        if codigo:
+            location = Location.query.filter_by(codigo=codigo, activo=True).first()
+        ciudad = ciudad or (location.ciudad if location else None)
+        pais = pais or (location.pais_codigo if location else None)
+        if not ciudad and not pais:
+            continue
+
+        clave = (pais, (ciudad or '').lower())
+        if clave in existentes or (pais and pais in paises_existentes):
+            continue
+
+        pais_nombre = None
+        if pais:
+            fila = Country.query.filter_by(codigo=pais).first()
+            pais_nombre = fila.nombre if fila else None
+
+        creados.append(add_destination(
+            actor, trip, ciudad=ciudad, pais_codigo=pais,
+            pais_nombre=pais_nombre,
+            zona_horaria=zona or (location.zona_horaria if location else None),
+            location=location, commit=False,
+        ))
+        existentes.add(clave)
+        if pais:
+            paises_existentes.add(pais)
+
+    if creados and commit:
+        db.session.commit()
+
+    return creados
+
+
 def sync_dates_from_itinerary(trip, commit=False):
     """Fill the trip's dates from its itinerary when they are still empty.
 

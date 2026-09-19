@@ -22,6 +22,7 @@ def register_commands(app):
     app.cli.add_command(generate_key)
     app.cli.add_command(ai_health)
     app.cli.add_command(apply_retention)
+    app.cli.add_command(openapi)
 
 
 @click.command('init-db')
@@ -481,6 +482,27 @@ def apply_retention(execute, yes):
         f'Retención aplicada: {resultado["purgados"]} originales eliminados.',
         fg='green',
     ))
+
+
+@click.command('openapi')
+@click.option(
+    '--output', '-o', default=None,
+    help='Fichero donde escribirlo. Por omisión, la salida estándar.',
+)
+@with_appcontext
+def openapi(output):
+    """Write the OpenAPI description of /api/v1."""
+    import json
+
+    from app.services.openapi_service import build_spec
+
+    documento = json.dumps(build_spec(), ensure_ascii=False, indent=2)
+    if output:
+        with open(output, 'w', encoding='utf-8') as destino:
+            destino.write(documento + '\n')
+        click.echo(click.style(f'Escrito en {output}.', fg='green'))
+        return
+    click.echo(documento)
 
 
 @click.command('generate-key')

@@ -10,6 +10,7 @@ from datetime import timedelta
 
 from app.extensions import db
 from app.models.advisory import DISCLAIMER, SecurityAdvisory
+from app.models.catalog import Country
 from app.models.enums import (
     AdvisoryCategory,
     AdvisoryLevel,
@@ -88,20 +89,54 @@ def generate_for_trip(actor, trip, categorias=None):
             logger.warning('No se pudieron consultar fuentes para %s: %s', destino, exc)
             fuentes = []
 
+        fuentes = _fuentes_sobre(fuentes, destino)
         if not fuentes:
-            created.append(_no_sources_advisory(actor, trip, destino))
+            # The primary defence, and the one that needs no reference data:
+            # a source that never names the destination cannot support an
+            # advisory about it. Skipping the model here is what stops an index
+            # of every country producing a confident answer about the first one.
+            created.append(_no_sources_advisory(
+                actor, trip, destino,
+                motivo=(
+                    'Ninguna fuente autorizada devolvió información sobre este '
+                    'destino.'
+                ),
+            ))
             continue
 
         try:
-            analysis = ai_service.analyze_risks(actor, trip, contexto_publico=fuentes)
+            analysis = ai_service.analyze_risks(
+                actor, trip, contexto_publico=fuentes, lugares=_nombres_de(destino),
+            )
         except Exception as exc:
             logger.exception('Falló el análisis de riesgos de %s', destino)
             created.append(_no_sources_advisory(actor, trip, destino, motivo=str(exc)))
             continue
 
+        aceptados = 0
         for riesgo in analysis.get('riesgos', []):
+            ajeno = _pais_ajeno(riesgo, destino)
+            if ajeno:
+                # Refused, not corrected. An advisory about the wrong country is
+                # worse than none: it is confidently wrong about the one thing a
+                # traveller would act on.
+                logger.warning(
+                    'Recomendación descartada para %s: hablaba de %s.',
+                    destino.pais_codigo, ajeno,
+                )
+                continue
             created.append(_build_advisory(actor, trip, destino, riesgo, fuentes,
                                            analysis.get('run_id')))
+            aceptados += 1
+
+        if not aceptados:
+            created.append(_no_sources_advisory(
+                actor, trip, destino,
+                motivo=(
+                    'Las fuentes consultadas no aportaron información sobre este '
+                    'destino, o lo que devolvieron se refería a otro país.'
+                ),
+            ))
 
     db.session.commit()
 
@@ -136,6 +171,52 @@ def _query_for(destino, trip):
         f'recomendaciones de viaje, seguridad, sanidad y requisitos de entrada '
         f'para {lugar} en las fechas del viaje'
     )
+
+
+def _fuentes_sobre(fuentes, destino):
+    """Only the sources that actually mention this destination."""
+    from app.services.web_research_service import fragmento_sobre
+
+    nombres = _nombres_de(destino)
+    return [
+        fuente for fuente in fuentes
+        if fragmento_sobre(fuente.get('contenido', ''), nombres)
+    ]
+
+
+def _nombres_de(destino):
+    """Every way this destination might be named in a public source."""
+    return [n for n in (destino.ciudad, destino.pais_nombre, destino.pais_codigo) if n]
+
+
+def _pais_ajeno(riesgo, destino):
+    """The country a risk is about, when that is not the destination's.
+
+    Second line of defence, behind the source filtering that keeps a page
+    about another country from reaching the model at all. Best effort by
+    construction: it can only recognise a country the catalogue holds, and the
+    catalogue is a working set rather than the full ISO list, so this narrows
+    the gap without closing it.
+
+    Returns the offending country's name, or None when the risk is either about
+    the destination or about no country the catalogue knows.
+    """
+    texto = ' '.join(str(riesgo.get(campo) or '') for campo in
+                     ('titulo', 'descripcion', 'justificacion')).lower()
+    if not texto.strip():
+        return None
+
+    propios = {str(n).lower() for n in _nombres_de(destino)}
+    if any(nombre and nombre in texto for nombre in propios):
+        return None
+
+    for pais in Country.query.all():
+        nombre = (pais.nombre or '').strip()
+        if len(nombre) < 4 or pais.codigo == destino.pais_codigo:
+            continue
+        if nombre.lower() in texto:
+            return nombre
+    return None
 
 
 def _build_advisory(actor, trip, destino, riesgo, fuentes, run_id):

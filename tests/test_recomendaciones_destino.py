@@ -1,0 +1,269 @@
+"""A security advisory must be about the place the traveller is going.
+
+Taken from a real trip to London. The research service fetched the official
+index of travel advice -- 394.944 characters listing every country -- and the
+first six thousand of them are the top of an alphabetical list. The model read
+about Afghanistan, wrote about Afghanistan, and the result was filed under the
+United Kingdom, at «alto riesgo», for a trip to Gatwick.
+
+Two defences, because either alone would have let it through: the model is
+given the part of the page that mentions the destination, or nothing; and an
+answer about another country is refused rather than stored.
+"""
+import pytest
+
+from app.extensions import db
+
+
+@pytest.mark.unit
+class TestElFragmentoQueSeEnvia:
+    def _indice(self):
+        """An index page, the way an official source really answers."""
+        return (
+            'Recomendaciones de viaje. Sede electrónica. Contacto. '
+            + 'Afganistán: situación de extrema gravedad. ' * 40
+            + 'x' * 5000
+            + 'Reino Unido: se recomienda documentación en regla. '
+            + 'z' * 5000
+        )
+
+    def test_se_recorta_por_donde_habla_del_destino(self):
+        from app.services.web_research_service import fragmento_sobre
+
+        fragmento = fragmento_sobre(self._indice(), ['Reino Unido', 'Londres'])
+
+        assert 'Reino Unido' in fragmento
+        assert 'Afganistán' not in fragmento, (
+            'Coger el principio de la página es lo que produjo la recomendación '
+            'sobre Afganistán.'
+        )
+
+    def test_una_pagina_que_no_habla_del_destino_no_aporta_nada(self):
+        from app.services.web_research_service import fragmento_sobre
+
+        assert fragmento_sobre('Afganistán, Angola, Argelia.', ['Reino Unido']) is None
+
+    def test_sin_lugares_se_recorta_como_antes(self):
+        from app.services.web_research_service import fragmento_sobre
+
+        assert fragmento_sobre('a' * 10000, []) == 'a' * 6000
+
+    def test_una_pagina_corta_se_envia_entera(self):
+        from app.services.web_research_service import fragmento_sobre
+
+        texto = 'Reino Unido: entrada con pasaporte.'
+
+        assert fragmento_sobre(texto, ['Reino Unido']) == texto
+
+
+@pytest.mark.unit
+class TestNoSeGuardaLoQueHablaDeOtroPais:
+    def _destino(self, gestor, trip):
+        from app.services import trip_service
+
+        return trip_service.add_destination(
+            gestor, trip, ciudad='Londres', pais_codigo='GB',
+            pais_nombre='Reino Unido',
+        )
+
+    def test_se_detecta_un_riesgo_sobre_otro_pais(self, gestor, trip, seeded):
+        from app.services.advisory_service import _pais_ajeno
+
+        destino = self._destino(gestor, trip)
+        riesgo = {
+            'titulo': 'Inestabilidad política y seguridad',
+            'descripcion': (
+                'Marruecos atraviesa una situación que aconseja extremar '
+                'precauciones en determinadas zonas.'
+            ),
+        }
+
+        assert _pais_ajeno(riesgo, destino) == 'Marruecos'
+
+    def test_solo_reconoce_los_paises_del_catalogo(self, gestor, trip, seeded):
+        """Stated, not assumed: this net has holes.
+
+        The catalogue is a working set, not the full ISO list, so a country it
+        does not hold passes this check. That is why it is the second defence
+        and not the first -- the real Afganistán case is stopped upstream, by
+        never handing the model a page that does not mention the destination.
+        """
+        from app.models.catalog import Country
+        from app.services.advisory_service import _pais_ajeno
+
+        destino = self._destino(gestor, trip)
+        assert Country.query.filter_by(codigo='AF').first() is None
+
+        riesgo = {'descripcion': 'Afganistán enfrenta una situación inestable.'}
+
+        assert _pais_ajeno(riesgo, destino) is None
+
+    def test_un_riesgo_sobre_el_destino_se_acepta(self, gestor, trip, seeded):
+        from app.services.advisory_service import _pais_ajeno
+
+        destino = self._destino(gestor, trip)
+        riesgo = {
+            'titulo': 'Requisitos de entrada',
+            'descripcion': 'Para entrar en Reino Unido se exige ETA.',
+        }
+
+        assert _pais_ajeno(riesgo, destino) is None
+
+    def test_un_riesgo_sin_pais_no_se_descarta(self, gestor, trip, seeded):
+        """A risk about the itinerary itself names no country, and is fine."""
+        from app.services.advisory_service import _pais_ajeno
+
+        destino = self._destino(gestor, trip)
+        riesgo = {
+            'titulo': 'Margen de conexión ajustado',
+            'descripcion': 'El enlace deja menos de una hora entre vuelos.',
+        }
+
+        assert _pais_ajeno(riesgo, destino) is None
+
+
+@pytest.mark.unit
+class TestDestinosDeducidosDelItinerario:
+    """The itinerary already says where the trip goes.
+
+    Until the destinations were typed by hand, the advisory generator had
+    nothing to work from -- and what a manager would type is exactly what the
+    approved bookings already say.
+    """
+
+    def _vuelo(self, trip, destino_codigo, destino_ciudad, destino_pais,
+               origen_codigo='MAD'):
+        from datetime import datetime
+
+        from app.models.itinerary import TravelSegment
+        from app.utils.timeutil import set_instant
+
+        segmento = TravelSegment(
+            trip_id=trip.id, numero='IB1',
+            origen_codigo=origen_codigo,
+            destino_codigo=destino_codigo,
+            destino_ciudad=destino_ciudad,
+            destino_pais=destino_pais,
+        )
+        set_instant(segmento, 'salida', datetime(2026, 6, 1, 10, 0), 'Europe/Madrid')
+        set_instant(segmento, 'llegada', datetime(2026, 6, 1, 11, 30), 'Europe/London')
+        db.session.add(segmento)
+        db.session.commit()
+        return segmento
+
+    def test_el_destino_de_un_vuelo_se_convierte_en_destino(
+        self, gestor, trip, seeded
+    ):
+        from app.services import trip_service
+
+        self._vuelo(trip, 'LGW', 'London', 'GB')
+
+        creados = trip_service.sync_destinations_from_itinerary(
+            gestor, trip, commit=True,
+        )
+
+        assert len(creados) == 1
+        assert creados[0].pais_codigo == 'GB'
+        assert creados[0].pais_nombre, 'El nombre del país sale del catálogo.'
+
+    def test_un_aeropuerto_de_paso_no_es_un_destino(self, gestor, trip, seeded):
+        """Changing planes somewhere is not going there."""
+        from app.services import trip_service
+
+        self._vuelo(trip, 'LHR', 'London', 'GB', origen_codigo='MAD')
+        self._vuelo(trip, 'JFK', 'New York', 'US', origen_codigo='LHR')
+
+        creados = trip_service.sync_destinations_from_itinerary(
+            gestor, trip, commit=True,
+        )
+
+        paises = {d.pais_codigo for d in creados}
+        assert 'US' in paises
+        assert 'GB' not in paises, 'LHR es escala: otro tramo sale de ahí.'
+
+    def test_no_se_duplica_un_destino_que_ya_existe(self, gestor, trip, seeded):
+        from app.services import trip_service
+
+        trip_service.add_destination(
+            gestor, trip, ciudad='Londres', pais_codigo='GB',
+        )
+        self._vuelo(trip, 'LGW', 'London', 'GB')
+
+        creados = trip_service.sync_destinations_from_itinerary(
+            gestor, trip, commit=True,
+        )
+
+        assert creados == []
+
+    def test_un_alojamiento_tambien_aporta_su_ciudad(self, gestor, trip, seeded):
+        from datetime import datetime
+
+        from app.models.itinerary import Accommodation
+        from app.services import trip_service
+        from app.utils.timeutil import set_instant
+
+        alojamiento = Accommodation(
+            trip_id=trip.id, nombre='Zedwell', ciudad='London', pais='GB',
+        )
+        set_instant(alojamiento, 'check_in', datetime(2026, 6, 1, 15, 0), 'Europe/London')
+        db.session.add(alojamiento)
+        db.session.commit()
+
+        creados = trip_service.sync_destinations_from_itinerary(
+            gestor, trip, commit=True,
+        )
+
+        assert [d.pais_codigo for d in creados] == ['GB']
+
+    def test_no_se_toca_lo_que_puso_el_gestor(self, gestor, trip, seeded):
+        """Only adds. A destination someone entered is theirs."""
+        from app.services import trip_service
+
+        propio = trip_service.add_destination(
+            gestor, trip, ciudad='Edimburgo', pais_codigo='GB',
+        )
+        self._vuelo(trip, 'LGW', 'London', 'GB')
+
+        trip_service.sync_destinations_from_itinerary(gestor, trip, commit=True)
+
+        db.session.refresh(propio)
+        assert propio.ciudad == 'Edimburgo'
+
+
+@pytest.mark.unit
+class TestNiSiquieraSeLePreguntaAlModelo:
+    """The defence that needs no reference data.
+
+    A source that never names the destination cannot support an advisory about
+    it, so it is dropped before the model is called. With every source dropped,
+    the generator records that it could not check -- which is what a manager
+    needs to tell from "no risks found".
+    """
+
+    def test_un_indice_de_paises_no_llega_al_modelo(self, gestor, trip, seeded):
+        from app.services import advisory_service, trip_service
+
+        destino = trip_service.add_destination(
+            gestor, trip, ciudad='Londres', pais_codigo='GB',
+            pais_nombre='Reino Unido',
+        )
+        fuentes = [{
+            'url': 'https://www.exteriores.gob.es/recomendaciones',
+            'contenido': 'Afganistán. Albania. Alemania. Andorra. Angola.',
+        }]
+
+        assert advisory_service._fuentes_sobre(fuentes, destino) == []
+
+    def test_una_fuente_que_habla_del_destino_si_llega(self, gestor, trip, seeded):
+        from app.services import advisory_service, trip_service
+
+        destino = trip_service.add_destination(
+            gestor, trip, ciudad='Londres', pais_codigo='GB',
+            pais_nombre='Reino Unido',
+        )
+        fuentes = [{
+            'url': 'https://www.gov.uk/foreign-travel-advice',
+            'contenido': 'Reino Unido exige una autorización electrónica ETA.',
+        }]
+
+        assert len(advisory_service._fuentes_sobre(fuentes, destino)) == 1

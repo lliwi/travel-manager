@@ -68,6 +68,7 @@ from app.blueprints.api.v1 import (  # noqa: E402,F401
     auth,
     documents,
     itinerary,
+    spec,
     trips,
     users,
 )
