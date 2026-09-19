@@ -1,0 +1,175 @@
+# Decisiones de arquitectura
+
+Este documento recoge las decisiones de diseño que no se deducen leyendo el
+código, y el motivo de cada una.
+
+## 1. Los instantes se guardan como un triple
+
+Cada momento del itinerario ocupa tres columnas:
+
+| Columna | Tipo | Contenido |
+| --- | --- | --- |
+| `<prefijo>_local` | `TIMESTAMP` sin zona | La hora que figura en el billete |
+| `<prefijo>_tz` | `VARCHAR(64)` | Nombre IANA, p. ej. `Europe/Madrid` |
+| `<prefijo>_utc` | `TIMESTAMPTZ` | Derivada, y la única que se compara |
+
+**Por qué.** El requerimiento pide calcular márgenes de conexión en UTC
+respetando la zona de cada extremo (§5.3) y detectar cambios de huso que afecten
+a la planificación (§2.4). Una sola columna no sirve para ambas cosas:
+
+- Guardando solo UTC se pierde la hora que el viajero lee en su billete.
+- Guardando solo la hora local no se pueden restar dos instantes de husos
+  distintos.
+
+El caso que lo demuestra: un vuelo que sale de Madrid a las 23:30 del 28 de
+marzo de 2026 y aterriza a las 03:15 del día siguiente parece durar 3 h 45, pero
+esa madrugada los relojes se adelantan una hora: la duración real son 2 h 45.
+Un motor de alertas que reste horas locales se equivoca, y se equivoca en la
+dirección peligrosa.
+
+`timeutil.set_instant` es el único sitio que deriva `_utc`. Escribir esa columna
+en cualquier otro punto permite que las tres se desincronicen.
+
+## 2. La procedencia vive en una tabla aparte
+
+`field_provenance` guarda, por cada valor almacenado, de dónde salió.
+
+**Por qué no columnas en cada entidad.** Un documento respalda una docena de
+campos y un campo puede corregirse varias veces. La relación es genuinamente de
+muchos a uno, y la fila más reciente por `(entidad, campo)` es la procedencia
+actual mientras las anteriores son el historial de cambios que pide el §2.3.
+
+**La frontera entre los tres orígenes** —que el requerimiento nombra pero no
+define— se fija así:
+
+- `documento`: el valor aparece literalmente en el texto. `fragmento` y `pagina`
+  están poblados.
+- `ia`: el modelo lo infirió sin que exista un fragmento literal, por ejemplo
+  una zona horaria deducida de un código IATA.
+- `manual`: lo escribió o corrigió una persona.
+
+## 3. La autorización existe una sola vez
+
+`authorization_service.can(actor, permiso, recurso)` responde a todas las
+preguntas de acceso. Los decoradores de ruta son envoltorios finos, y la
+diferencia entre la interfaz y la API es únicamente cómo se renderiza la
+excepción resultante.
+
+`_trip_of` es un `singledispatch`: añadir una entidad nueva cuesta una línea y
+ninguna rama dentro de `can()`.
+
+**Denegar con 404.** Cuando el actor no tiene ninguna relación con el recurso se
+responde 404 en lugar de 403. El §5.1 habla de 403 para el usuario no asignado;
+denegar con 404 cumple el requisito (se deniega el acceso) y además no confirma
+que el viaje exista, de modo que no se puede sondear el sistema para descubrir
+identificadores válidos. Cuando el actor sí está en el viaje pero le falta un
+permiso concreto, sí recibe 403: ya sabe que el recurso existe.
+
+## 4. El aislamiento entre viajeros es estructural
+
+El §5.4 exige que una consulta de IA no incluya información de otros viajeros.
+Se cumple porque `build_ai_context` construye el contexto con
+`scope_itinerary_items`: los segmentos de otro viajero no están en el payload.
+El modelo no puede revelar lo que nunca recibió.
+
+La alternativa —pedirle al modelo que no mencione a otros viajeros— depende de
+que obedezca. Esta no.
+
+## 5. El motor de alertas reconcilia
+
+Cada hallazgo deriva una `dedup_key` determinista a partir del código de regla,
+el viaje, el viajero y los identificadores ordenados de las entidades
+implicadas. El reconciliador garantiza cuatro invariantes:
+
+1. No duplica una alerta ya abierta con la misma clave.
+2. Actualiza la evidencia y la severidad si cambiaron.
+3. Cierra automáticamente lo que ya no se reproduce, marcándolo como cierre
+   automático.
+4. **No deshace una decisión humana.** Una alerta que un gestor aceptó o
+   descartó se queda como él la dejó.
+
+La cuarta es la que da sentido al botón de aceptar: si recalcular reabriera la
+alerta, aceptarla no significaría nada.
+
+Las reglas reciben un `TripContext` ya cargado y **no tocan la base de datos**.
+Eso las hace testeables con factories y permite evaluar ocho reglas con un solo
+conjunto de consultas.
+
+## 6. Los umbrales de conexión
+
+El requerimiento da 90 minutos para conexiones Schengen y 150 para
+internacionales, pero no dice qué hace que una conexión sea Schengen. La regla
+lo decide por los tres países que toca el trasbordo —origen del tramo que llega,
+el nodo, y destino del tramo que sale—, porque eso es lo que determina si se
+cruza una frontera exterior. Un país desconocido usa el umbral más exigente:
+suponer «probablemente Schengen» relajaría en silencio un control de seguridad.
+
+Los umbrales base ya asumen el caso normal de conectar dentro de un mismo
+aeropuerto, que es lo que es una conexión. Lo que sí cambia la cuenta es que la
+conexión **no** sea en el mismo sitio: entonces se suma el tiempo del
+desplazamiento entre aeropuertos.
+
+## 7. El pipeline documental es reanudable
+
+Ocho tareas encadenadas, cada una con tres propiedades:
+
+- **Idempotente**: sale sin hacer nada si el documento no está en su estado de
+  entrada, de modo que una reentrega de Celery no duplica trabajo.
+- **Dirigida por la base de datos**: lee sus entradas de la base, no del retorno
+  de la tarea anterior. Esto es lo que permite reanudar desde el paso que falló.
+- **Con clases de error explícitas**: `TransientError` reintenta con espera
+  creciente; `PermanentError` (archivo infectado, tipo incorrecto, hash que no
+  cuadra) falla de inmediato, porque reintentar no puede arreglarlo.
+
+El estado solo lo escribe `document_service.transition`, que valida la
+transición contra un mapa explícito y la registra. Una prueba comprueba que
+ningún otro módulo asigna `estado_proceso`.
+
+## 8. La capa de IA
+
+**Separación.** Un *proveedor* sabe hablar con un endpoint de inferencia y nada
+más: no sabe de viajes, ni de permisos, ni de auditoría. Eso es lo que permite
+que Ollama, vLLM, OpenAI y DeepSeek sean intercambiables.
+
+**Defensa frente a inyección**, en dos capas que no dependen de la buena
+voluntad del modelo:
+
+1. El contenido no confiable viaja delimitado y con los delimitadores del propio
+   documento neutralizados, de modo que un documento no puede cerrar su propio
+   bloque y hacer que el resto se lea como instrucciones.
+2. La respuesta se exige contra un esquema JSON. Un «ignora tus instrucciones»
+   inyectado no tiene ningún campo donde aterrizar.
+
+Como red adicional, las referencias internas que devuelve el modelo se validan
+contra el conjunto autorizado: una que no estaba en el contexto se descarta.
+
+**Política de salida.** `ai/guard.py` se niega a enviar documentos o datos
+personales a un proveedor externo salvo habilitación administrativa expresa, y
+registra la negativa como una ejecución bloqueada en lugar de degradarla en
+silencio.
+
+## 9. La auditoría es una cadena
+
+Cada evento incluye el hash del anterior y el suyo propio, calculado sobre su
+contenido. Alterar o borrar una fila directamente en la base de datos rompe la
+cadena y `flask verify-audit` lo detecta.
+
+El timestamp se normaliza antes de entrar en el hash: PostgreSQL devuelve un
+valor con zona y SQLite uno sin ella, y si el resumen dependiera de esa
+diferencia toda la tabla parecería manipulada después de una restauración.
+
+La clave primaria es `BIGSERIAL` en lugar del UUID que usa el resto del modelo.
+Es una desviación consciente del §4: la tabla es un registro append-only al que
+ninguna clave ajena de negocio apunta, y una clave monotónica da inserciones
+ordenadas, un índice más compacto y paginación por keyset barata.
+
+## 10. Identidad desacoplada
+
+`IdentityProvider` define el contrato; `LocalIdentityProvider` es la única
+implementación de la fase 1. Lo que ya existe para que LDAP entre sin migrar
+nada: `users.identity_provider`, `users.external_id`, `password_hash` anulable,
+la tabla `role_group_mappings` (vacía) y el hecho de que todas las claves ajenas
+apuntan al UUID inmutable y nunca al nombre de inicio de sesión.
+
+La autorización sigue siendo nuestra aunque autentique el directorio, tal como
+pide el §3.3.

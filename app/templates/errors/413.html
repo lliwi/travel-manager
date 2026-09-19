@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Archivo demasiado grande — {{ app_name }}{% endblock %}
+
+{% block content %}
+<div class="error-page">
+    <i class="bi bi-file-earmark-x"></i>
+    <h1>413</h1>
+    <h2>Archivo demasiado grande</h2>
+    <p>El archivo supera el tamaño máximo permitido. Comprímalo o divídalo antes de subirlo.</p>
+    {% if error is defined and error and error.mensaje %}
+      <p class="text-muted small">{{ error.mensaje }}</p>
+    {% endif %}
+    <a href="{{ url_for('dashboard.index') }}" class="btn btn-primary">
+        <i class="bi bi-house me-2"></i>Volver al panel
+    </a>
+</div>
+{% endblock %}
+
+{% block content_anon %}
+<div class="error-page">
+    <i class="bi bi-file-earmark-x"></i>
+    <h1>413</h1>
+    <h2>Archivo demasiado grande</h2>
+    <p>El archivo supera el tamaño máximo permitido. Comprímalo o divídalo antes de subirlo.</p>
+    <a href="{{ url_for('auth.login') }}" class="btn btn-primary">Iniciar sesión</a>
+</div>
+{% endblock %}

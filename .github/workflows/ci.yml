@@ -1,0 +1,129 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+jobs:
+  lint:
+    name: Análisis estático
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Instalar herramientas
+        run: pip install ruff bandit
+
+      - name: ruff
+        run: ruff check app/ tests/
+
+      - name: bandit
+        # B101 (assert) se omite en tests, donde assert es lo correcto.
+        run: bandit -r app/ -ll -x app/tests
+
+  test:
+    name: Pruebas
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: travel
+          POSTGRES_PASSWORD: travel
+          POSTGRES_DB: travel_manager_test
+        options: >-
+          --health-cmd "pg_isready -U travel"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports: ['5432:5432']
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Dependencias del sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libmagic1 poppler-utils tesseract-ocr tesseract-ocr-spa
+
+      - name: Dependencias de Python
+        run: pip install -r requirements.txt
+
+      - name: Suite de pruebas
+        env:
+          FLASK_ENV: testing
+          SECRET_KEY: clave-de-pruebas
+          SECRETS_ENCRYPTION_KEY: clave-de-cifrado-para-pruebas
+        run: pytest --cov=app --cov-report=xml --cov-report=term
+
+      - name: Migraciones contra PostgreSQL
+        # La suite corre sobre SQLite; este paso comprueba que el esquema y las
+        # migraciones son válidos también en el motor de producción.
+        env:
+          FLASK_APP: wsgi.py
+          FLASK_ENV: development
+          DATABASE_URL: postgresql://travel:travel@localhost:5432/travel_manager_test
+          SECRET_KEY: clave-de-pruebas
+          SECRETS_ENCRYPTION_KEY: clave-de-cifrado-para-pruebas
+        run: |
+          flask db upgrade
+          flask db downgrade base
+          flask db upgrade
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cobertura
+          path: coverage.xml
+
+  dependencies:
+    name: Vulnerabilidades en dependencias
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pip-audit
+      - run: pip-audit -r requirements.txt --ignore-vuln GHSA-xxxx-placeholder
+        continue-on-error: true
+
+  build:
+    name: Construcción de imágenes
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Imagen de la aplicación
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/flask/Dockerfile
+          push: false
+          tags: travel-manager-web:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Imagen del worker
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/celery/Dockerfile
+          push: false
+          tags: travel-manager-worker:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

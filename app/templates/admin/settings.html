@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Ajustes — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('admin.index') }}">Administración</a></li>
+<li class="breadcrumb-item active">Ajustes</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-header"><h1>Ajustes del sistema</h1>
+<p class="text-muted mb-0">
+    Parámetros que la organización decide y que pueden cambiar sin desplegar.
+</p></div>
+
+<form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    {% for grupo, ajustes in grouped.items() %}
+    <div class="card mb-3">
+        <div class="card-header text-capitalize">{{ grupo }}</div>
+        <div class="card-body">
+            {% for ajuste in ajustes %}
+            {% set valor = get(ajuste.clave) %}
+            <div class="setting-row">
+                <div class="setting-info">
+                    <label for="ajuste__{{ ajuste.clave }}" class="fw-semibold">{{ ajuste.nombre }}</label>
+                    {% if ajuste.descripcion %}
+                    <p class="text-muted small mb-0">{{ ajuste.descripcion }}</p>
+                    {% endif %}
+                    <code class="small text-muted">{{ ajuste.clave }}</code>
+                </div>
+                <div class="setting-control">
+                    {% if ajuste.tipo == 'bool' %}
+                    <div class="form-check form-switch">
+                        <input type="checkbox" class="form-check-input"
+                               id="ajuste__{{ ajuste.clave }}" name="ajuste__{{ ajuste.clave }}"
+                               value="true" {{ 'checked' if valor }}>
+                    </div>
+                    {% elif ajuste.tipo in ('int', 'float') %}
+                    <input type="number" class="form-control form-control-sm"
+                           id="ajuste__{{ ajuste.clave }}" name="ajuste__{{ ajuste.clave }}"
+                           value="{{ valor }}" step="{{ '0.01' if ajuste.tipo == 'float' else '1' }}">
+                    {% else %}
+                    <input type="text" class="form-control form-control-sm"
+                           id="ajuste__{{ ajuste.clave }}" name="ajuste__{{ ajuste.clave }}"
+                           value="{{ valor }}">
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+
+    <button type="submit" class="btn btn-primary">
+        <i class="bi bi-save me-1"></i>Guardar ajustes</button>
+</form>
+{% endblock %}

@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import badge %}
+{% block title %}Panel — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}<li class="breadcrumb-item active">Panel</li>{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Panel</h1>
+    <p class="text-muted">Hola, {{ current_user.nombre }}. Esto es lo que requiere su atención.</p>
+</div>
+
+<div class="stat-grid">
+    <div class="stat-card">
+        <span class="stat-label">Viajes visibles</span>
+        <span class="stat-value">{{ resumen.viajes_totales }}</span>
+    </div>
+    <div class="stat-card">
+        <span class="stat-label">En curso</span>
+        <span class="stat-value">{{ resumen.viajes_en_curso }}</span>
+    </div>
+    <div class="stat-card {{ 'stat-warning' if resumen.alertas_abiertas }}">
+        <span class="stat-label">Alertas abiertas</span>
+        <span class="stat-value">{{ resumen.alertas_abiertas }}</span>
+    </div>
+    <div class="stat-card {{ 'stat-danger' if resumen.alertas_criticas }}">
+        <span class="stat-label">Alertas graves</span>
+        <span class="stat-value">{{ resumen.alertas_criticas }}</span>
+    </div>
+    {% if resumen.documentos_pendientes is defined %}
+    <div class="stat-card {{ 'stat-info' if resumen.documentos_pendientes }}">
+        <span class="stat-label">Documentos por revisar</span>
+        <span class="stat-value">{{ resumen.documentos_pendientes }}</span>
+    </div>
+    {% endif %}
+</div>
+
+<div class="row g-4 mt-1">
+    <div class="col-lg-7">
+        {% if en_curso %}
+        <div class="card mb-4">
+            <div class="card-header"><i class="bi bi-airplane me-2"></i>Viajes en curso</div>
+            <ul class="list-group list-group-flush">
+                {% for trip in en_curso %}
+                <li class="list-group-item">
+                    <a href="{{ url_for('trips.detail', trip_id=trip.id) }}" class="fw-semibold">
+                        {{ trip.titulo }}</a>
+                    <div class="text-muted small">
+                        {{ trip.referencia }} · {{ trip.resumen_destinos }}
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        <div class="card">
+            <div class="card-header"><i class="bi bi-calendar-event me-2"></i>Próximos viajes</div>
+            {% if proximos %}
+            <ul class="list-group list-group-flush">
+                {% for trip in proximos %}
+                <li class="list-group-item d-flex justify-content-between align-items-start">
+                    <div>
+                        <a href="{{ url_for('trips.detail', trip_id=trip.id) }}" class="fw-semibold">
+                            {{ trip.titulo }}</a>
+                        <div class="text-muted small">
+                            {{ trip.referencia }} · {{ trip.resumen_destinos }}
+                        </div>
+                    </div>
+                    <div class="text-end">
+                        {{ badge(trip.estado.label, trip.estado.css_class) }}
+                        <div class="text-muted small mt-1">
+                            {{ trip.inicio_local | local_date }}
+                        </div>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <div class="card-body empty-state">
+                <i class="bi bi-calendar-x"></i>
+                <p>No hay viajes próximos.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="col-lg-5">
+        <div class="card mb-4">
+            <div class="card-header"><i class="bi bi-bell me-2"></i>Alertas recientes</div>
+            {% if alertas %}
+            <ul class="list-group list-group-flush">
+                {% for alerta in alertas %}
+                <li class="list-group-item">
+                    <div class="d-flex justify-content-between align-items-start gap-2">
+                        <a href="{{ url_for('alerts.detail', alert_id=alerta.id) }}">
+                            {{ alerta.titulo }}</a>
+                        {{ badge(alerta.severidad.label, alerta.severidad.css_class) }}
+                    </div>
+                    <div class="text-muted small">{{ alerta.trip.referencia }}</div>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <div class="card-body empty-state">
+                <i class="bi bi-check-circle"></i>
+                <p>No hay alertas abiertas.</p>
+            </div>
+            {% endif %}
+        </div>
+
+        {% if pendientes_revision %}
+        <div class="card">
+            <div class="card-header"><i class="bi bi-file-earmark-check me-2"></i>Pendientes de revisión</div>
+            <ul class="list-group list-group-flush">
+                {% for doc in pendientes_revision %}
+                <li class="list-group-item">
+                    <a href="{{ url_for('documents.review', document_id=doc.id) }}">
+                        {{ doc.nombre_original }}</a>
+                    <div class="text-muted small">
+                        {{ doc.clasificacion.label }} · {{ doc.trip.referencia }}
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

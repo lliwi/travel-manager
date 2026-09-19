@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import badge %}
+{% block title %}Proveedores de IA — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('admin.index') }}">Administración</a></li>
+<li class="breadcrumb-item active">Proveedores de IA</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-header"><h1>Proveedores de IA</h1></div>
+
+<div class="alert alert-info">
+    <i class="bi bi-shield-lock me-2"></i>
+    Las claves API se almacenan cifradas y nunca se muestran ni se envían al
+    navegador. Por defecto, el contenido de los documentos y los datos personales
+    no salen a proveedores externos: eso se habilita expresamente en
+    <a href="{{ url_for('admin.settings') }}">Ajustes</a>.
+</div>
+
+{% if providers %}
+<div class="card mb-4">
+    <div class="table-responsive">
+        <table class="table align-middle mb-0">
+            <thead><tr><th>Nombre</th><th>Proveedor</th><th>Modelo</th>
+                       <th>Clave</th><th>Estado</th><th></th></tr></thead>
+            <tbody>
+            {% for p in providers %}
+            <tr>
+                <td><strong>{{ p.nombre }}</strong>
+                    <div class="text-muted small">{{ p.base_url or '—' }}</div></td>
+                <td>
+                    {{ p.proveedor.label }}
+                    {% if p.es_externo %}{{ badge('externo', 'warning') }}
+                    {% else %}{{ badge('local', 'success') }}{% endif %}
+                </td>
+                <td><code>{{ p.modelo_por_defecto or '—' }}</code></td>
+                <td>
+                    {% if p.api_key_encrypted %}
+                    <span class="text-muted">···{{ p.api_key_pista }}</span>
+                    {% else %}<span class="text-muted">—</span>{% endif %}
+                </td>
+                <td>
+                    {% if p.ultimo_chequeo_ok is none %}
+                        {{ badge('sin comprobar', 'secondary') }}
+                    {% elif p.ultimo_chequeo_ok %}
+                        {{ badge('accesible', 'success') }}
+                    {% else %}
+                        {{ badge('no accesible', 'danger') }}
+                    {% endif %}
+                    {% if p.ultimo_chequeo_detalle %}
+                    <div class="text-muted small">{{ p.ultimo_chequeo_detalle }}</div>{% endif %}
+                </td>
+                <td class="text-end">
+                    <form method="post"
+                          action="{{ url_for('admin.test_ai_provider', provider_id=p.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="btn btn-sm btn-outline-secondary">
+                            <i class="bi bi-plug me-1"></i>Probar</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% else %}
+<div class="card mb-4"><div class="card-body empty-state">
+    <i class="bi bi-cpu"></i>
+    <p>No hay proveedores configurados en base de datos.</p>
+    <p class="text-muted small">
+        El sistema usa el proveedor definido por entorno
+        (<code>AI_DEFAULT_PROVIDER</code>). Compruébelo con
+        <code>flask ai-health</code>.
+    </p>
+</div></div>
+{% endif %}
+
+<div class="card">
+    <div class="card-header">Asignación por tarea</div>
+    {% if bindings %}
+    <div class="table-responsive">
+        <table class="table mb-0">
+            <thead><tr><th>Tarea</th><th>Proveedor</th><th>Modelo</th><th>Respaldo</th></tr></thead>
+            <tbody>
+            {% for b in bindings %}
+            <tr>
+                <td>{{ b.tarea.label }}</td>
+                <td>{{ b.provider_config.nombre if b.provider_config else '—' }}</td>
+                <td><code>{{ b.modelo or '—' }}</code></td>
+                <td>{{ b.fallback_config.nombre if b.fallback_config else '—' }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="card-body">
+        <p class="text-muted mb-0">
+            Sin asignaciones específicas: todas las tareas usan el proveedor
+            predeterminado.
+        </p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

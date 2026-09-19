@@ -1,0 +1,87 @@
+# Superposición de desarrollo.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# Diferencias respecto a producción:
+#   - El código se monta desde el host y el servidor recarga al guardar.
+#   - La aplicación se publica directamente; no hace falta Nginx ni TLS.
+#   - PostgreSQL, Redis y MinIO publican su puerto en loopback, para poder
+#     conectar herramientas locales.
+#   - ClamAV no se levanta: tarda minutos en descargar firmas y en desarrollo
+#     rara vez aporta. `ANTIVIRUS_BACKEND=noop` deja constancia explícita de
+#     que no se está analizando nada.
+
+services:
+  postgres:
+    ports:
+      - '127.0.0.1:5432:5432'
+
+  redis:
+    ports:
+      - '127.0.0.1:6379:6379'
+
+  minio:
+    ports:
+      - '127.0.0.1:9000:9000'
+      - '127.0.0.1:9001:9001'
+
+  clamav:
+    # Sin réplicas: el servicio queda definido pero no se arranca.
+    deploy:
+      replicas: 0
+    profiles: ['antivirus']
+
+  web:
+    build:
+      context: ..
+      dockerfile: docker/flask/Dockerfile
+    command: flask run --host=0.0.0.0 --port=5000 --reload
+    environment:
+      FLASK_ENV: development
+      FLASK_DEBUG: '1'
+      LOG_LEVEL: DEBUG
+      LOG_JSON: 'false'
+      ANTIVIRUS_BACKEND: noop
+    volumes:
+      # El código en caliente; los datos siguen en volúmenes.
+      - ../app:/app/app
+      - ../migrations:/app/migrations
+      - ../tests:/app/tests
+      - ../wsgi.py:/app/wsgi.py
+    ports:
+      - '${DEV_PORT:-5000}:5000'
+    depends_on:
+      clamav:
+        condition: service_started
+        required: false
+
+  worker:
+    command: >
+      celery -A app.tasks.celery_app.celery worker
+      --loglevel=debug
+      --concurrency=1
+    environment:
+      FLASK_ENV: development
+      LOG_LEVEL: DEBUG
+      LOG_JSON: 'false'
+      ANTIVIRUS_BACKEND: noop
+    volumes:
+      - ../app:/app/app
+      - ../migrations:/app/migrations
+    depends_on:
+      clamav:
+        condition: service_started
+        required: false
+
+  beat:
+    environment:
+      FLASK_ENV: development
+      LOG_JSON: 'false'
+    volumes:
+      - ../app:/app/app
+
+  nginx:
+    # En desarrollo se accede directamente a la aplicación.
+    deploy:
+      replicas: 0
+    profiles: ['proxy']

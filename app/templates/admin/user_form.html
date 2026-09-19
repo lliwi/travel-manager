@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import render_field %}
+{% block title %}{{ 'Editar usuario' if user else 'Nuevo usuario' }} — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('admin.users') }}">Usuarios</a></li>
+<li class="breadcrumb-item active">{{ user.username if user else 'Nuevo' }}</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-header"><h1>{{ 'Editar usuario' if user else 'Nuevo usuario' }}</h1></div>
+
+<div class="row"><div class="col-lg-7">
+    <div class="card"><div class="card-body">
+        <form method="post" novalidate>
+            {{ form.hidden_tag() }}
+            <div class="row">
+                <div class="col-md-6">{{ render_field(form.username) }}</div>
+                <div class="col-md-6">{{ render_field(form.email) }}</div>
+                <div class="col-md-6">{{ render_field(form.nombre) }}</div>
+                <div class="col-md-6">{{ render_field(form.apellidos) }}</div>
+                <div class="col-md-6">{{ render_field(form.puesto) }}</div>
+                <div class="col-md-6">{{ render_field(form.departamento) }}</div>
+                <div class="col-md-6">{{ render_field(form.estado) }}</div>
+            </div>
+            {{ render_field(form.roles) }}
+            {{ render_field(form.password) }}
+            <div class="d-flex gap-2">
+                {{ form.submit }}
+                <a href="{{ url_for('admin.users') }}" class="btn btn-outline-secondary">Cancelar</a>
+            </div>
+        </form>
+    </div></div>
+</div></div>
+{% endblock %}

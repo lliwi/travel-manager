@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Demasiadas peticiones — {{ app_name }}{% endblock %}
+
+{% block content %}
+<div class="error-page">
+    <i class="bi bi-hourglass-split"></i>
+    <h1>429</h1>
+    <h2>Demasiadas peticiones</h2>
+    <p>Ha realizado demasiadas peticiones en poco tiempo. Espere unos minutos e inténtelo de nuevo.</p>
+    {% if error is defined and error and error.mensaje %}
+      <p class="text-muted small">{{ error.mensaje }}</p>
+    {% endif %}
+    <a href="{{ url_for('dashboard.index') }}" class="btn btn-primary">
+        <i class="bi bi-house me-2"></i>Volver al panel
+    </a>
+</div>
+{% endblock %}
+
+{% block content_anon %}
+<div class="error-page">
+    <i class="bi bi-hourglass-split"></i>
+    <h1>429</h1>
+    <h2>Demasiadas peticiones</h2>
+    <p>Ha realizado demasiadas peticiones en poco tiempo. Espere unos minutos e inténtelo de nuevo.</p>
+    <a href="{{ url_for('auth.login') }}" class="btn btn-primary">Iniciar sesión</a>
+</div>
+{% endblock %}

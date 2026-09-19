@@ -1,0 +1,13 @@
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    {% for category, message in messages %}
+      {% set cat = 'danger' if category == 'error' else category %}
+      {% set icon = {'success': 'check-circle', 'danger': 'exclamation-triangle',
+                     'warning': 'exclamation-circle', 'info': 'info-circle'}.get(cat, 'info-circle') %}
+      <div class="alert alert-{{ cat }} alert-dismissible fade show" role="alert">
+        <i class="bi bi-{{ icon }} me-2"></i>{{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+      </div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}

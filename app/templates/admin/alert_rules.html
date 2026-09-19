@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import badge %}
+{% block title %}Reglas de alerta — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('admin.index') }}">Administración</a></li>
+<li class="breadcrumb-item active">Reglas de alerta</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-header"><h1>Reglas de alerta</h1>
+<p class="text-muted mb-0">
+    Los cambios se aplican en el siguiente recálculo de cada viaje.
+</p></div>
+
+<form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    {% for rule in rules %}
+    <div class="card mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <div>
+                <strong>{{ rule.nombre }}</strong>
+                {% if rule.severidad %}
+                {{ badge(rule.severidad.label, rule.severidad.css_class) }}{% endif %}
+                <code class="small text-muted ms-2">{{ rule.regla }}</code>
+            </div>
+            <div class="form-check form-switch mb-0">
+                <input type="checkbox" class="form-check-input" id="activa__{{ rule.regla }}"
+                       name="activa__{{ rule.regla }}" {{ 'checked' if rule.activa }}>
+                <label class="form-check-label small" for="activa__{{ rule.regla }}">Activa</label>
+            </div>
+        </div>
+        <div class="card-body">
+            {% if rule.descripcion %}
+            <p class="text-muted small">{{ rule.descripcion }}</p>{% endif %}
+
+            {% if rule.parametros %}
+            <div class="row g-2">
+                {% for clave, valor in rule.parametros.items() %}
+                <div class="col-md-4 col-lg-3">
+                    <label class="form-label small" for="param__{{ rule.regla }}__{{ clave }}">
+                        {{ clave.replace('_', ' ') | capitalize }}</label>
+                    {% if valor is sameas true or valor is sameas false %}
+                    <select class="form-select form-select-sm"
+                            id="param__{{ rule.regla }}__{{ clave }}"
+                            name="param__{{ rule.regla }}__{{ clave }}">
+                        <option value="true" {{ 'selected' if valor }}>Sí</option>
+                        <option value="false" {{ 'selected' if not valor }}>No</option>
+                    </select>
+                    {% else %}
+                    <input type="number" class="form-control form-control-sm"
+                           id="param__{{ rule.regla }}__{{ clave }}"
+                           name="param__{{ rule.regla }}__{{ clave }}" value="{{ valor }}">
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="text-muted small mb-0">Esta regla no tiene parámetros configurables.</p>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+
+    <button type="submit" class="btn btn-primary">
+        <i class="bi bi-save me-1"></i>Guardar umbrales</button>
+</form>
+{% endblock %}

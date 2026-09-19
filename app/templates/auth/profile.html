@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import render_field, badge %}
+{% block title %}Mi perfil — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}<li class="breadcrumb-item active">Mi perfil</li>{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Mi perfil</h1>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-7">
+        <div class="card">
+            <div class="card-body">
+                <form method="post" novalidate>
+                    {{ form.hidden_tag() }}
+                    <div class="row">
+                        <div class="col-md-6">{{ render_field(form.nombre) }}</div>
+                        <div class="col-md-6">{{ render_field(form.apellidos) }}</div>
+                        <div class="col-md-6">{{ render_field(form.telefono) }}</div>
+                        <div class="col-md-6">{{ render_field(form.puesto) }}</div>
+                        <div class="col-md-6">{{ render_field(form.departamento) }}</div>
+                        <div class="col-md-6">{{ render_field(form.zona_horaria) }}</div>
+                    </div>
+                    {{ form.submit }}
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-5">
+        <div class="card">
+            <div class="card-header">Cuenta</div>
+            <div class="card-body">
+                <dl class="detail-list">
+                    <dt>Usuario</dt><dd>{{ user.username }}</dd>
+                    <dt>Correo</dt><dd>{{ user.email }}</dd>
+                    <dt>Roles</dt>
+                    <dd>{% for role in user.roles %}{{ badge(role.nombre, 'primary') }} {% endfor %}</dd>
+                    <dt>Proveedor de identidad</dt>
+                    <dd>{{ user.identity_provider.label }}</dd>
+                    <dt>Último acceso</dt>
+                    <dd>{{ user.last_login_at | local_dt('UTC') if user.last_login_at else '—' }}</dd>
+                </dl>
+                <a href="{{ url_for('auth.change_password') }}" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-key me-1"></i>Cambiar contraseña
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

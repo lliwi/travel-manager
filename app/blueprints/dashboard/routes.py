@@ -1,0 +1,102 @@
+"""Dashboard: what this actor should look at next.
+
+The content differs by role because the roles want different things: a manager
+wants open alerts and documents awaiting review, a traveller wants their next
+trip.
+"""
+from flask import render_template
+from flask_login import current_user, login_required
+
+from app.blueprints.dashboard import dashboard_bp
+from app.extensions import db
+from app.models.alert import Alert
+from app.models.document import Document
+from app.models.enums import (
+    ALERT_OPEN_STATES,
+    AlertSeverity,
+    DocumentProcessState,
+    TripStatus,
+)
+from app.models.trip import Trip
+from app.services.authorization_service import visible_trips_query
+from app.utils.timeutil import utcnow
+
+
+@dashboard_bp.route('/')
+@login_required
+def index():
+    """Landing page after login."""
+    actor = current_user._get_current_object()
+    visible = visible_trips_query(actor)
+    now = utcnow()
+
+    proximos = (
+        visible.filter(
+            Trip.inicio_utc.isnot(None),
+            Trip.inicio_utc >= now,
+            Trip.estado.notin_([TripStatus.CANCELADO.value, TripStatus.FINALIZADO.value]),
+        )
+        .order_by(Trip.inicio_utc.asc())
+        .limit(5)
+        .all()
+    )
+
+    en_curso = (
+        visible.filter(Trip.estado == TripStatus.EN_CURSO.value)
+        .order_by(Trip.inicio_utc.asc())
+        .limit(5)
+        .all()
+    )
+
+    # Subquery of trip ids this actor may see, reused by the alert and document
+    # counts so neither can leak across the authorisation boundary.
+    trip_ids = visible.with_entities(Trip.id).subquery()
+
+    alertas = (
+        Alert.query.filter(
+            Alert.trip_id.in_(db.select(trip_ids.c.id)),
+            Alert.estado.in_([str(s) for s in ALERT_OPEN_STATES]),
+        )
+        .order_by(Alert.generada_en.desc())
+        .limit(8)
+        .all()
+    )
+
+    resumen = {
+        'viajes_totales': visible.count(),
+        'viajes_en_curso': visible.filter(
+            Trip.estado == TripStatus.EN_CURSO.value
+        ).count(),
+        'alertas_abiertas': Alert.query.filter(
+            Alert.trip_id.in_(db.select(trip_ids.c.id)),
+            Alert.estado.in_([str(s) for s in ALERT_OPEN_STATES]),
+        ).count(),
+        'alertas_criticas': Alert.query.filter(
+            Alert.trip_id.in_(db.select(trip_ids.c.id)),
+            Alert.estado.in_([str(s) for s in ALERT_OPEN_STATES]),
+            Alert.severidad.in_([AlertSeverity.ALTA.value, AlertSeverity.CRITICA.value]),
+        ).count(),
+    }
+
+    pendientes_revision = []
+    if actor.is_gestor or actor.is_administrador:
+        pendientes_revision = (
+            Document.query.filter(
+                Document.trip_id.in_(db.select(trip_ids.c.id)),
+                Document.is_deleted.is_(False),
+                Document.estado_proceso == DocumentProcessState.PENDIENTE_REVISION.value,
+            )
+            .order_by(Document.updated_at.desc())
+            .limit(8)
+            .all()
+        )
+        resumen['documentos_pendientes'] = len(pendientes_revision)
+
+    return render_template(
+        'dashboard/index.html',
+        resumen=resumen,
+        proximos=proximos,
+        en_curso=en_curso,
+        alertas=alertas,
+        pendientes_revision=pendientes_revision,
+    )

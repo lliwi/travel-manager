@@ -1,0 +1,315 @@
+"""Service-layer behaviour: trips, normalisation, extraction and settings."""
+from datetime import datetime
+
+import pytest
+
+from app.extensions import db
+from app.models.enums import (
+    ProvenanceOrigin,
+    TripStatus,
+)
+from app.services import (
+    normalization_service,
+    provenance_service,
+    settings_service,
+    trip_service,
+    user_service,
+)
+from app.utils.errors import ConflictError, ResourceNotFound, ValidationError
+
+
+@pytest.mark.unit
+class TestServicioDeViajes:
+    def test_la_referencia_es_secuencial_por_año(self, gestor, seeded):
+        primero = trip_service.create_trip(gestor, titulo='Uno')
+        segundo = trip_service.create_trip(gestor, titulo='Dos')
+
+        año = datetime.now().year
+        assert primero.referencia == f'VJ-{año}-0001'
+        assert segundo.referencia == f'VJ-{año}-0002'
+
+    def test_no_se_admite_un_viaje_sin_titulo(self, gestor, seeded):
+        with pytest.raises(ValidationError, match='título'):
+            trip_service.create_trip(gestor, titulo='   ')
+
+    def test_no_se_admite_que_termine_antes_de_empezar(self, gestor, seeded):
+        with pytest.raises(ValidationError, match='anterior'):
+            trip_service.create_trip(
+                gestor, titulo='Imposible',
+                inicio_local=datetime(2026, 6, 10, 10, 0), inicio_tz='Europe/Madrid',
+                fin_local=datetime(2026, 6, 1, 10, 0), fin_tz='Europe/Madrid',
+            )
+
+    def test_las_fechas_guardan_el_triple(self, gestor, seeded):
+        trip = trip_service.create_trip(
+            gestor, titulo='Con fechas',
+            inicio_local=datetime(2026, 6, 1, 10, 0), inicio_tz='Europe/Madrid',
+        )
+        assert trip.inicio_local == datetime(2026, 6, 1, 10, 0)
+        assert trip.inicio_tz == 'Europe/Madrid'
+        assert trip.inicio_utc.hour == 8
+
+    def test_no_se_asigna_dos_veces_a_la_misma_persona(self, gestor, trip, viajero):
+        with pytest.raises(ConflictError, match='ya está asignada'):
+            trip_service.add_traveler(gestor, trip, viajero)
+
+    def test_reasignar_a_quien_se_quitó_reutiliza_la_fila(self, gestor, trip, viajero):
+        """The unique constraint on (trip, user) would reject a second row."""
+        trip_service.remove_traveler(gestor, trip, viajero.id)
+        db.session.refresh(trip)
+        assert trip.traveler_for(viajero.id) is None
+
+        vuelto = trip_service.add_traveler(gestor, trip, viajero)
+        db.session.refresh(trip)
+
+        assert trip.traveler_for(viajero.id) is not None
+        assert not vuelto.is_deleted
+
+    def test_quitar_a_quien_no_esta_asignado_falla(self, gestor, trip, ajeno):
+        with pytest.raises(ResourceNotFound):
+            trip_service.remove_traveler(gestor, trip, ajeno.id)
+
+    def test_un_cambio_de_itinerario_incrementa_la_version(self, gestor, trip, otro_viajero):
+        antes = trip.itinerary_version
+        trip_service.add_traveler(gestor, trip, otro_viajero)
+        assert trip.itinerary_version > antes
+
+    def test_los_destinos_se_ordenan_solos(self, gestor, trip, seeded):
+        a = trip_service.add_destination(gestor, trip, ciudad='Berlín', pais_codigo='DE')
+        b = trip_service.add_destination(gestor, trip, ciudad='Praga', pais_codigo='CZ')
+        assert [a.orden, b.orden] == [1, 2] or [a.orden, b.orden] == [0, 1]
+
+    def test_eliminar_un_destino_cierra_el_hueco(self, gestor, trip, seeded):
+        for ciudad in ('Berlín', 'Praga', 'Viena'):
+            trip_service.add_destination(gestor, trip, ciudad=ciudad)
+        db.session.refresh(trip)
+
+        medio = trip.destinations[1]
+        trip_service.remove_destination(gestor, trip, medio.id)
+        db.session.refresh(trip)
+
+        ordenes = sorted(d.orden for d in trip.destinations)
+        assert ordenes == list(range(len(ordenes))), (
+            'Los órdenes deben quedar consecutivos tras eliminar uno.'
+        )
+
+    def test_un_viaje_cancelado_no_se_edita(self, gestor, trip):
+        trip_service.change_status(gestor, trip, TripStatus.CANCELADO)
+
+        with pytest.raises(ConflictError, match='cancelado'):
+            trip_service.update_trip(gestor, trip, titulo='Nuevo título')
+
+
+@pytest.mark.unit
+class TestNormalizacion:
+    """Specification section 2.3 step 5."""
+
+    def test_el_localizador_se_normaliza(self, app, seeded):
+        resultado = normalization_service.normalize(
+            {'campos': {'localizador': ' xyz 12a '}, 'confianzas': {'localizador': 1.0}}
+        )
+        assert resultado.campos['localizador'] == 'XYZ12A'
+
+    def test_un_localizador_raro_baja_la_confianza(self, app, seeded):
+        resultado = normalization_service.normalize(
+            {'campos': {'localizador': 'AB'}, 'confianzas': {'localizador': 1.0}}
+        )
+        assert resultado.confianzas['localizador'] < 1.0
+        assert resultado.avisos
+
+    def test_el_aeropuerto_aporta_su_zona_horaria(self, app, seeded):
+        """The catalogue is reference data; it wins over a model's guess."""
+        resultado = normalization_service.normalize({
+            'campos': {
+                'origen_codigo': 'mad',
+                'salida': {'local': '2026-06-01T10:00', 'zona_horaria': None},
+            },
+            'confianzas': {'origen_codigo': 0.9, 'salida': 0.9},
+        })
+
+        assert resultado.campos['origen_codigo'] == 'MAD'
+        assert resultado.campos['origen_pais'] == 'ES'
+        assert resultado.campos['salida']['zona_horaria'] == 'Europe/Madrid'
+
+    def test_un_aeropuerto_desconocido_baja_la_confianza(self, app, seeded):
+        resultado = normalization_service.normalize({
+            'campos': {'origen_codigo': 'ZZZ'},
+            'confianzas': {'origen_codigo': 1.0},
+        })
+        assert resultado.avisos
+        assert resultado.confianzas['origen_codigo'] < 1.0
+
+    def test_una_zona_horaria_asumida_baja_la_confianza(self, app, seeded):
+        """A guessed timezone makes every derived margin a guess too."""
+        resultado = normalization_service.normalize({
+            'campos': {'salida': {'local': '2026-06-01T10:00', 'zona_horaria': None}},
+            'confianzas': {'salida': 1.0},
+        })
+
+        assert resultado.campos['salida']['zona_horaria'] == 'Europe/Madrid'
+        assert resultado.confianzas['salida'] < 1.0
+        assert any('zona horaria' in a for a in resultado.avisos)
+
+    @pytest.mark.parametrize('entrada,esperado', [
+        ('2026-06-01T10:00', '2026-06-01T10:00'),
+        ('2026-06-01 10:00', '2026-06-01T10:00'),
+        ('01/06/2026 10:00', '2026-06-01T10:00'),
+        ('01-06-2026 10:00', '2026-06-01T10:00'),
+        ('01.06.2026 10:00', '2026-06-01T10:00'),
+    ])
+    def test_formatos_de_fecha_habituales(self, app, seeded, entrada, esperado):
+        """European documents are day-first; parsing must not flip the month."""
+        resultado = normalization_service.normalize({
+            'campos': {'salida': {'local': entrada, 'zona_horaria': 'Europe/Madrid'}},
+            'confianzas': {},
+        })
+        assert resultado.campos['salida']['local'] == esperado
+
+    def test_una_fecha_ilegible_se_señala(self, app, seeded):
+        resultado = normalization_service.normalize({
+            'campos': {'salida': {'local': 'el martes que viene',
+                                  'zona_horaria': 'Europe/Madrid'}},
+            'confianzas': {'salida': 0.8},
+        })
+        assert resultado.campos['salida']['local'] is None
+        assert any('interpretar' in a for a in resultado.avisos)
+
+    def test_la_moneda_se_normaliza(self, app, seeded):
+        resultado = normalization_service.normalize({
+            'campos': {'moneda': '€', 'importe': '1.234,50'},
+            'confianzas': {},
+        })
+        assert resultado.campos['moneda'] == 'EUR'
+
+    def test_la_confianza_global_es_la_media(self, app, seeded):
+        resultado = normalization_service.normalize({
+            'campos': {'a': 'x', 'b': 'y'},
+            'confianzas': {'a': 0.8, 'b': 1.0},
+        })
+        assert resultado.confianza_global == pytest.approx(0.9)
+
+
+@pytest.mark.unit
+class TestProcedencia:
+    def test_un_campo_manual_se_marca_como_manual(self, gestor, trip, segment_factory):
+        segmento = segment_factory()
+        provenance_service.record_manual_fields(
+            segmento, 'segmento', ['numero'], gestor, commit=True
+        )
+
+        actual = provenance_service.current_for(segmento, 'segmento')
+        assert actual['numero'].origen is ProvenanceOrigin.MANUAL
+        assert float(actual['numero'].confianza) == 1.0
+
+    def test_un_fragmento_literal_marca_origen_documento(
+        self, gestor, documento_procesado, trip, segment_factory
+    ):
+        """The literal span is exactly what separates 'documento' from 'ia'."""
+        segmento = segment_factory()
+        extraction = documento_procesado.current_extraction
+
+        provenance_service.record_extracted_field(
+            segmento, 'segmento', 'numero', 'IB3210', extraction,
+            confianza=0.95, pagina=1, fragmento='Vuelo: IB3210', commit=True,
+        )
+        provenance_service.record_extracted_field(
+            segmento, 'segmento', 'salida_tz', 'Europe/Madrid', extraction,
+            confianza=0.8, fragmento=None, commit=True,
+        )
+
+        actual = provenance_service.current_for(segmento, 'segmento')
+        assert actual['numero'].origen is ProvenanceOrigin.DOCUMENTO
+        assert actual['salida_tz'].origen is ProvenanceOrigin.IA
+
+    def test_el_historial_conserva_las_correcciones(self, gestor, trip, segment_factory):
+        segmento = segment_factory()
+        provenance_service.record_manual_change(
+            segmento, 'segmento', 'numero', 'IB3210', 'IB3211', gestor, commit=True
+        )
+        provenance_service.record_manual_change(
+            segmento, 'segmento', 'numero', 'IB3211', 'IB3212', gestor, commit=True
+        )
+
+        historial = provenance_service.history_for(segmento, 'segmento', 'numero')
+        assert len(historial) == 2
+        assert historial[-1].valor_actual == 'IB3212'
+        assert provenance_service.current_for(
+            segmento, 'segmento'
+        )['numero'].valor_actual == 'IB3212'
+
+    def test_el_rollup_refleja_la_confianza_minima(
+        self, gestor, documento_procesado, segment_factory
+    ):
+        segmento = segment_factory()
+        extraction = documento_procesado.current_extraction
+
+        for campo, confianza in (('numero', 0.95), ('origen_codigo', 0.55)):
+            provenance_service.record_extracted_field(
+                segmento, 'segmento', campo, 'x', extraction,
+                confianza=confianza, fragmento='algo', commit=True,
+            )
+
+        minima, requiere = provenance_service.recalculate_rollup(
+            segmento, 'segmento', commit=True
+        )
+        assert float(minima) == 0.55
+        assert requiere, 'Por debajo del umbral debe marcarse para revisión.'
+
+
+@pytest.mark.unit
+class TestAjustes:
+    def test_se_siembran_los_valores_por_defecto(self, app):
+        creados = settings_service.seed_defaults()
+        assert creados > 0
+        assert settings_service.get_bool('COSTES_HABILITADOS') is False
+
+    def test_sembrar_dos_veces_no_duplica(self, app):
+        settings_service.seed_defaults()
+        assert settings_service.seed_defaults() == 0
+
+    def test_no_se_sobrescribe_lo_que_ajustó_un_administrador(self, app, admin):
+        settings_service.seed_defaults()
+        settings_service.set_value('COSTES_HABILITADOS', True, actor=admin)
+
+        settings_service.seed_defaults()
+
+        assert settings_service.get_bool('COSTES_HABILITADOS') is True, (
+            'Una actualización no debe revertir la configuración de la organización.'
+        )
+
+    def test_los_tipos_se_respetan(self, app, admin):
+        settings_service.seed_defaults()
+
+        settings_service.set_value('RETENCION_DOCUMENTOS_DIAS', 365, actor=admin)
+        assert settings_service.get_int('RETENCION_DOCUMENTOS_DIAS') == 365
+
+        settings_service.set_value('DOCUMENTOS_UMBRAL_REVISION', 0.75, actor=admin)
+        assert settings_service.get_float('DOCUMENTOS_UMBRAL_REVISION') == 0.75
+
+
+@pytest.mark.unit
+class TestServicioDeUsuarios:
+    def test_no_se_admite_una_contrasena_debil(self, admin, seeded):
+        with pytest.raises(ValidationError):
+            user_service.create_user(
+                admin, 'debil', 'debil@x.test', 'Débil', 'corta1A',
+                role_codes=['usuario'],
+            )
+
+    def test_no_se_admite_un_correo_duplicado(self, admin, gestor, seeded):
+        with pytest.raises(ConflictError, match='Ya existe'):
+            user_service.create_user(
+                admin, 'otro', gestor.email, 'Otro',
+                'Contrasena-Muy-Segura-2026', role_codes=['usuario'],
+            )
+
+    def test_no_se_puede_eliminar_uno_mismo(self, admin, seeded):
+        with pytest.raises(ValidationError, match='propia cuenta'):
+            user_service.delete_user(admin, admin)
+
+    def test_el_correo_se_guarda_en_minusculas(self, admin, seeded):
+        usuario = user_service.create_user(
+            admin, 'mayus', 'MAYUS@Example.TEST', 'Mayús',
+            'Contrasena-Muy-Segura-2026', role_codes=['usuario'],
+        )
+        assert usuario.email == 'mayus@example.test'

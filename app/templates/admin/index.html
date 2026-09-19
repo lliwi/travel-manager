@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Administración — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}<li class="breadcrumb-item active">Administración</li>{% endblock %}
+
+{% block content %}
+<div class="page-header"><h1>Administración</h1></div>
+
+<div class="stat-grid mb-4">
+    <div class="stat-card"><span class="stat-label">Usuarios</span>
+        <span class="stat-value">{{ resumen.usuarios }}</span></div>
+    <div class="stat-card"><span class="stat-label">Viajes</span>
+        <span class="stat-value">{{ resumen.viajes }}</span></div>
+    <div class="stat-card"><span class="stat-label">Proveedores de IA</span>
+        <span class="stat-value">{{ resumen.proveedores_ia }}</span></div>
+    <div class="stat-card"><span class="stat-label">Eventos de auditoría</span>
+        <span class="stat-value">{{ resumen.eventos_auditoria }}</span></div>
+</div>
+
+<div class="row g-3">
+    {% for url, icon, titulo, texto in [
+        (url_for('admin.users'), 'people', 'Usuarios y roles',
+         'Alta, baja y asignación de perfiles de acceso.'),
+        (url_for('admin.alert_rules'), 'sliders', 'Reglas de alerta',
+         'Umbrales de conexión, solapamientos y validaciones.'),
+        (url_for('admin.ai_providers'), 'cpu', 'Proveedores de IA',
+         'Ollama, vLLM y proveedores remotos opcionales.'),
+        (url_for('admin.settings'), 'gear', 'Ajustes del sistema',
+         'Retención, política de salida de datos y funcionalidades.'),
+        (url_for('admin.audit'), 'shield-check', 'Auditoría',
+         'Registro inmutable de operaciones sensibles.')] %}
+    <div class="col-md-6 col-xl-4">
+        <a href="{{ url }}" class="card admin-tile h-100">
+            <div class="card-body">
+                <i class="bi bi-{{ icon }}"></i>
+                <h6>{{ titulo }}</h6>
+                <p class="text-muted small mb-0">{{ texto }}</p>
+            </div>
+        </a>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

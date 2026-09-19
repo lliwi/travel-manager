@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import badge %}
+{% block title %}{{ document.nombre_original }} — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('trips.detail', trip_id=trip.id) }}">{{ trip.referencia }}</a></li>
+<li class="breadcrumb-item"><a href="{{ url_for('documents.index', trip_id=trip.id) }}">Documentos</a></li>
+<li class="breadcrumb-item active">{{ document.nombre_original | truncate(40) }}</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-start flex-wrap gap-2">
+    <div>
+        <h1>{{ document.nombre_original }}</h1>
+        <p class="text-muted mb-0">
+            {{ badge(document.estado_proceso.label, document.estado_proceso.css_class) }}
+            {{ badge(document.clasificacion.label, 'light') }}
+            {{ document.tamano_legible }}
+        </p>
+    </div>
+    <div class="btn-group">
+        {% if document.estado_proceso == enums.DocumentProcessState.PENDIENTE_REVISION %}
+        <a href="{{ url_for('documents.review', document_id=document.id) }}" class="btn btn-warning btn-sm">
+            <i class="bi bi-check2-square me-1"></i>Revisar datos</a>
+        {% endif %}
+        {% if document.esta_disponible %}
+        <a href="{{ url_for('documents.download', document_id=document.id) }}"
+           class="btn btn-outline-secondary btn-sm"><i class="bi bi-download me-1"></i>Descargar original</a>
+        {% endif %}
+        {% if document.estado_proceso == enums.DocumentProcessState.ERROR %}
+        <form method="post" action="{{ url_for('documents.reprocess', document_id=document.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-outline-primary btn-sm" type="submit">
+                <i class="bi bi-arrow-clockwise me-1"></i>Reintentar</button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+
+{% if document.error_codigo %}
+<div class="alert alert-danger">
+    <i class="bi bi-exclamation-triangle me-2"></i>
+    <strong>{{ document.error_codigo }}</strong>: {{ document.error_mensaje }}
+</div>
+{% endif %}
+
+<div class="row g-4">
+    <div class="col-lg-7">
+        {% if extraction %}
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-braces me-2"></i>Datos extraídos (v{{ extraction.version }})</span>
+                {{ badge(extraction.estado.label, 'secondary') }}
+            </div>
+            <div class="card-body">
+                {% if extraction.avisos %}
+                <div class="alert alert-warning py-2">
+                    <ul class="mb-0 small">
+                        {% for aviso in extraction.avisos %}<li>{{ aviso }}</li>{% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
+                <dl class="detail-list">
+                    {% for campo, valor in (extraction.datos.get('campos', {})).items() %}
+                    {% if not campo.endswith('_location_id') and valor is not none %}
+                    <dt>{{ campo.replace('_', ' ') | capitalize }}</dt>
+                    <dd>
+                        {% if valor is mapping and 'local' in valor %}
+                            {{ valor.local }} <span class="tz-badge">{{ valor.zona_horaria }}</span>
+                        {% else %}{{ valor }}{% endif %}
+                        {% set conf = extraction.confianza_de(campo) %}
+                        {% if conf is not none %}
+                        <span class="chip chip-{{ 'success' if conf >= 0.85 else 'warning' }}">
+                            {{ (conf * 100) | round | int }}%</span>
+                        {% endif %}
+                    </dd>
+                    {% endif %}
+                    {% endfor %}
+                </dl>
+                {% if extraction.aprobado_por %}
+                <p class="text-muted small mb-0">
+                    <i class="bi bi-check-circle me-1"></i>
+                    Aprobado por {{ extraction.aprobado_por.nombre_completo }}
+                    el {{ extraction.aprobado_en | local_dt('UTC') }}.
+                </p>
+                {% endif %}
+            </div>
+        </div>
+        {% else %}
+        <div class="card"><div class="card-body empty-state">
+            <i class="bi bi-hourglass-split"></i>
+            <p>Todavía no hay datos extraídos. El documento sigue procesándose.</p>
+        </div></div>
+        {% endif %}
+    </div>
+
+    <div class="col-lg-5">
+        <div class="card mb-3">
+            <div class="card-header"><i class="bi bi-shield-check me-2"></i>Trazabilidad</div>
+            <div class="card-body">
+                <dl class="detail-list">
+                    <dt>Hash SHA-256</dt>
+                    <dd class="font-monospace small text-break">{{ document.hash_sha256 }}</dd>
+                    <dt>Tipo real</dt><dd>{{ document.mime or '—' }}</dd>
+                    <dt>Páginas</dt><dd>{{ document.paginas or '—' }}</dd>
+                    <dt>Antivirus</dt>
+                    <dd>{{ document.antivirus_estado.label }}
+                        {% if document.antivirus_motor %}
+                        <small class="text-muted">({{ document.antivirus_motor }})</small>{% endif %}</dd>
+                    <dt>OCR</dt><dd>{{ 'Sí' if document.uso_ocr else 'No' }}</dd>
+                    <dt>Idioma</dt><dd>{{ document.idioma_detectado or '—' }}</dd>
+                    <dt>Subido por</dt>
+                    <dd>{{ document.subido_por.nombre_completo if document.subido_por else '—' }}</dd>
+                    <dt>Subido el</dt>
+                    <dd>{{ document.subido_en | local_dt('UTC') }}</dd>
+                </dl>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header"><i class="bi bi-clock-history me-2"></i>Histórico de proceso</div>
+            <ul class="list-group list-group-flush small">
+                {% for t in document.transitions %}
+                <li class="list-group-item d-flex justify-content-between">
+                    <span>
+                        {{ t.estado_anterior.label if t.estado_anterior else 'inicio' }}
+                        → <strong>{{ t.estado_nuevo.label }}</strong>
+                        {% if t.tarea %}<code class="ms-1">{{ t.tarea }}</code>{% endif %}
+                    </span>
+                    <span class="text-muted">{{ t.created_at | local_time }}</span>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+</div>
+{% endblock %}

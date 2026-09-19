@@ -1,0 +1,70 @@
+# Flask Core
+Flask>=3.0
+Werkzeug>=3.0
+Jinja2>=3.1
+
+# Database
+Flask-SQLAlchemy>=3.1
+Flask-Migrate>=4.0
+SQLAlchemy>=2.0
+psycopg2-binary>=2.9
+alembic>=1.13
+
+# Authentication & Security
+Flask-Login>=0.6
+Flask-WTF>=1.2
+WTForms>=3.1
+argon2-cffi>=23.1
+email-validator>=2.1
+
+# Security Extensions
+Flask-Limiter>=3.5
+Flask-Caching>=2.1
+Flask-Talisman>=1.1
+cryptography>=41.0
+
+# Task Queue
+redis>=5.0
+celery>=5.3
+flower>=2.0
+
+# Web Server
+gunicorn>=21.2
+
+# Object Storage (S3 / MinIO)
+boto3>=1.34
+
+# Antivirus
+clamd>=1.0.2
+
+# Document processing
+pypdf>=4.0
+pdfplumber>=0.10
+pdf2image>=1.17
+pytesseract>=0.3.10
+Pillow>=10.1
+python-magic>=0.4.27
+
+# Normalization
+python-dateutil>=2.8
+tzdata>=2024.1
+Babel>=2.14
+
+# AI providers / HTTP
+httpx>=0.27
+jsonschema>=4.21
+
+# Observability
+python-json-logger>=2.0
+prometheus-client>=0.20
+
+# Utilities
+python-dotenv>=1.0
+click>=8.1
+
+# Development
+pytest>=7.4
+pytest-cov>=4.1
+pytest-mock>=3.12
+ruff>=0.3
+bandit>=1.7

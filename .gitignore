@@ -1,0 +1,154 @@
+# =====================================================================
+# Travel Manager — archivos que nunca deben versionarse
+# =====================================================================
+
+# ---------------------------------------------------------------------
+# Secretos y configuración local
+#
+# docker/.env contiene la clave de sesión, la de cifrado y las contraseñas
+# de PostgreSQL, Redis y MinIO. Solo se versiona la plantilla.
+# ---------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+docker/.env
+docker/.env.*
+!docker/.env.example
+
+# Entorno seleccionado por start.sh (--dev o --prod)
+docker/.entorno
+
+secrets/
+*.secret
+
+# ---------------------------------------------------------------------
+# Certificados y material criptográfico
+# ---------------------------------------------------------------------
+*.pem
+*.key
+*.crt
+*.csr
+*.p12
+*.pfx
+docker/nginx/certs/
+docker/postgres/ssl/
+
+# ---------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+sdist/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Entornos virtuales
+.venv/
+venv/
+ENV/
+env/
+.python-version
+
+# ---------------------------------------------------------------------
+# Pruebas, cobertura y análisis estático
+# ---------------------------------------------------------------------
+.pytest_cache/
+.cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+.ruff_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+bandit-report.*
+
+# ---------------------------------------------------------------------
+# Datos de la aplicación
+#
+# Los documentos viven en MinIO y la base de datos en su volumen; estos
+# directorios solo aparecen en ejecuciones locales fuera de Docker.
+# ---------------------------------------------------------------------
+data/
+logs/
+*.log
+volumes/
+uploads/
+instance/
+
+# Copias de seguridad: pueden contener datos personales y la auditoría.
+backup/*.dump
+backup/*.sql
+backup/*.tar.gz
+backup/*.gpg
+*.dump
+*.sql.gz
+
+# Bases de datos locales usadas en pruebas
+*.db
+*.sqlite
+*.sqlite3
+
+# ---------------------------------------------------------------------
+# Celery
+# ---------------------------------------------------------------------
+celerybeat-schedule*
+celerybeat.pid
+*.pid
+
+# ---------------------------------------------------------------------
+# Docker
+# ---------------------------------------------------------------------
+docker-compose.override.yml
+docker/docker-compose.local.yml
+
+# ---------------------------------------------------------------------
+# Modelos y artefactos de IA
+#
+# Los modelos los gestiona Ollama en el host; si alguno acaba aquí, fuera.
+# ---------------------------------------------------------------------
+models/
+*.gguf
+*.bin
+*.safetensors
+
+# ---------------------------------------------------------------------
+# Editores y sistema operativo
+# ---------------------------------------------------------------------
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+.Trash-*
+
+# ---------------------------------------------------------------------
+# Herramientas de agentes
+# ---------------------------------------------------------------------
+.claude/
+.aider*
+
+# ---------------------------------------------------------------------
+# Temporales
+# ---------------------------------------------------------------------
+*.tmp
+*.bak
+*.orig
+*.rej
+tmp/
+scratch/

@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import render_field %}
+{% block title %}{{ 'Editar viaje' if trip else 'Nuevo viaje' }} — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('trips.index') }}">Viajes</a></li>
+{% if trip %}
+<li class="breadcrumb-item"><a href="{{ url_for('trips.detail', trip_id=trip.id) }}">{{ trip.referencia }}</a></li>
+<li class="breadcrumb-item active">Editar</li>
+{% else %}
+<li class="breadcrumb-item active">Nuevo</li>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>{{ 'Editar viaje' if trip else 'Nuevo viaje' }}</h1>
+    {% if trip %}<p class="text-muted mb-0"><code>{{ trip.referencia }}</code></p>{% endif %}
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <form method="post" novalidate>
+            {{ form.hidden_tag() }}
+
+            <div class="card mb-3">
+                <div class="card-header">Datos generales</div>
+                <div class="card-body">
+                    {{ render_field(form.titulo, placeholder='Reunión de coordinación en Berlín') }}
+                    <div class="row">
+                        <div class="col-md-6">{{ render_field(form.estado) }}</div>
+                        <div class="col-md-6">{{ render_field(form.gestor_id) }}</div>
+                        <div class="col-md-6">{{ render_field(form.finalidad) }}</div>
+                        <div class="col-md-6">{{ render_field(form.finalidad_detalle) }}</div>
+                    </div>
+                    {{ render_field(form.observaciones, rows=3) }}
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header">
+                    Fechas
+                    <small class="text-muted ms-2">
+                        Indique la hora local y su zona horaria: el sistema calcula el
+                        instante UTC para validar conexiones.
+                    </small>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">{{ render_field(form.inicio_local) }}</div>
+                        <div class="col-md-6">{{ render_field(form.inicio_tz,
+                                                placeholder='Europe/Madrid') }}</div>
+                        <div class="col-md-6">{{ render_field(form.fin_local) }}</div>
+                        <div class="col-md-6">{{ render_field(form.fin_tz,
+                                                placeholder='Europe/Madrid') }}</div>
+                    </div>
+                </div>
+            </div>
+
+            {% if feature_flags.costs %}
+            <div class="card mb-3">
+                <div class="card-header">Costes</div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">{{ render_field(form.coste_estimado) }}</div>
+                        <div class="col-md-6">{{ render_field(form.moneda, placeholder='EUR') }}</div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <div class="d-flex gap-2">
+                {{ form.submit }}
+                <a href="{{ url_for('trips.detail', trip_id=trip.id) if trip else url_for('trips.index') }}"
+                   class="btn btn-outline-secondary">Cancelar</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

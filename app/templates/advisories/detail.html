@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import badge %}
+{% block title %}{{ advisory.titulo }} — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('trips.detail', trip_id=trip.id) }}">{{ trip.referencia }}</a></li>
+<li class="breadcrumb-item"><a href="{{ url_for('advisories.index', trip_id=trip.id) }}">Recomendaciones</a></li>
+<li class="breadcrumb-item active">{{ advisory.titulo | truncate(35) }}</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>{{ advisory.titulo }}</h1>
+    <p class="text-muted mb-0">
+        {{ badge(advisory.nivel.label, advisory.nivel.css_class) }}
+        {{ badge(advisory.categoria.label, 'light') }}
+        {{ badge(advisory.estado_validacion.label, 'secondary') }}
+    </p>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-7">
+        <div class="card mb-3">
+            <div class="card-body">
+                <p class="advisory-body">{{ advisory.contenido }}</p>
+                {% if advisory.recomendaciones %}
+                <h6 class="text-muted mt-3">Acciones recomendadas</h6>
+                <ul>{% for r in advisory.recomendaciones %}<li>{{ r }}</li>{% endfor %}</ul>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="alert alert-secondary">
+            <i class="bi bi-exclamation-circle me-2"></i>{{ disclaimer }}
+        </div>
+    </div>
+
+    <div class="col-lg-5">
+        <div class="card mb-3">
+            <div class="card-header"><i class="bi bi-link-45deg me-2"></i>Fuentes</div>
+            <div class="card-body">
+                <dl class="detail-list">
+                    <dt>Fuente principal</dt>
+                    <dd>
+                        {% if advisory.fuente_url %}
+                        <a href="{{ advisory.fuente_url }}" target="_blank" rel="noopener noreferrer">
+                            {{ advisory.fuente or advisory.fuente_url }}
+                            <i class="bi bi-box-arrow-up-right small"></i></a>
+                        {% else %}{{ advisory.fuente or '—' }}{% endif %}
+                    </dd>
+                    <dt>Fecha de la fuente</dt>
+                    <dd>{{ advisory.fecha_fuente | local_date if advisory.fecha_fuente else '—' }}</dd>
+                    <dt>Consultado el</dt>
+                    <dd>{{ advisory.consultado_en | local_dt('UTC') }}</dd>
+                    <dt>Nivel de confianza</dt>
+                    <dd>{{ (advisory.confianza * 100) | round | int ~ '%'
+                            if advisory.confianza is not none else '—' }}</dd>
+                    <dt>Caduca</dt>
+                    <dd>{{ advisory.caduca_en | local_date if advisory.caduca_en else '—' }}</dd>
+                </dl>
+
+                {% if advisory.fuentes %}
+                <h6 class="text-muted">Todas las fuentes consultadas</h6>
+                <ul class="small">
+                    {% for f in advisory.fuentes %}
+                    <li>
+                        <a href="{{ f.url }}" target="_blank" rel="noopener noreferrer">
+                            {{ f.titulo or f.fuente or f.url }}</a>
+                        {% if f.es_oficial %}<span class="badge text-bg-success">oficial</span>{% endif %}
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if current_user.is_gestor or current_user.is_administrador %}
+        <div class="card">
+            <div class="card-header"><i class="bi bi-patch-check me-2"></i>Validación</div>
+            <div class="card-body">
+                {% if advisory.validado_por %}
+                <p class="small text-muted">
+                    Validada por {{ advisory.validado_por.nombre_completo }}
+                    el {{ advisory.validado_en | local_dt('UTC') }}.
+                </p>
+                {% else %}
+                <p class="small text-muted">
+                    Esta recomendación todavía no ha sido validada, por lo que no es
+                    visible para las personas viajeras.
+                </p>
+                {% endif %}
+                <form method="post" action="{{ url_for('advisories.validate', advisory_id=advisory.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <textarea class="form-control mb-2" name="comentario" rows="2"
+                              placeholder="Comentario de validación (opcional)"></textarea>
+                    <div class="d-flex gap-2">
+                        <button type="submit" name="decision" value="validar" class="btn btn-success flex-fill">
+                            <i class="bi bi-check-lg me-1"></i>Validar</button>
+                        <button type="submit" name="decision" value="rechazar" class="btn btn-outline-danger">
+                            <i class="bi bi-x-lg"></i></button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

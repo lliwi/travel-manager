@@ -1,0 +1,19 @@
+Migraciones de base de datos gestionadas con Alembic a través de Flask-Migrate.
+
+Uso habitual:
+
+    flask db migrate -m "descripción del cambio"   # generar
+    flask db upgrade                               # aplicar
+    flask db downgrade -1                          # revertir la última
+
+Dentro de Docker:
+
+    docker compose -f docker/docker-compose.yml exec web flask db upgrade
+
+Convenciones de este proyecto:
+
+- Toda migración debe tener un downgrade() real, no `pass`.
+- Los identificadores de revisión se escriben a mano y son legibles.
+- El docstring explica *por qué* se hace el cambio, no solo qué cambia.
+- Las restricciones llevan nombre explícito (la convención de nombres está
+  definida en app/extensions.py), para que un downgrade pueda encontrarlas.

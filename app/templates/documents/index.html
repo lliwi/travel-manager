@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import badge %}
+{% block title %}Documentos — {{ trip.referencia }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('trips.index') }}">Viajes</a></li>
+<li class="breadcrumb-item"><a href="{{ url_for('trips.detail', trip_id=trip.id) }}">{{ trip.referencia }}</a></li>
+<li class="breadcrumb-item active">Documentos</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+    <div><h1>Documentos</h1><p class="text-muted mb-0">{{ trip.titulo }}</p></div>
+    <a href="{{ url_for('documents.upload', trip_id=trip.id) }}" class="btn btn-primary">
+        <i class="bi bi-upload me-1"></i>Subir documento</a>
+</div>
+
+{% if documents %}
+<div class="card">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead>
+                <tr><th>Documento</th><th>Clasificación</th><th>Estado</th>
+                    <th>Tamaño</th><th>Subido por</th><th></th></tr>
+            </thead>
+            <tbody>
+            {% for doc in documents %}
+            {% set paso, total = doc.progreso %}
+            <tr>
+                <td>
+                    <a href="{{ url_for('documents.detail', document_id=doc.id) }}"
+                       class="fw-semibold">{{ doc.nombre_original }}</a>
+                    <div class="text-muted small font-monospace">{{ doc.hash_sha256[:16] }}…</div>
+                </td>
+                <td>
+                    {{ badge(doc.clasificacion.label, 'light') }}
+                    {% if doc.clasificacion_confianza %}
+                    <small class="text-muted">{{ (doc.clasificacion_confianza * 100) | round | int }}%</small>
+                    {% endif %}
+                </td>
+                <td>
+                    {{ badge(doc.estado_proceso.label, doc.estado_proceso.css_class) }}
+                    {% if paso and paso < total %}
+                    <div class="progress progress-thin mt-1">
+                        <div class="progress-bar" style="width: {{ (paso / total * 100) | round }}%"></div>
+                    </div>
+                    {% endif %}
+                    {% if doc.error_codigo %}
+                    <div class="text-danger small">{{ doc.error_mensaje }}</div>
+                    {% endif %}
+                </td>
+                <td class="small text-muted">{{ doc.tamano_legible }}</td>
+                <td class="small">{{ doc.subido_por.nombre_completo if doc.subido_por else '—' }}</td>
+                <td class="text-end text-nowrap">
+                    {% if doc.estado_proceso == DocumentProcessState.PENDIENTE_REVISION %}
+                    <a href="{{ url_for('documents.review', document_id=doc.id) }}"
+                       class="btn btn-sm btn-warning"><i class="bi bi-check2-square"></i> Revisar</a>
+                    {% endif %}
+                    {% if doc.esta_disponible %}
+                    <a href="{{ url_for('documents.download', document_id=doc.id) }}"
+                       class="btn btn-sm btn-outline-secondary"><i class="bi bi-download"></i></a>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% else %}
+<div class="card"><div class="card-body empty-state">
+    <i class="bi bi-file-earmark"></i>
+    <p>No hay documentos adjuntos a este viaje.</p>
+    <a href="{{ url_for('documents.upload', trip_id=trip.id) }}" class="btn btn-sm btn-primary">
+        Subir el primero</a>
+</div></div>
+{% endif %}
+{% endblock %}

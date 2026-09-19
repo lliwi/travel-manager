@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import render_field %}
+{% block title %}Subir documento — {{ trip.referencia }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('trips.detail', trip_id=trip.id) }}">{{ trip.referencia }}</a></li>
+<li class="breadcrumb-item"><a href="{{ url_for('documents.index', trip_id=trip.id) }}">Documentos</a></li>
+<li class="breadcrumb-item active">Subir</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-header"><h1>Subir documento</h1>
+<p class="text-muted mb-0">{{ trip.titulo }}</p></div>
+
+<div class="row">
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-body">
+                <form method="post" enctype="multipart/form-data" novalidate>
+                    {{ form.hidden_tag() }}
+                    {{ render_field(form.archivo) }}
+                    {{ render_field(form.tipo) }}
+                    {{ render_field(form.trip_traveler_id) }}
+                    {{ form.submit }}
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header">Qué ocurre al subir</div>
+            <div class="card-body">
+                <ol class="process-list">
+                    <li>Se valida el tipo real del archivo y su tamaño.</li>
+                    <li>Se analiza con el antivirus antes de cualquier otro proceso.</li>
+                    <li>Se guarda el original y se verifica su hash SHA-256.</li>
+                    <li>Se extrae el texto, con OCR si el documento es una imagen.</li>
+                    <li>Se clasifica y se extraen los datos estructurados.</li>
+                    <li>Usted revisa y aprueba los datos antes de que entren al itinerario.</li>
+                </ol>
+                <p class="text-muted small mb-0">
+                    Formatos admitidos: PDF, JPG, PNG, TIFF y mensajes EML.
+                    El original nunca se modifica.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

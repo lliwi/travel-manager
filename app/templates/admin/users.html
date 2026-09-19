@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import badge, pagination %}
+{% block title %}Usuarios — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('admin.index') }}">Administración</a></li>
+<li class="breadcrumb-item active">Usuarios</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+    <div><h1>Usuarios</h1><p class="text-muted mb-0">{{ pagination.total }} cuenta(s)</p></div>
+    <a href="{{ url_for('admin.create_user') }}" class="btn btn-primary">
+        <i class="bi bi-person-plus me-1"></i>Nuevo usuario</a>
+</div>
+
+<div class="card mb-3"><div class="card-body py-3">
+    <form method="get" class="row g-2">
+        <div class="col-md-10">
+            <input type="search" name="buscar" class="form-control form-control-sm"
+                   value="{{ buscar }}" placeholder="nombre, usuario o correo">
+        </div>
+        <div class="col-md-2">
+            <button class="btn btn-sm btn-outline-secondary w-100"><i class="bi bi-search"></i></button>
+        </div>
+    </form>
+</div></div>
+
+<div class="card">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead><tr><th>Persona</th><th>Usuario</th><th>Roles</th>
+                       <th>Estado</th><th>Último acceso</th><th></th></tr></thead>
+            <tbody>
+            {% for user in users %}
+            <tr>
+                <td>
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="avatar-chip">{{ user.iniciales }}</span>
+                        <div>
+                            <div class="fw-semibold">{{ user.nombre_completo }}</div>
+                            <small class="text-muted">{{ user.email }}</small>
+                        </div>
+                    </div>
+                </td>
+                <td><code>{{ user.username }}</code></td>
+                <td>{% for role in user.roles %}{{ badge(role.nombre, 'primary') }} {% endfor %}</td>
+                <td>
+                    {{ badge(user.estado.label,
+                             'success' if user.estado == UserStatus.ACTIVO else 'secondary') }}
+                    {% if user.is_locked %}{{ badge('Bloqueado', 'danger', 'lock') }}{% endif %}
+                </td>
+                <td class="small text-muted">
+                    {{ user.last_login_at | local_date if user.last_login_at else 'nunca' }}</td>
+                <td class="text-end text-nowrap">
+                    <a href="{{ url_for('admin.edit_user', user_id=user.id) }}"
+                       class="btn btn-sm btn-outline-secondary"><i class="bi bi-pencil"></i></a>
+                    {% if user.id != current_user.id %}
+                    <form method="post" action="{{ url_for('admin.delete_user', user_id=user.id) }}"
+                          class="d-inline"
+                          onsubmit="return confirm('¿Desactivar la cuenta de {{ user.nombre_completo }}?');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="btn btn-sm btn-outline-danger"><i class="bi bi-person-dash"></i></button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="mt-3">{{ pagination(pagination, 'admin.users', {'buscar': buscar or None}) }}</div>
+{% endblock %}

@@ -1,0 +1,101 @@
+{# Render a WTForms field with Bootstrap markup and its validation errors. #}
+{% macro render_field(field, label_class='form-label', field_class='form-control',
+                      placeholder=None, rows=None, help=True) %}
+  {% if field.type == 'BooleanField' %}
+    <div class="form-check mb-3">
+      {{ field(class='form-check-input' + (' is-invalid' if field.errors else '')) }}
+      {{ field.label(class='form-check-label') }}
+      {% if field.description and help %}
+        <small class="form-text text-muted d-block">{{ field.description }}</small>
+      {% endif %}
+      {% for error in field.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+    </div>
+  {% elif field.type in ('SelectField', 'SelectMultipleField') %}
+    <div class="mb-3">
+      {{ field.label(class=label_class) }}
+      {{ field(class='form-select' + (' is-invalid' if field.errors else '')) }}
+      {% if field.description and help %}
+        <small class="form-text text-muted">{{ field.description }}</small>
+      {% endif %}
+      {% for error in field.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+    </div>
+  {% elif field.type == 'MultiCheckboxField' %}
+    <div class="mb-3">
+      {{ field.label(class=label_class) }}
+      <div class="check-group">{{ field() }}</div>
+      {% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+    </div>
+  {% elif field.type == 'TextAreaField' %}
+    <div class="mb-3">
+      {{ field.label(class=label_class) }}
+      {{ field(class=field_class + (' is-invalid' if field.errors else ''),
+               rows=rows or 4, placeholder=placeholder or '') }}
+      {% if field.description and help %}
+        <small class="form-text text-muted">{{ field.description }}</small>
+      {% endif %}
+      {% for error in field.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+    </div>
+  {% elif field.type == 'SubmitField' %}
+    {{ field(class='btn btn-primary') }}
+  {% elif field.type == 'HiddenField' or field.type == 'CSRFTokenField' %}
+    {{ field() }}
+  {% else %}
+    <div class="mb-3">
+      {{ field.label(class=label_class) }}
+      {{ field(class=field_class + (' is-invalid' if field.errors else ''),
+               placeholder=placeholder or '') }}
+      {% if field.description and help %}
+        <small class="form-text text-muted">{{ field.description }}</small>
+      {% endif %}
+      {% for error in field.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+    </div>
+  {% endif %}
+{% endmacro %}
+
+{# A severity or status pill. #}
+{% macro badge(text, css='secondary', icon=None) %}
+  <span class="badge text-bg-{{ css }}">
+    {%- if icon %}<i class="bi bi-{{ icon }} me-1"></i>{% endif -%}
+    {{ text }}
+  </span>
+{% endmacro %}
+
+{# A provenance chip: where a stored value came from. #}
+{% macro provenance_chip(origen, confianza=None, pagina=None) %}
+  {% if origen %}
+  <span class="chip chip-{{ origen.css_class }}" title="Origen del dato: {{ origen.label }}">
+    <i class="bi bi-{{ {'documento': 'file-earmark-text', 'manual': 'pencil', 'ia': 'cpu'}.get(origen.value, 'question') }}"></i>
+    {{ origen.label }}
+    {%- if confianza is not none %} · {{ (confianza * 100) | round | int }}%{% endif -%}
+    {%- if pagina %} · p.{{ pagina }}{% endif -%}
+  </span>
+  {% endif %}
+{% endmacro %}
+
+{# Pagination control. Jinja macros take no **kwargs, so extra query
+   parameters are passed as a dict in `args`. #}
+{% macro pagination(page_obj, endpoint, args={}) %}
+  {% if page_obj.pages and page_obj.pages > 1 %}
+  <nav aria-label="Paginación">
+    <ul class="pagination pagination-sm justify-content-center">
+      <li class="page-item {{ 'disabled' if not page_obj.has_prev }}">
+        <a class="page-link"
+           href="{{ url_for(endpoint, page=page_obj.prev_num or 1, **args) }}">Anterior</a>
+      </li>
+      {% for p in page_obj.iter_pages(left_edge=1, left_current=2, right_current=2, right_edge=1) %}
+        {% if p %}
+          <li class="page-item {{ 'active' if p == page_obj.page }}">
+            <a class="page-link" href="{{ url_for(endpoint, page=p, **args) }}">{{ p }}</a>
+          </li>
+        {% else %}
+          <li class="page-item disabled"><span class="page-link">…</span></li>
+        {% endif %}
+      {% endfor %}
+      <li class="page-item {{ 'disabled' if not page_obj.has_next }}">
+        <a class="page-link"
+           href="{{ url_for(endpoint, page=page_obj.next_num or page_obj.pages, **args) }}">Siguiente</a>
+      </li>
+    </ul>
+  </nav>
+  {% endif %}
+{% endmacro %}

@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import render_field %}
+{% block title %}Destinos — {{ trip.referencia }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('trips.index') }}">Viajes</a></li>
+<li class="breadcrumb-item"><a href="{{ url_for('trips.detail', trip_id=trip.id) }}">{{ trip.referencia }}</a></li>
+<li class="breadcrumb-item active">Destinos</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-header"><h1>Destinos</h1>
+<p class="text-muted mb-0">{{ trip.titulo }}</p></div>
+
+<div class="row g-4">
+    <div class="col-lg-7">
+        <div class="card">
+            <div class="card-header">Itinerario de destinos</div>
+            {% if trip.destinations %}
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead><tr><th>#</th><th>Destino</th><th>Zona horaria</th><th>Fechas</th><th></th></tr></thead>
+                    <tbody>
+                    {% for destino in trip.destinations %}
+                    <tr>
+                        <td>{{ destino.orden + 1 }}</td>
+                        <td>
+                            {{ destino.etiqueta }}
+                            {% if destino.es_escala %}
+                            <span class="badge text-bg-light">escala</span>{% endif %}
+                        </td>
+                        <td><span class="tz-badge">{{ destino.zona_horaria or '—' }}</span></td>
+                        <td class="small text-muted">
+                            {{ destino.inicio_local | local_date }} — {{ destino.fin_local | local_date }}
+                        </td>
+                        <td class="text-end">
+                            <form method="post"
+                                  action="{{ url_for('trips.remove_destination', trip_id=trip.id, destination_id=destino.id) }}"
+                                  onsubmit="return confirm('¿Eliminar este destino?');">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button class="btn btn-sm btn-outline-danger" type="submit">
+                                    <i class="bi bi-trash"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="card-body empty-state">
+                <i class="bi bi-geo"></i>
+                <p>Este viaje no tiene destinos registrados.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="col-lg-5">
+        <div class="card">
+            <div class="card-header">Añadir destino</div>
+            <div class="card-body">
+                <form method="post" novalidate>
+                    {{ form.hidden_tag() }}
+                    {{ render_field(form.ciudad, placeholder='Berlín') }}
+                    {{ render_field(form.pais_codigo) }}
+                    {{ render_field(form.zona_horaria, placeholder='Europe/Berlin') }}
+                    <div class="row">
+                        <div class="col-md-6">{{ render_field(form.inicio_local) }}</div>
+                        <div class="col-md-6">{{ render_field(form.fin_local) }}</div>
+                    </div>
+                    {{ render_field(form.es_escala) }}
+                    {{ render_field(form.observaciones, rows=2) }}
+                    {{ form.submit }}
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import badge %}
+{% block title %}{{ alert.titulo }} — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('trips.detail', trip_id=trip.id) }}">{{ trip.referencia }}</a></li>
+<li class="breadcrumb-item"><a href="{{ url_for('alerts.index', trip_id=trip.id) }}">Alertas</a></li>
+<li class="breadcrumb-item active">{{ alert.titulo | truncate(35) }}</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>{{ alert.titulo }}</h1>
+    <p class="text-muted mb-0">
+        {{ badge(alert.severidad.label, alert.severidad.css_class) }}
+        {{ badge(alert.estado.label, 'light') }}
+        · regla <code>{{ alert.tipo }}</code>
+        · generada el {{ alert.generada_en | local_dt('UTC') }}
+    </p>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-7">
+        <div class="card mb-3">
+            <div class="card-header"><i class="bi bi-info-circle me-2"></i>Descripción</div>
+            <div class="card-body">
+                <p>{{ alert.mensaje }}</p>
+                {% if alert.sugerencia %}
+                <div class="alert alert-light border mb-0">
+                    <strong><i class="bi bi-lightbulb me-1"></i>Sugerencia</strong>
+                    <p class="mb-0 mt-1">{{ alert.sugerencia }}</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header"><i class="bi bi-clipboard-data me-2"></i>Evidencia</div>
+            <div class="card-body">
+                {% if evidencia.filas %}
+                <dl class="detail-list">
+                    {% for etiqueta, valor in evidencia.filas %}
+                    <dt>{{ etiqueta }}</dt><dd>{{ valor }}</dd>
+                    {% endfor %}
+                </dl>
+                {% endif %}
+
+                {% if evidencia.entidades %}
+                <hr>
+                <h6 class="text-muted">Elementos implicados</h6>
+                {% for clave, entidad in evidencia.entidades %}
+                <div class="evidence-entity">
+                    <strong>{{ entidad.etiqueta or clave }}</strong>
+                    <dl class="detail-list detail-list-compact">
+                        {% for k, v in entidad.items() %}
+                        {% if k not in ('id', 'etiqueta') and v is not none %}
+                        <dt>{{ k.replace('_', ' ') | capitalize }}</dt><dd>{{ v }}</dd>
+                        {% endif %}
+                        {% endfor %}
+                    </dl>
+                </div>
+                {% endfor %}
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-5">
+        {% if current_user.is_gestor or current_user.is_administrador %}
+        <div class="card mb-3">
+            <div class="card-header"><i class="bi bi-check2-square me-2"></i>Gestionar</div>
+            <div class="card-body">
+                <form method="post" action="{{ url_for('alerts.change_state', alert_id=alert.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3">
+                        <label for="estado" class="form-label">Nuevo estado</label>
+                        <select class="form-select" id="estado" name="estado">
+                            {% for estado in enums.AlertState %}
+                            <option value="{{ estado.value }}"
+                                    {{ 'selected' if estado == alert.estado }}>{{ estado.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="comentario" class="form-label">Comentario</label>
+                        <textarea class="form-control" id="comentario" name="comentario" rows="3"
+                                  placeholder="Explique la decisión: qué ha comprobado o qué acción ha tomado."
+                        >{{ alert.comentario or '' }}</textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">Guardar</button>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="card">
+            <div class="card-header"><i class="bi bi-clock-history me-2"></i>Histórico</div>
+            <ul class="list-group list-group-flush small">
+                {% for t in alert.transitions %}
+                <li class="list-group-item">
+                    <div class="d-flex justify-content-between">
+                        <span>
+                            {{ t.estado_anterior.label if t.estado_anterior else 'creada' }}
+                            → <strong>{{ t.estado_nuevo.label }}</strong>
+                        </span>
+                        <span class="text-muted">{{ t.created_at | local_date }}</span>
+                    </div>
+                    {% if t.comentario %}<div class="text-muted">{{ t.comentario }}</div>{% endif %}
+                    <div class="text-muted">
+                        {{ t.actor.nombre_completo if t.actor else 'Sistema' }}
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+</div>
+{% endblock %}

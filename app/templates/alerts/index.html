@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import badge %}
+{% block title %}Alertas — {{ trip.referencia }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('trips.detail', trip_id=trip.id) }}">{{ trip.referencia }}</a></li>
+<li class="breadcrumb-item active">Alertas</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+    <div><h1>Alertas</h1><p class="text-muted mb-0">{{ trip.titulo }}</p></div>
+    {% if current_user.is_gestor or current_user.is_administrador %}
+    <form method="post" action="{{ url_for('alerts.recalculate', trip_id=trip.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-outline-secondary" type="submit">
+            <i class="bi bi-arrow-clockwise me-1"></i>Recalcular
+        </button>
+    </form>
+    {% endif %}
+</div>
+
+<div class="mb-3 filter-pills">
+    <a href="{{ url_for('alerts.index', trip_id=trip.id) }}"
+       class="btn btn-sm btn-outline-secondary {{ 'active' if not request.args.get('estado') }}">Todas</a>
+    {% for estado in AlertState %}
+    <a href="{{ url_for('alerts.index', trip_id=trip.id, estado=estado.value) }}"
+       class="btn btn-sm btn-outline-secondary {{ 'active' if request.args.get('estado') == estado.value }}">
+        {{ estado.label }}</a>
+    {% endfor %}
+</div>
+
+{% if alerts %}
+<div class="alert-list">
+    {% for alerta in alerts %}
+    <div class="card mb-2 alert-card alert-card-{{ alerta.severidad.css_class }}">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-start gap-3">
+                <div>
+                    <h6 class="mb-1">
+                        <a href="{{ url_for('alerts.detail', alert_id=alerta.id) }}">{{ alerta.titulo }}</a>
+                    </h6>
+                    <p class="mb-1 text-muted small">{{ alerta.mensaje }}</p>
+                    <div class="timeline-meta">
+                        <span class="chip"><i class="bi bi-diagram-3"></i>{{ alerta.regla }}</span>
+                        {% if alerta.traveler %}
+                        <span class="chip"><i class="bi bi-person"></i>{{ alerta.traveler.nombre_completo }}</span>
+                        {% endif %}
+                        <span class="chip"><i class="bi bi-clock"></i>{{ alerta.generada_en | local_dt('UTC') }}</span>
+                    </div>
+                </div>
+                <div class="text-end text-nowrap">
+                    {{ badge(alerta.severidad.label, alerta.severidad.css_class) }}
+                    <div class="mt-1">{{ badge(alerta.estado.label, 'light') }}</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="card"><div class="card-body empty-state">
+    <i class="bi bi-check-circle"></i>
+    <p>No hay alertas que mostrar con estos filtros.</p>
+</div></div>
+{% endif %}
+{% endblock %}

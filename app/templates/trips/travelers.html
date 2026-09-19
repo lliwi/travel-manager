@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import render_field %}
+{% block title %}Viajeros — {{ trip.referencia }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('trips.index') }}">Viajes</a></li>
+<li class="breadcrumb-item"><a href="{{ url_for('trips.detail', trip_id=trip.id) }}">{{ trip.referencia }}</a></li>
+<li class="breadcrumb-item active">Viajeros</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-header"><h1>Personas viajeras</h1>
+<p class="text-muted mb-0">{{ trip.titulo }}</p></div>
+
+<div class="row g-4">
+    <div class="col-lg-7">
+        <div class="card">
+            <div class="card-header">Asignadas</div>
+            {% if trip.active_travelers %}
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead><tr><th>Persona</th><th>Rol</th><th>Periodo</th><th></th></tr></thead>
+                    <tbody>
+                    {% for viajero in trip.active_travelers %}
+                    <tr>
+                        <td>
+                            <strong>{{ viajero.nombre_completo }}</strong>
+                            <div class="text-muted small">{{ viajero.user.email }}</div>
+                        </td>
+                        <td>{{ viajero.rol_en_viaje.label }}</td>
+                        <td class="small text-muted">
+                            {% if viajero.desde_local or viajero.hasta_local %}
+                                {{ viajero.desde_local | local_date }} — {{ viajero.hasta_local | local_date }}
+                            {% else %}Todo el viaje{% endif %}
+                        </td>
+                        <td class="text-end">
+                            <form method="post"
+                                  action="{{ url_for('trips.remove_traveler', trip_id=trip.id, user_id=viajero.user_id) }}"
+                                  onsubmit="return confirm('¿Desasignar a {{ viajero.nombre_completo }} de este viaje?');">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button class="btn btn-sm btn-outline-danger" type="submit">
+                                    <i class="bi bi-person-dash"></i>
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="card-body empty-state">
+                <i class="bi bi-person-x"></i>
+                <p>Todavía no hay personas asignadas a este viaje.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="col-lg-5">
+        <div class="card">
+            <div class="card-header">Asignar persona</div>
+            <div class="card-body">
+                <form method="post" novalidate>
+                    {{ form.hidden_tag() }}
+                    {{ render_field(form.user_id) }}
+                    {{ render_field(form.rol_en_viaje) }}
+                    <div class="row">
+                        <div class="col-md-6">{{ render_field(form.desde_local) }}</div>
+                        <div class="col-md-6">{{ render_field(form.hasta_local) }}</div>
+                    </div>
+                    {{ render_field(form.observaciones, rows=2) }}
+                    {{ form.submit }}
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

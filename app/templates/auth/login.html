@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import render_field %}
+{% block title %}Iniciar sesión — {{ app_name }}{% endblock %}
+
+{% block content_anon %}
+<div class="auth-card">
+    <div class="auth-brand">
+        <i class="bi bi-airplane-engines"></i>
+        <h1>{{ app_name }}</h1>
+        <p>Gestión de viajes corporativos</p>
+    </div>
+
+    <form method="post" novalidate>
+        {{ form.hidden_tag() }}
+        {{ render_field(form.username, placeholder='usuario o correo electrónico') }}
+        {{ render_field(form.password, placeholder='contraseña') }}
+        {{ render_field(form.remember_me) }}
+        <button type="submit" class="btn btn-primary w-100">
+            <i class="bi bi-box-arrow-in-right me-2"></i>Entrar
+        </button>
+    </form>
+
+    <p class="auth-help">
+        Si no recuerda sus credenciales, contacte con el administrador del sistema.
+    </p>
+</div>
+{% endblock %}

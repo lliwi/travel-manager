@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import badge %}
+{% block title %}{{ trip.titulo }} — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('trips.index') }}">Viajes</a></li>
+<li class="breadcrumb-item active">{{ trip.referencia }}</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-start flex-wrap gap-2">
+    <div>
+        <h1>{{ trip.titulo }}</h1>
+        <p class="text-muted mb-0">
+            <code>{{ trip.referencia }}</code>
+            {{ badge(trip.estado.label, trip.estado.css_class) }}
+            {% if trip.finalidad %}· {{ trip.finalidad.label }}{% endif %}
+        </p>
+    </div>
+    <div class="btn-group">
+        {% if Permiso.EDITAR_VIAJE in permisos %}
+        <a href="{{ url_for('trips.edit', trip_id=trip.id) }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-pencil me-1"></i>Editar</a>
+        {% endif %}
+        {% if Permiso.GESTIONAR_VIAJEROS in permisos %}
+        <a href="{{ url_for('trips.travelers', trip_id=trip.id) }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-people me-1"></i>Viajeros</a>
+        {% endif %}
+        {% if Permiso.EDITAR_VIAJE in permisos %}
+        <a href="{{ url_for('trips.destinations', trip_id=trip.id) }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-geo-alt me-1"></i>Destinos</a>
+        {% endif %}
+        {% if Permiso.SUBIR_DOCUMENTO in permisos %}
+        <a href="{{ url_for('documents.upload', trip_id=trip.id) }}" class="btn btn-primary btn-sm">
+            <i class="bi bi-upload me-1"></i>Subir documento</a>
+        {% endif %}
+    </div>
+</div>
+
+<ul class="nav nav-tabs mb-3">
+    <li class="nav-item"><a class="nav-link active" href="#itinerario" data-bs-toggle="tab">
+        <i class="bi bi-list-ol me-1"></i>Itinerario</a></li>
+    <li class="nav-item"><a class="nav-link" href="{{ url_for('documents.index', trip_id=trip.id) }}">
+        <i class="bi bi-files me-1"></i>Documentos</a></li>
+    <li class="nav-item"><a class="nav-link" href="{{ url_for('alerts.index', trip_id=trip.id) }}">
+        <i class="bi bi-bell me-1"></i>Alertas</a></li>
+    <li class="nav-item"><a class="nav-link" href="{{ url_for('advisories.index', trip_id=trip.id) }}">
+        <i class="bi bi-shield-check me-1"></i>Recomendaciones</a></li>
+</ul>
+
+<div class="row g-4">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-list-ol me-2"></i>Itinerario consolidado</span>
+                {% if Permiso.RECALCULAR_ALERTAS in permisos %}
+                <form method="post" action="{{ url_for('alerts.recalculate', trip_id=trip.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-sm btn-outline-secondary" type="submit">
+                        <i class="bi bi-arrow-clockwise me-1"></i>Revalidar
+                    </button>
+                </form>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                {% if timeline.is_empty %}
+                <div class="empty-state">
+                    <i class="bi bi-signpost-split"></i>
+                    <p>El itinerario está vacío. Suba documentos de reserva o añada
+                       los servicios manualmente.</p>
+                </div>
+                {% else %}
+                {% for dia, entradas in timeline.por_dia %}
+                <div class="timeline-day">
+                    <div class="timeline-date">
+                        {% if dia %}{{ dia.strftime('%d/%m/%Y') }}{% else %}Sin fecha{% endif %}
+                    </div>
+                    {% for entrada in entradas %}
+                    {% set item = entrada.item %}
+                    <div class="timeline-item timeline-{{ entrada.kind }}">
+                        <div class="timeline-marker">
+                            <i class="bi bi-{{ item.tipo.icon if entrada.kind == 'segmento' and item.tipo
+                                              else {'alojamiento': 'building', 'vehiculo': 'car-front',
+                                                    'servicio': 'ticket-perforated'}.get(entrada.kind, 'dot') }}"></i>
+                        </div>
+                        <div class="timeline-body">
+                            <div class="d-flex justify-content-between align-items-start gap-2">
+                                <strong>{{ item.etiqueta }}</strong>
+                                <span class="text-muted small text-nowrap">
+                                    {% if entrada.kind == 'segmento' %}
+                                        {{ item.salida_local | local_time }}
+                                        <span class="tz-badge">{{ item.salida_tz }}</span>
+                                        →
+                                        {{ item.llegada_local | local_time }}
+                                        <span class="tz-badge">{{ item.llegada_tz }}</span>
+                                    {% elif entrada.kind == 'alojamiento' %}
+                                        {{ item.check_in_local | local_date }} —
+                                        {{ item.check_out_local | local_date }}
+                                        ({{ item.noches }} noches)
+                                    {% elif entrada.kind == 'vehiculo' %}
+                                        {{ item.recogida_local | local_dt(item.recogida_tz) }}
+                                    {% else %}
+                                        {{ item.inicio_local | local_dt(item.inicio_tz) }}
+                                    {% endif %}
+                                </span>
+                            </div>
+                            <div class="timeline-meta">
+                                {% if item.localizador %}
+                                <span class="chip"><i class="bi bi-upc"></i>{{ item.localizador }}</span>
+                                {% endif %}
+                                {% if item.proveedor %}
+                                <span class="chip"><i class="bi bi-building"></i>{{ item.proveedor }}</span>
+                                {% endif %}
+                                {% if entrada.traveler %}
+                                <span class="chip"><i class="bi bi-person"></i>{{ entrada.traveler.nombre_completo }}</span>
+                                {% else %}
+                                <span class="chip"><i class="bi bi-people"></i>Todo el viaje</span>
+                                {% endif %}
+                                {% if item.requiere_revision %}
+                                <span class="chip chip-warning">
+                                    <i class="bi bi-exclamation-triangle"></i>Requiere revisión</span>
+                                {% endif %}
+                                {% if item.documento_origen_id %}
+                                <a class="chip chip-primary"
+                                   href="{{ url_for('documents.detail', document_id=item.documento_origen_id) }}">
+                                    <i class="bi bi-file-earmark-text"></i>Documento</a>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endfor %}
+
+                {% if timeline.connections %}
+                <hr>
+                <h6 class="text-muted"><i class="bi bi-arrow-left-right me-1"></i>Conexiones detectadas</h6>
+                <ul class="connection-list">
+                    {% for conexion in timeline.connections %}
+                    <li>
+                        {{ conexion.desde.etiqueta }} → {{ conexion.hasta.etiqueta }}:
+                        <strong>{{ conexion.margen_minutos | duration }}</strong>
+                        {% if not conexion.mismo_lugar %}
+                        <span class="text-warning">
+                            <i class="bi bi-exclamation-triangle"></i> cambio de ubicación</span>
+                        {% endif %}
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card mb-3">
+            <div class="card-header"><i class="bi bi-info-circle me-2"></i>Resumen</div>
+            <div class="card-body">
+                <dl class="detail-list">
+                    <dt>Inicio</dt>
+                    <dd>{{ trip.inicio_local | local_dt(trip.inicio_tz) }}</dd>
+                    <dt>Fin</dt>
+                    <dd>{{ trip.fin_local | local_dt(trip.fin_tz) }}</dd>
+                    <dt>Gestor</dt>
+                    <dd>{{ trip.gestor.nombre_completo if trip.gestor else '—' }}</dd>
+                    <dt>Destinos</dt>
+                    <dd>{{ trip.resumen_destinos }}</dd>
+                    {% if trip.observaciones %}
+                    <dt>Observaciones</dt>
+                    <dd>{{ trip.observaciones }}</dd>
+                    {% endif %}
+                </dl>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header"><i class="bi bi-people me-2"></i>Personas viajeras</div>
+            {% if trip.active_travelers %}
+            <ul class="list-group list-group-flush">
+                {% for viajero in trip.active_travelers %}
+                <li class="list-group-item d-flex align-items-center gap-2">
+                    <span class="avatar-chip">{{ viajero.user.iniciales }}</span>
+                    <div>
+                        <div>{{ viajero.nombre_completo }}</div>
+                        <small class="text-muted">{{ viajero.rol_en_viaje.label }}</small>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <div class="card-body empty-state">
+                <i class="bi bi-person-x"></i>
+                <p>Sin personas asignadas.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

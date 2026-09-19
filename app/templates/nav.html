@@ -1,0 +1,59 @@
+<div class="sidebar-brand">
+    <i class="bi bi-airplane-engines"></i>
+    <span>{{ app_name }}</span>
+</div>
+
+<ul class="sidebar-nav">
+    <li>
+        <a href="{{ url_for('dashboard.index') }}" class="nav-link">
+            <i class="bi bi-speedometer2"></i><span>Panel</span>
+        </a>
+    </li>
+    <li>
+        <a href="{{ url_for('trips.index') }}" class="nav-link">
+            <i class="bi bi-suitcase-lg"></i><span>Viajes</span>
+        </a>
+    </li>
+
+    {% if current_user.is_gestor or current_user.is_administrador %}
+    <li class="sidebar-section"><span class="sidebar-section-label">Gestión</span></li>
+    <li>
+        <a href="{{ url_for('trips.create') }}" class="nav-link">
+            <i class="bi bi-plus-circle"></i><span>Nuevo viaje</span>
+        </a>
+    </li>
+    {% endif %}
+
+    {% if current_user.is_administrador %}
+    <li class="sidebar-section"><span class="sidebar-section-label">Administración</span></li>
+    <li>
+        <a href="{{ url_for('admin.users') }}" class="nav-link">
+            <i class="bi bi-people"></i><span>Usuarios</span>
+        </a>
+    </li>
+    <li>
+        <a href="{{ url_for('admin.alert_rules') }}" class="nav-link">
+            <i class="bi bi-sliders"></i><span>Reglas de alerta</span>
+        </a>
+    </li>
+    <li>
+        <a href="{{ url_for('admin.ai_providers') }}" class="nav-link">
+            <i class="bi bi-cpu"></i><span>Proveedores de IA</span>
+        </a>
+    </li>
+    <li>
+        <a href="{{ url_for('admin.settings') }}" class="nav-link">
+            <i class="bi bi-gear"></i><span>Ajustes</span>
+        </a>
+    </li>
+    <li>
+        <a href="{{ url_for('admin.audit') }}" class="nav-link">
+            <i class="bi bi-shield-check"></i><span>Auditoría</span>
+        </a>
+    </li>
+    {% endif %}
+</ul>
+
+<div class="sidebar-footer">
+    <small>{{ current_user.nombre_completo }}</small>
+</div>

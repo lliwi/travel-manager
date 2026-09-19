@@ -1,0 +1,31 @@
+line-length = 100
+target-version = "py311"
+
+[lint]
+select = [
+    "E",    # pycodestyle
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # import sorting
+    "B",    # bugbear
+    "C4",   # comprehensions
+    "UP",   # pyupgrade
+    "S",    # bandit
+]
+ignore = [
+    "E501",   # line length is handled by the formatter
+    "B008",   # function call in default argument: Flask idiom
+    "S101",   # assert: correct in tests
+    "UP042",  # str+Enum mixin: deliberate, members carry their own label
+]
+
+[lint.per-file-ignores]
+"tests/*" = ["S", "E402"]
+"migrations/*" = ["E", "W", "F", "I", "UP"]
+"app/blueprints/*/__init__.py" = ["E402", "F401"]
+"app/models/__init__.py" = ["F401"]
+"app/services/*/__init__.py" = ["F401"]
+"app/tasks/__init__.py" = ["F401"]
+
+[lint.isort]
+known-first-party = ["app"]

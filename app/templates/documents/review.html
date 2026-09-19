@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import badge, provenance_chip %}
+{% block title %}Revisar — {{ document.nombre_original }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('trips.detail', trip_id=trip.id) }}">{{ trip.referencia }}</a></li>
+<li class="breadcrumb-item"><a href="{{ url_for('documents.detail', document_id=document.id) }}">
+    {{ document.nombre_original | truncate(30) }}</a></li>
+<li class="breadcrumb-item active">Revisión</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Revisión de datos extraídos</h1>
+    <p class="text-muted mb-0">
+        {{ document.nombre_original }} · {{ badge(document.clasificacion.label, 'light') }}
+        · versión {{ extraction.version }}
+        {% if extraction.confianza_global %}
+        · confianza global {{ (extraction.confianza_global * 100) | round | int }}%
+        {% endif %}
+    </p>
+</div>
+
+<div class="alert alert-info">
+    <i class="bi bi-info-circle me-2"></i>
+    Revise cada campo antes de aprobarlo. Los valores que corrija se registrarán como
+    <strong>manuales</strong> y quedará constancia de que fue usted quien los confirmó.
+    Nada entra en el itinerario hasta que apruebe.
+</div>
+
+{% if extraction.avisos %}
+<div class="alert alert-warning">
+    <strong>Avisos de normalización:</strong>
+    <ul class="mb-0">{% for aviso in extraction.avisos %}<li>{{ aviso }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+<form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <div class="card mb-3">
+        <div class="table-responsive">
+            <table class="table align-middle mb-0 review-table">
+                <thead>
+                    <tr><th style="width:22%">Campo</th><th style="width:38%">Valor</th>
+                        <th style="width:15%">Confianza</th><th style="width:25%">Procedencia</th></tr>
+                </thead>
+                <tbody>
+                {% for campo in campos %}
+                <tr class="{{ 'table-warning' if campo.requiere_revision }}">
+                    <td><label for="campo__{{ campo.campo }}" class="fw-semibold">{{ campo.etiqueta }}</label></td>
+                    <td>
+                        {% if campo.es_instante %}
+                        <div class="input-group input-group-sm">
+                            <input type="text" class="form-control"
+                                   id="campo__{{ campo.campo }}"
+                                   name="campo__{{ campo.campo }}__local"
+                                   value="{{ campo.valor_bruto.local or '' }}"
+                                   placeholder="AAAA-MM-DDTHH:MM">
+                            <input type="text" class="form-control"
+                                   name="campo__{{ campo.campo }}__zona"
+                                   value="{{ campo.valor_bruto.zona_horaria or '' }}"
+                                   placeholder="Europe/Madrid">
+                        </div>
+                        {% else %}
+                        <input type="text" class="form-control form-control-sm"
+                               id="campo__{{ campo.campo }}"
+                               name="campo__{{ campo.campo }}"
+                               value="{{ campo.valor }}">
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if campo.confianza_pct is not none %}
+                        <div class="progress progress-thin">
+                            <div class="progress-bar bg-{{ 'success' if campo.confianza_pct >= 85
+                                                           else ('warning' if campo.confianza_pct >= 60
+                                                                 else 'danger') }}"
+                                 style="width: {{ campo.confianza_pct }}%"></div>
+                        </div>
+                        <small class="text-muted">{{ campo.confianza_pct }}%</small>
+                        {% else %}<span class="text-muted small">—</span>{% endif %}
+                    </td>
+                    <td>
+                        {{ provenance_chip(campo.origen, campo.confianza, campo.pagina) }}
+                        {% if campo.fragmento %}
+                        <details class="mt-1">
+                            <summary class="small text-muted">Ver fragmento</summary>
+                            <blockquote class="fragment">{{ campo.fragmento }}</blockquote>
+                        </details>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card mb-3">
+        <div class="card-body">
+            <label for="comentario" class="form-label">Comentario de revisión</label>
+            <textarea class="form-control" id="comentario" name="comentario" rows="2"
+                      placeholder="Opcional: qué ha corregido y por qué."></textarea>
+        </div>
+    </div>
+
+    <div class="d-flex gap-2">
+        <button type="submit" name="accion" value="aprobar" class="btn btn-success">
+            <i class="bi bi-check-lg me-1"></i>Aprobar y aplicar al itinerario
+        </button>
+        <button type="submit" name="accion" value="descartar" class="btn btn-outline-danger"
+                onclick="return confirm('¿Descartar estos datos extraídos? El documento original se conserva.');">
+            <i class="bi bi-x-lg me-1"></i>Descartar
+        </button>
+        <a href="{{ url_for('documents.detail', document_id=document.id) }}"
+           class="btn btn-outline-secondary">Cancelar</a>
+    </div>
+</form>
+{% endblock %}
