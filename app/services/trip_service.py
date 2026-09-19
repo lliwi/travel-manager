@@ -326,23 +326,14 @@ def remove_destination(actor, trip, destination_id, commit=True):
     return True
 
 
-def sync_dates_from_itinerary(trip, commit=False):
-    """Fill the trip's dates from its itinerary when they are still empty.
+def itinerary_span(trip):
+    """The first and last instants the trip's itinerary covers.
 
-    A trip created from booking documents has no dates of its own: they are in
-    the documents. Once the extracted services are approved the span is known,
-    so taking it from there saves retyping what the system already read -- and
-    avoids the trip sitting with an "faltan fechas" alert that the manager
-    cannot resolve without copying dates by hand.
-
-    Only empty fields are filled. A date a manager typed is never overwritten:
-    they may deliberately have set a wider window than the bookings cover.
-
-    Returns the list of fields actually set.
+    Returns a ``(primero, ultimo)`` pair of ``(utc, local, tz)`` triples, or
+    None when there is no itinerary to read. Both ends come from real rows, so
+    each keeps the timezone of its own place: a trip that starts in Barcelona
+    and ends in London is not one timezone with two dates.
     """
-    if trip.inicio_utc is not None and trip.fin_utc is not None:
-        return []
-
     instantes = []
     for coleccion, inicio, fin in (
         (trip.segments, 'salida', 'llegada'),
@@ -363,10 +354,59 @@ def sync_dates_from_itinerary(trip, commit=False):
                     ))
 
     if not instantes:
-        return []
+        return None
 
     instantes.sort(key=lambda entry: entry[0])
-    primero, ultimo = instantes[0], instantes[-1]
+    return instantes[0], instantes[-1]
+
+
+def propose_traveler_window(trip):
+    """Dates to offer when assigning someone to a trip.
+
+    A manager assigning a traveller to a trip the system already read should
+    not retype what the booking documents said. The itinerary is preferred over
+    the trip's own dates because it is the evidence: the trip's dates may have
+    been typed before any document arrived, or widened on purpose.
+
+    This is a proposal, never a decision -- the fields stay editable and empty
+    still means "the whole trip". Returns ``(desde, hasta, origen)`` where each
+    date is a naive local datetime and ``origen`` says which source it came
+    from, so the interface can tell the manager what it is offering and why.
+    """
+    extremos = itinerary_span(trip)
+    if extremos is not None:
+        primero, ultimo = extremos
+        if primero[1] is not None and ultimo[1] is not None:
+            return primero[1], ultimo[1], 'itinerario'
+
+    if trip.inicio_local and trip.fin_local:
+        return trip.inicio_local, trip.fin_local, 'viaje'
+
+    return None, None, None
+
+
+def sync_dates_from_itinerary(trip, commit=False):
+    """Fill the trip's dates from its itinerary when they are still empty.
+
+    A trip created from booking documents has no dates of its own: they are in
+    the documents. Once the extracted services are approved the span is known,
+    so taking it from there saves retyping what the system already read -- and
+    avoids the trip sitting with an "faltan fechas" alert that the manager
+    cannot resolve without copying dates by hand.
+
+    Only empty fields are filled. A date a manager typed is never overwritten:
+    they may deliberately have set a wider window than the bookings cover.
+
+    Returns the list of fields actually set.
+    """
+    if trip.inicio_utc is not None and trip.fin_utc is not None:
+        return []
+
+    extremos = itinerary_span(trip)
+    if extremos is None:
+        return []
+
+    primero, ultimo = extremos
 
     aplicados = []
     if trip.inicio_utc is None and primero[1] is not None:

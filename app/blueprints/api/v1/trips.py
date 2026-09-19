@@ -155,6 +155,24 @@ def list_travelers(trip_id, trip):
     return ok([t.to_dict() for t in visible_travelers(actor, trip)])
 
 
+@api_v1_bp.route('/trips/<trip_id>/travelers/proposed-window', methods=['GET'])
+@login_required
+@require_trip_access(Permiso.GESTIONAR_VIAJEROS)
+def proposed_traveler_window(trip_id, trip):
+    """Dates to offer when assigning someone, and where they come from.
+
+    The same proposal the assignment form pre-fills. A client building that
+    form asks for it rather than deriving its own, which is how both surfaces
+    keep offering the same thing.
+    """
+    desde, hasta, origen = trip_service.propose_traveler_window(trip)
+    return ok({
+        'desde_local': desde.isoformat() if desde else None,
+        'hasta_local': hasta.isoformat() if hasta else None,
+        'origen': origen,
+    })
+
+
 @api_v1_bp.route('/trips/<trip_id>/travelers', methods=['POST'])
 @login_required
 @require_trip_access(Permiso.GESTIONAR_VIAJEROS)

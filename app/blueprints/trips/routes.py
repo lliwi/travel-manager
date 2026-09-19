@@ -283,7 +283,17 @@ def travelers(trip_id, trip):
         flash('Persona viajera asignada.', 'success')
         return redirect(url_for('trips.travelers', trip_id=trip.id))
 
-    return render_template('trips/travelers.html', trip=trip, form=form)
+    # Offer the dates the system already knows, but only on a fresh form: on a
+    # failed submit the manager's own input is what belongs in the fields.
+    origen_fechas = None
+    if not form.is_submitted():
+        desde, hasta, origen_fechas = trip_service.propose_traveler_window(trip)
+        form.desde_local.data = desde
+        form.hasta_local.data = hasta
+
+    return render_template(
+        'trips/travelers.html', trip=trip, form=form, origen_fechas=origen_fechas
+    )
 
 
 @trips_bp.route('/<trip_id>/viajeros/<user_id>/eliminar', methods=['POST'])

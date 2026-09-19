@@ -68,6 +68,18 @@
                         <div class="col-md-6">{{ render_field(form.desde_local) }}</div>
                         <div class="col-md-6">{{ render_field(form.hasta_local) }}</div>
                     </div>
+                    {% if origen_fechas %}
+                        <p class="form-text mb-3">
+                            <i class="bi bi-magic me-1"></i>
+                            {% if origen_fechas == 'itinerario' %}
+                                Fechas propuestas a partir del itinerario ya registrado.
+                            {% else %}
+                                Fechas propuestas a partir de las del viaje.
+                            {% endif %}
+                            Modifíquelas si esta persona participa solo en parte,
+                            o déjelas en blanco para todo el viaje.
+                        </p>
+                    {% endif %}
                     {{ render_field(form.observaciones, rows=2) }}
                     {{ form.submit }}
                 </form>

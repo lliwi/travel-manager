@@ -456,3 +456,180 @@ class TestAdjuntarAlCrearElViaje:
 
         assert respuesta.status_code == 302
         assert Trip.query.filter_by(titulo='Viaje sin adjuntos').first() is not None
+
+
+@pytest.mark.unit
+class TestFechasPropuestasAlAsignarViajero:
+    """Assigning someone should not mean retyping what the documents said.
+
+    The trip's span is already known once its bookings are approved, so the
+    assignment form offers it. It is a proposal: the manager may narrow it for
+    someone who joins midway, or clear it, which still means the whole trip.
+    """
+
+    def test_se_proponen_las_fechas_del_itinerario(self, gestor, seeded):
+        from datetime import datetime
+
+        from app.models.itinerary import TravelSegment
+        from app.services import trip_service
+        from app.utils.timeutil import set_instant
+
+        trip = trip_service.create_trip(gestor, titulo='Londres')
+        for salida, llegada in (
+            (datetime(2026, 10, 31, 7, 55), datetime(2026, 10, 31, 9, 20)),
+            (datetime(2026, 11, 2, 19, 55), datetime(2026, 11, 2, 23, 5)),
+        ):
+            seg = TravelSegment(trip_id=trip.id, numero='VY1')
+            set_instant(seg, 'salida', salida, 'Europe/Madrid')
+            set_instant(seg, 'llegada', llegada, 'Europe/Madrid')
+            db.session.add(seg)
+        db.session.commit()
+        db.session.refresh(trip)
+
+        desde, hasta, origen = trip_service.propose_traveler_window(trip)
+
+        assert origen == 'itinerario'
+        assert desde == datetime(2026, 10, 31, 7, 55)
+        assert hasta == datetime(2026, 11, 2, 23, 5)
+
+    def test_sin_itinerario_se_proponen_las_del_viaje(self, gestor, trip):
+        from app.services import trip_service
+
+        desde, hasta, origen = trip_service.propose_traveler_window(trip)
+
+        assert origen == 'viaje'
+        assert desde == trip.inicio_local
+        assert hasta == trip.fin_local
+
+    def test_el_itinerario_manda_sobre_las_del_viaje(
+        self, gestor, trip, segment_factory
+    ):
+        """The itinerary is the evidence; the trip's dates may predate it.
+
+        A manager who opened the trip with a rough window before any document
+        arrived should be offered what the bookings actually say.
+        """
+        from datetime import datetime
+
+        from app.services import trip_service
+        from app.utils.timeutil import set_instant
+
+        seg = segment_factory(numero='VY1')
+        set_instant(seg, 'salida', datetime(2026, 10, 31, 7, 55), 'Europe/Madrid')
+        set_instant(seg, 'llegada', datetime(2026, 10, 31, 9, 20), 'Europe/London')
+        db.session.commit()
+        db.session.refresh(trip)
+
+        desde, hasta, origen = trip_service.propose_traveler_window(trip)
+
+        assert origen == 'itinerario'
+        assert desde == datetime(2026, 10, 31, 7, 55)
+
+    def test_un_viaje_sin_nada_no_propone_nada(self, gestor, seeded):
+        from app.services import trip_service
+
+        trip = trip_service.create_trip(gestor, titulo='Sin nada')
+
+        assert trip_service.propose_traveler_window(trip) == (None, None, None)
+
+    def test_un_tramo_eliminado_no_cuenta(self, gestor, trip, segment_factory):
+        """A withdrawn booking must not keep widening the proposal."""
+        from datetime import datetime
+
+        from app.services import trip_service
+        from app.utils.timeutil import set_instant
+
+        seg = segment_factory(numero='VY1')
+        set_instant(seg, 'salida', datetime(2027, 1, 1, 8, 0), 'Europe/Madrid')
+        set_instant(seg, 'llegada', datetime(2027, 1, 1, 10, 0), 'Europe/Madrid')
+        seg.soft_delete(gestor)
+        db.session.commit()
+        db.session.refresh(trip)
+
+        _, hasta, origen = trip_service.propose_traveler_window(trip)
+
+        assert origen == 'viaje'
+        assert hasta != datetime(2027, 1, 1, 10, 0)
+
+
+@pytest.mark.integration
+class TestFormularioDeAsignacion:
+    """The proposal has to reach the form, and get out of the way on a mistake."""
+
+    def test_el_formulario_llega_con_las_fechas_puestas(
+        self, as_user, gestor, trip, segment_factory
+    ):
+        from datetime import datetime
+
+        from app.utils.timeutil import set_instant
+
+        seg = segment_factory(numero='VY1')
+        set_instant(seg, 'salida', datetime(2026, 10, 31, 7, 55), 'Europe/Madrid')
+        set_instant(seg, 'llegada', datetime(2026, 11, 2, 23, 5), 'Europe/Madrid')
+        db.session.commit()
+
+        with as_user(gestor) as client:
+            html = client.get(f'/trips/{trip.id}/viajeros').get_data(as_text=True)
+
+        assert '2026-10-31T07:55' in html
+        assert '2026-11-02T23:05' in html
+        assert 'propuestas a partir del itinerario' in html
+
+    def test_un_envio_fallido_conserva_lo_que_escribio_el_gestor(
+        self, as_user, gestor, trip, segment_factory
+    ):
+        """A proposal that overwrites a correction is worse than no proposal."""
+        from datetime import datetime
+
+        from app.utils.timeutil import set_instant
+
+        seg = segment_factory(numero='VY1')
+        set_instant(seg, 'salida', datetime(2026, 10, 31, 7, 55), 'Europe/Madrid')
+        set_instant(seg, 'llegada', datetime(2026, 11, 2, 23, 5), 'Europe/Madrid')
+        db.session.commit()
+
+        with as_user(gestor) as client:
+            html = client.post(
+                f'/trips/{trip.id}/viajeros',
+                data={
+                    'user_id': '',  # inválido: el formulario vuelve con errores
+                    'rol_en_viaje': 'viajero',
+                    'desde_local': '2026-11-01T09:00',
+                    'hasta_local': '2026-11-02T23:05',
+                },
+            ).get_data(as_text=True)
+
+        assert '2026-11-01T09:00' in html, (
+            'Lo que escribió el gestor no puede perderse al revalidar.'
+        )
+        assert '2026-10-31T07:55' not in html
+
+    def test_la_api_ofrece_la_misma_propuesta(
+        self, client, api_login, gestor, trip, segment_factory
+    ):
+        from datetime import datetime
+
+        from app.utils.timeutil import set_instant
+
+        seg = segment_factory(numero='VY1')
+        set_instant(seg, 'salida', datetime(2026, 10, 31, 7, 55), 'Europe/Madrid')
+        set_instant(seg, 'llegada', datetime(2026, 11, 2, 23, 5), 'Europe/Madrid')
+        db.session.commit()
+
+        api_login(gestor)
+        cuerpo = client.get(
+            f'/api/v1/trips/{trip.id}/travelers/proposed-window'
+        ).get_json()['data']
+
+        assert cuerpo['origen'] == 'itinerario'
+        assert cuerpo['desde_local'].startswith('2026-10-31T07:55')
+
+    def test_un_viajero_no_puede_pedir_la_propuesta(
+        self, client, api_login, viajero, trip
+    ):
+        """Proposing a window is part of managing travellers."""
+        api_login(viajero)
+
+        respuesta = client.get(f'/api/v1/trips/{trip.id}/travelers/proposed-window')
+
+        assert respuesta.status_code == 403
