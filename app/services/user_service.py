@@ -17,12 +17,48 @@ from app.utils.timeutil import utcnow
 logger = logging.getLogger(__name__)
 
 
+def normalizar_email(email):
+    """Validate an address and return it in its stored form.
+
+    The one place that decides what an address may look like. It used to be
+    decided only by the administration form, which was stricter than everything
+    else: ``flask seed`` and ``flask create-admin`` issue accounts on
+    ``@corp.test``, and the form then refused to save them -- so a seeded
+    account could not be edited at all, not even to change its password.
+
+    Reserved and internal-only domains are accepted on purpose. An on-premise
+    deployment addresses its people on names that never resolve publicly, and
+    this application issues such addresses itself; refusing them would be
+    refusing its own data. Everything malformed is still refused.
+    """
+    from email_validator import EmailNotValidError, validate_email
+
+    if email is None:
+        raise ValidationError('Indique el correo electrónico.')
+
+    limpio = str(email).strip()
+    if not limpio:
+        raise ValidationError('Indique el correo electrónico.')
+
+    try:
+        # ``test_environment`` is what this library calls "do not reject
+        # reserved domains"; the name is about .test, the reason here is an
+        # internal deployment.
+        resultado = validate_email(
+            limpio, check_deliverability=False, test_environment=True,
+        )
+    except EmailNotValidError as exc:
+        raise ValidationError('El correo electrónico no es válido.') from exc
+
+    return resultado.normalized.lower()
+
+
 def create_user(actor, username, email, nombre, password, apellidos=None,
                 role_codes=None, puesto=None, departamento=None,
                 estado=UserStatus.ACTIVO, must_change_password=False, commit=True):
     """Create a local account."""
     username = str(username).strip()
-    email = str(email).strip().lower()
+    email = normalizar_email(email)
 
     if _exists(username, email):
         raise ConflictError('Ya existe un usuario con ese nombre o correo electrónico.')
@@ -71,7 +107,7 @@ def update_user(actor, user, role_codes=None, password=None, commit=True, **camp
             continue
         nuevo = campos[field]
         if field == 'email' and nuevo:
-            nuevo = str(nuevo).strip().lower()
+            nuevo = normalizar_email(nuevo)
             if _exists(None, nuevo, exclude_id=user.id):
                 raise ConflictError('Ya existe otro usuario con ese correo electrónico.')
         if getattr(user, field) != nuevo:

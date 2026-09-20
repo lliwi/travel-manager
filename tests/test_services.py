@@ -755,3 +755,68 @@ class TestElLugarEscritoEnOtroIdioma:
         from app.services.normalization_service import resolver_lugar
 
         assert resolver_lugar(['Ciudad Inexistente'], None) == (None, None, None)
+
+
+@pytest.mark.unit
+class TestElCorreoDeUnDespliegueInterno:
+    """One rule for what an address may be, or the panel refuses its own data.
+
+    ``flask seed`` and ``flask create-admin`` issue accounts on «@corp.test».
+    Only the administration form validated the format, and more strictly than
+    anything else, so those accounts could not be saved from the panel at all
+    -- changing a password failed on the email field.
+    """
+
+    def test_se_acepta_un_dominio_reservado(self, app):
+        from app.services.user_service import normalizar_email
+
+        assert normalizar_email('llibert@corp.test') == 'llibert@corp.test'
+
+    def test_se_acepta_un_dominio_interno(self, app):
+        from app.services.user_service import normalizar_email
+
+        assert normalizar_email('ana@servidor.internal') == 'ana@servidor.internal'
+
+    def test_se_normaliza_a_minusculas_y_sin_espacios(self, app):
+        from app.services.user_service import normalizar_email
+
+        assert normalizar_email('  Ana.Perez@CORP.test ') == 'ana.perez@corp.test'
+
+    @pytest.mark.parametrize('malo', [
+        'sin-arroba', 'a@@b.com', 'a@', '@b.com', 'a b@c.com', '',
+    ])
+    def test_lo_malformado_se_sigue_rechazando(self, app, malo):
+        from app.services.user_service import normalizar_email
+        from app.utils.errors import ValidationError
+
+        with pytest.raises(ValidationError):
+            normalizar_email(malo)
+
+    def test_la_cuenta_sembrada_se_puede_editar(self, admin, gestor, seeded):
+        """The bug, from the outside: a password change must not fail on email."""
+        from app.services import user_service
+
+        anterior = gestor.password_hash
+
+        user_service.update_user(
+            admin, gestor, email=gestor.email, password='Otra-Contrasena-2026',
+        )
+
+        from app.utils.crypto import verify_password
+
+        assert gestor.password_hash != anterior
+        assert verify_password(gestor.password_hash, 'Otra-Contrasena-2026')
+
+    def test_el_formulario_acepta_lo_que_acepta_el_servicio(self, app):
+        """Or the panel is stricter than the system it administers."""
+        from app.blueprints.admin.forms import UserForm
+
+        with app.test_request_context(method='POST', data={
+            'username': 'llibert', 'email': 'llibert@corp.test',
+            'nombre': 'Llibert', 'estado': 'activo',
+        }):
+            formulario = UserForm()
+            formulario.roles.choices = [('usuario', 'Usuario')]
+            formulario.validate()
+
+        assert not formulario.email.errors

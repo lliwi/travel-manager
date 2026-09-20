@@ -13,13 +13,31 @@ from wtforms import (
 )
 from wtforms.validators import (
     DataRequired,
-    Email,
     Length,
     NumberRange,
     Optional,
 )
 
 from app.models.enums import AIProviderCode, AITask, UserStatus
+
+
+def _correo_valido(form, field):
+    """Defer to the service, so the form cannot be stricter than the system.
+
+    It was: the form refused the ``@corp.test`` addresses the application's own
+    seed issues, which made those accounts impossible to edit.
+    """
+    from wtforms.validators import ValidationError as WTFValidationError
+
+    from app.services.user_service import normalizar_email
+    from app.utils.errors import ValidationError
+
+    if not field.data:
+        return
+    try:
+        normalizar_email(field.data)
+    except ValidationError as exc:
+        raise WTFValidationError(exc.mensaje) from exc
 
 
 class MultiCheckboxField(SelectMultipleField):
@@ -40,7 +58,7 @@ class UserForm(FlaskForm):
         'Correo electrónico',
         validators=[
             DataRequired(message='Indique el correo electrónico.'),
-            Email(message='El correo electrónico no es válido.'),
+            _correo_valido,
             Length(max=255),
         ],
     )
