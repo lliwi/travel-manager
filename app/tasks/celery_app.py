@@ -78,6 +78,12 @@ def make_celery():
         task_reject_on_worker_lost=True,
         result_expires=86400,
         beat_schedule={
+            # Every quarter hour, not nightly: a trip that started at 07:55
+            # should not still read «confirmado» at lunchtime.
+            'avanzar-estados-de-viaje': {
+                'task': 'app.tasks.maintenance.advance_trip_states',
+                'schedule': crontab(minute='*/15'),
+            },
             'recalcular-alertas-viajes-activos': {
                 'task': 'app.tasks.alerts.recalculate_active_trips',
                 'schedule': crontab(hour=3, minute=0),

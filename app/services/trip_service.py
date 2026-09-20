@@ -169,6 +169,61 @@ def change_status(actor, trip, nuevo_estado, motivo=None, commit=True):
     return trip
 
 
+#: States a trip advances out of on its own. A draft is deliberately not one:
+#: its dates may be a guess, and announcing a trip nobody confirmed as «en
+#: curso» would put it in front of travellers on the strength of a placeholder.
+ESTADOS_QUE_AVANZAN = (TripStatus.EN_PREPARACION, TripStatus.CONFIRMADO)
+
+
+def advance_states(ahora=None, commit=True):
+    """Move trips through «en curso» and «finalizado» as their dates pass.
+
+    Some state changes are nobody's decision: a trip whose first flight left
+    this morning is under way whether or not a manager remembered to say so,
+    and the alert engine skips closed trips, so one left as «confirmado» for
+    months keeps being recalculated for a journey that already happened.
+
+    Cancelled trips are never touched: that state is a decision, not a stage.
+
+    Returns ``{'en_curso': n, 'finalizado': n}``.
+    """
+    ahora = ahora or utcnow()
+    aplicados = {'en_curso': 0, 'finalizado': 0}
+
+    # Finish first, so a trip whose whole window has passed lands on its final
+    # state in one pass instead of waiting for the next tick.
+    terminados = Trip.query.filter(
+        Trip.is_deleted.is_(False),
+        Trip.estado.in_([str(e) for e in ESTADOS_QUE_AVANZAN] + [str(TripStatus.EN_CURSO)]),
+        Trip.fin_utc.isnot(None),
+        Trip.fin_utc < ahora,
+    ).all()
+    for trip in terminados:
+        # Committed one at a time so each carries its audit entry: a state
+        # that changed itself is exactly the kind a reader will later want
+        # explained.
+        change_status(
+            None, trip, TripStatus.FINALIZADO,
+            motivo='La fecha de fin del viaje ya ha pasado.', commit=commit,
+        )
+        aplicados['finalizado'] += 1
+
+    empezados = Trip.query.filter(
+        Trip.is_deleted.is_(False),
+        Trip.estado.in_([str(e) for e in ESTADOS_QUE_AVANZAN]),
+        Trip.inicio_utc.isnot(None),
+        Trip.inicio_utc <= ahora,
+    ).all()
+    for trip in empezados:
+        change_status(
+            None, trip, TripStatus.EN_CURSO,
+            motivo='La fecha de inicio del viaje ya ha llegado.', commit=commit,
+        )
+        aplicados['en_curso'] += 1
+
+    return aplicados
+
+
 def delete_trip(actor, trip, commit=True):
     """Soft-delete a trip. The audit trail and documents survive."""
     trip.soft_delete(actor)

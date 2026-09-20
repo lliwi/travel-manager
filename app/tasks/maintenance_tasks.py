@@ -74,6 +74,20 @@ def apply_retention(self, dry_run=True):
     return {'modo': 'real', 'purgados': purged}
 
 
+@celery.task(name='app.tasks.maintenance.advance_trip_states', bind=True)
+def advance_trip_states(self):
+    """Move trips to «en curso» and «finalizado» as their dates pass."""
+    from app.services import trip_service
+
+    aplicados = trip_service.advance_states()
+    if aplicados['en_curso'] or aplicados['finalizado']:
+        logger.info(
+            'Estados avanzados: %s en curso, %s finalizados.',
+            aplicados['en_curso'], aplicados['finalizado'],
+        )
+    return aplicados
+
+
 @celery.task(name='app.tasks.maintenance.purge_web_cache', bind=True)
 def purge_web_cache(self, keep_days=90):
     """Drop expired web research cache entries."""
