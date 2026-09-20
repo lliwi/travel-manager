@@ -1,18 +1,19 @@
-"""Data egress policy (specification section 2.5).
+"""Data egress: what leaves, and how it is recorded.
 
-The rule is enforced here, once, before any request leaves the process. A
-request carrying personal data is refused for an external provider unless an
-administrator enabled that egress, and the refusal is recorded as a blocked
-``ai_runs`` row rather than silently downgraded -- a caller must never be able
-to believe the model saw data it did not, nor have data leave because a check
-was skipped.
+Section 2.5 asks for documents and personal data to be withheld from external
+providers unless an administrator enables each. Both gates are gone, by the
+operator's decision, and the reasoning is worth writing down rather than
+burying: binding a task to a provider is *already* the decision. It is made in
+Administración → Proveedores de IA, by an administrator, knowingly, and
+recorded; asking the same person to confirm afterwards that they meant it added
+a second switch for one decision, and the usual outcome of that is both
+switches permanently on.
 
-Document content used to be gated the same way and no longer is. The
-specification asks for both; this deployment decided that reading a booking is
-what the application is for and that an external model is how it reads it, so
-the gate stood between the product and its purpose. Personal data keeps its
-gate, because a booking names people and where their names travel is still a
-decision somebody makes on purpose rather than a side effect.
+So this module no longer refuses anything. What it still does is name what is
+leaving and mark the run, because the question «what did we send outside, and
+when» has to stay answerable. Every external call keeps its ``ai_runs`` row
+with its provider, its purpose and its trip -- that record is now the whole of
+the control, which makes it worth more than when it was the second line.
 """
 import logging
 import re
@@ -39,28 +40,29 @@ class EgressDecision:
 def check(request, provider, tarea=None):
     """Decide whether this request may reach this provider.
 
+    Always yes. The decision is the binding, made in the panel; see the module
+    docstring. Kept as a function, and still called before every request,
+    because the day an organisation needs a rule here is the day it needs one
+    place to put it.
+
     Returns:
-        An :class:`EgressDecision`.
+        An :class:`EgressDecision`, whose ``motivo`` says whether the payload
+        is leaving the perimeter -- which is what the caller records.
     """
     if not getattr(provider, 'es_externo', False):
         return EgressDecision(True, 'proveedor local')
 
-    from app.services import settings_service
-
     tarea = AITask.coerce(tarea or request.tarea)
-
-    # Document content is no longer gated: the organisation decided that
-    # extracting a booking is what this application is for, and an external
-    # model is how it does it. Personal data still is -- a booking names people,
-    # and where their names go remains a decision somebody makes on purpose.
+    que_lleva = []
+    if request.contiene_documentos:
+        que_lleva.append('contenido de documentos')
     if request.contiene_pii:
-        if not settings_service.get_bool('IA_PERMITIR_PII_EXTERNOS', False):
-            return EgressDecision(False, (
-                'La política de la organización no permite enviar datos personales '
-                'a proveedores externos.'
-            ))
+        que_lleva.append('datos personales')
 
-    return EgressDecision(True, 'salida autorizada por configuración')
+    detalle = ' y '.join(que_lleva) if que_lleva else 'sin datos sensibles'
+    return EgressDecision(
+        True, f'proveedor externo ({detalle}), tarea {tarea}',
+    )
 
 
 def enforce(request, provider, tarea=None):

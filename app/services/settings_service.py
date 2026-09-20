@@ -82,11 +82,6 @@ DEFAULTS = {
         False,
     ),
     # --- AI egress policy (section 2.5) -------------------------------
-    'IA_PERMITIR_PII_EXTERNOS': (
-        False, 'bool', 'ia', 'Permitir datos personales a proveedores externos',
-        'Por defecto, los datos personales nunca salen a un proveedor remoto.',
-        False,
-    ),
     'IA_REGISTRAR_CONTENIDO_COMPLETO': (
         False, 'bool', 'ia', 'Registrar contenido completo de las ejecuciones',
         'Desactivado por defecto: solo se registra un resumen del resultado.',

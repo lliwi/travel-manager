@@ -39,15 +39,7 @@ class TestPoliticaDeSalidaDeDatos:
 
         return OllamaProvider(base_url='http://localhost:11434', modelo='test')
 
-    def test_los_datos_personales_no_salen_a_un_proveedor_externo(self, seeded):
-        peticion = AIRequest(
-            tarea=AITask.SUMMARIZE_TRIP.value, sistema='s', instruccion='i',
-            contiene_pii=True,
-        )
-        assert not check_egress(peticion, self._external_provider(),
-                                AITask.SUMMARIZE_TRIP)
-
-    def test_un_proveedor_local_no_esta_restringido(self, seeded):
+    def test_un_proveedor_local_se_reconoce_como_tal(self, seeded):
         peticion = AIRequest(
             tarea=AITask.EXTRACT_DOCUMENT.value, sistema='s', instruccion='i',
             contiene_documentos=True, contiene_pii=True,
@@ -58,38 +50,33 @@ class TestPoliticaDeSalidaDeDatos:
         assert decision.permitido
         assert decision.motivo == 'proveedor local'
 
-    def test_el_contenido_de_un_documento_ya_no_esta_restringido(self, seeded):
-        """A deliberate departure from section 2.5, decided by the operator.
+    def test_ya_no_se_bloquea_nada(self, seeded):
+        """Both gates are gone, by the operator's decision.
 
-        Reading a booking is what this application is for and an external model
-        is how it reads it, so the gate stood between the product and its
-        purpose. The one on personal data stays.
+        Binding a task to a provider is already the decision, made in the
+        panel, by an administrator, knowingly. A second switch confirming they
+        meant it ends up permanently on, which is a control in name only.
         """
-        peticion = AIRequest(
-            tarea=AITask.EXTRACT_DOCUMENT.value, sistema='s', instruccion='i',
-            contiene_documentos=True, contiene_pii=False,
-        )
-
-        assert check_egress(peticion, self._external_provider(),
-                            AITask.EXTRACT_DOCUMENT)
-
-    def test_los_datos_personales_siguen_necesitando_permiso(self, seeded):
-        """A booking names people, and where their names go is decided."""
-        from app.services import settings_service
-
         peticion = AIRequest(
             tarea=AITask.EXTRACT_DOCUMENT.value, sistema='s', instruccion='i',
             contiene_documentos=True, contiene_pii=True,
         )
-        settings_service.set_value('IA_PERMITIR_PII_EXTERNOS', False)
-
-        assert not check_egress(peticion, self._external_provider(),
-                                AITask.EXTRACT_DOCUMENT)
-
-        settings_service.set_value('IA_PERMITIR_PII_EXTERNOS', True)
 
         assert check_egress(peticion, self._external_provider(),
                             AITask.EXTRACT_DOCUMENT)
+
+    def test_pero_se_dice_qué_sale(self, seeded):
+        """The record is now the whole of the control, so it has to be exact."""
+        peticion = AIRequest(
+            tarea=AITask.EXTRACT_DOCUMENT.value, sistema='s', instruccion='i',
+            contiene_documentos=True, contiene_pii=True,
+        )
+        motivo = check_egress(peticion, self._external_provider(),
+                              AITask.EXTRACT_DOCUMENT).motivo
+
+        assert 'externo' in motivo
+        assert 'contenido de documentos' in motivo
+        assert 'datos personales' in motivo
 
     def test_la_investigacion_publica_si_puede_salir(self, seeded):
         """Public web content carries neither our documents nor personal data."""
@@ -100,16 +87,25 @@ class TestPoliticaDeSalidaDeDatos:
         assert check_egress(peticion, self._external_provider(),
                             AITask.RESEARCH_PUBLIC_INFO)
 
-    def test_un_bloqueo_se_registra_como_ejecucion_bloqueada(
+    def test_un_bloqueo_se_seguiria_registrando(
         self, gestor, trip, seeded, monkeypatch
     ):
-        """A refusal must be recorded, not silently dropped."""
-        from app.services import ai_service
+        """Nothing blocks today, and the path that records a block still works.
+
+        The hook is kept because the day an organisation needs a rule here is
+        the day it needs one place to put it -- and a mechanism nobody
+        exercises is a mechanism that has quietly rotted by then.
+        """
+        from app.services import ai, ai_service
+        from app.services.ai.guard import EgressDecision
 
         externo = self._external_provider()
         monkeypatch.setattr(
             ai_service, 'resolve',
             lambda tarea: (externo, 'gpt-test', {'max_tokens': 100, 'temperatura': 0}, None),
+        )
+        monkeypatch.setattr(
+            ai.guard, 'check', lambda *a, **k: EgressDecision(False, 'regla de prueba'),
         )
 
         peticion = AIRequest(
@@ -124,6 +120,39 @@ class TestPoliticaDeSalidaDeDatos:
         assert run is not None, 'Una ejecución bloqueada debe quedar registrada.'
         assert run.estado is AIRunState.BLOQUEADA
         assert run.motivo_bloqueo
+
+    def test_lo_que_sale_queda_registrado(self, gestor, trip, seeded, monkeypatch):
+        """With no gate left, the record is the whole of the control.
+
+        «Qué mandamos fuera, y cuándo» tiene que seguir teniendo respuesta, así
+        que cada llamada a un proveedor externo deja su fila con el proveedor,
+        el modelo, la finalidad y el viaje.
+        """
+        from app.services import ai_service
+
+        externo = self._external_provider()
+        monkeypatch.setattr(
+            ai_service, 'resolve',
+            lambda tarea: (externo, 'gpt-test', {'max_tokens': 100, 'temperatura': 0}, None),
+        )
+        monkeypatch.setattr(
+            externo, 'complete',
+            lambda peticion: AIResponse(contenido='{}', modelo='gpt-test',
+                                        proveedor='openai'),
+        )
+
+        ai_service._run(
+            AITask.SUMMARIZE_TRIP,
+            AIRequest(tarea=AITask.SUMMARIZE_TRIP.value, sistema='s',
+                      instruccion='i', contiene_pii=True),
+            actor=gestor, trip=trip, finalidad='Resumen del viaje',
+        )
+
+        run = AIRun.query.filter_by(trip_id=trip.id).first()
+        assert run.proveedor == 'openai'
+        assert run.modelo == 'gpt-test'
+        assert run.finalidad == 'Resumen del viaje'
+        assert run.usuario_id == gestor.id
 
 
 @pytest.mark.security
