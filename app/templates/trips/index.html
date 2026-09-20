@@ -65,7 +65,7 @@
                         <a href="{{ url_for('trips.detail', trip_id=trip.id) }}"
                            class="fw-semibold">{{ trip.titulo }}</a>
                     </td>
-                    <td class="text-muted small">{{ trip.resumen_destinos }}</td>
+                    <td class="text-muted small">{{ trip.resumen_ruta }}</td>
                     <td class="text-nowrap small">
                         {{ trip.inicio_local | local_date }}
                         {%- if trip.fin_local %} — {{ trip.fin_local | local_date }}{% endif %}

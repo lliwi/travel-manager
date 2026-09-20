@@ -340,9 +340,16 @@ def _normalize_place_timezones(campos, avisos, resueltos):
         if not any(isinstance(campos.get(p), dict) for p in prefijos):
             continue
 
-        zona = _zona_de_lugar(
+        zona, pais, _ = resolver_lugar(
             [campos.get(c) for c in campos_lugar], campos.get(campo_pais)
         )
+
+        # The country too, while the catalogue is answering: a stay with no
+        # country gives the security advisories nothing to look up.
+        if pais and not campos.get(campo_pais):
+            campos[campo_pais] = pais
+            resueltos[campo_pais] = pais
+
         if not zona:
             continue
 
@@ -362,30 +369,60 @@ def _normalize_place_timezones(campos, avisos, resueltos):
                 )
 
 
-def _zona_de_lugar(nombres, pais_codigo):
-    """The timezone of a named place, from the catalogue.
+def resolver_lugar(nombres, pais_codigo=None):
+    """The timezone and country of a named place, from the catalogue.
 
-    The city is tried first because a country can span several zones; the
-    country's main zone is the fallback, and a country that has more than one
-    is left alone rather than guessed at.
+    A hotel arrives named by its city, and the city may not be spelled the way
+    the catalogue holds it: the model wrote «London» where the catalogue says
+    «Londres», so an exact match on the city found nothing and the stay kept the
+    zone the model had guessed. The airport's own name carries the city too, so
+    that is tried next.
+
+    Refuses rather than guesses. When several entries match and disagree about
+    the timezone, nothing is returned: «London» matching two zones is a question
+    for a person, not something to resolve by picking the first row.
+
+    Returns ``(zona, pais, ciudad)``, where ``ciudad`` is the catalogue's own
+    spelling -- the one thing that lets two services agree that «London» and
+    «Londres» are the same place. Any of the three may be None.
     """
     for nombre in nombres:
         if not nombre or not isinstance(nombre, str):
             continue
-        location = Location.query.filter(
-            Location.activo.is_(True),
-            Location.ciudad.ilike(nombre.strip()),
-            Location.zona_horaria.isnot(None),
-        ).first()
-        if location:
-            return location.zona_horaria
+        aguja = nombre.strip()
+        if len(aguja) < 3:
+            continue
+
+        for criterio in (
+            Location.ciudad.ilike(aguja),
+            Location.nombre.ilike(f'%{aguja}%'),
+        ):
+            filas = Location.query.filter(
+                Location.activo.is_(True),
+                Location.zona_horaria.isnot(None),
+                criterio,
+            ).all()
+            if not filas:
+                continue
+
+            zonas = {f.zona_horaria for f in filas}
+            if len(zonas) > 1:
+                break
+
+            paises = {f.pais_codigo for f in filas if f.pais_codigo}
+            ciudades = {f.ciudad for f in filas if f.ciudad}
+            return (
+                zonas.pop(),
+                paises.pop() if len(paises) == 1 else None,
+                ciudades.pop() if len(ciudades) == 1 else None,
+            )
 
     if pais_codigo and isinstance(pais_codigo, str) and len(pais_codigo) == 2:
         country = Country.query.filter_by(codigo=pais_codigo.upper()).first()
         if country and country.zona_horaria_principal:
-            return country.zona_horaria_principal
+            return country.zona_horaria_principal, country.codigo, None
 
-    return None
+    return None, None, None
 
 
 def _normalize_countries(campos):

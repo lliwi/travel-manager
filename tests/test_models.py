@@ -219,3 +219,82 @@ class TestSesiones:
         user_service.update_user(admin, gestor, estado=UserStatus.INACTIVO)
 
         assert gestor.session_epoch > antes
+
+
+@pytest.mark.unit
+class TestRutaYDestinos:
+    """Two different questions about one trip.
+
+    «Where does this trip go» is the destination list, and it is what decides
+    which countries get security advisories -- so where the traveller lives
+    does not belong in it. «What shape is this trip» is the route, and there
+    Barcelona belongs at both ends. Conflating them put the traveller's own
+    city in the advisory queue.
+    """
+
+    def _tramo(self, trip, origen, origen_ciudad, destino, destino_ciudad, salida):
+        from app.models.itinerary import TravelSegment
+        from app.utils.timeutil import set_instant
+
+        segmento = TravelSegment(
+            trip_id=trip.id, numero='VY1',
+            origen_codigo=origen, origen_ciudad=origen_ciudad,
+            destino_codigo=destino, destino_ciudad=destino_ciudad,
+        )
+        set_instant(segmento, 'salida', salida, 'Europe/Madrid')
+        db.session.add(segmento)
+        db.session.commit()
+        return segmento
+
+    def test_la_ruta_vuelve_al_origen(self, trip):
+        from datetime import datetime
+
+        self._tramo(trip, 'BCN', 'Barcelona', 'LGW', 'Londres',
+                    datetime(2026, 10, 31, 7, 55))
+        self._tramo(trip, 'LGW', 'Londres', 'BCN', 'Barcelona',
+                    datetime(2026, 11, 2, 19, 55))
+        db.session.refresh(trip)
+
+        assert trip.resumen_ruta == 'Barcelona → Londres → Barcelona'
+
+    def test_no_se_repite_una_parada_consecutiva(self, trip):
+        """Landing somewhere and taking off again is one stop, not two."""
+        from datetime import datetime
+
+        self._tramo(trip, 'BCN', 'Barcelona', 'LHR', 'Londres',
+                    datetime(2026, 6, 1, 8, 0))
+        self._tramo(trip, 'LHR', 'Londres', 'JFK', 'Nueva York',
+                    datetime(2026, 6, 1, 12, 0))
+        db.session.refresh(trip)
+
+        assert trip.resumen_ruta == 'Barcelona → Londres → Nueva York'
+
+    def test_sin_tramos_se_muestran_los_destinos(self, gestor, trip, seeded):
+        from app.services import trip_service
+
+        trip_service.add_destination(gestor, trip, ciudad='Roma', pais_codigo='IT')
+        db.session.refresh(trip)
+
+        assert trip.resumen_ruta == trip.resumen_destinos
+
+    def test_los_destinos_no_incluyen_el_origen(self, gestor, trip, seeded):
+        """What the advisories are built from stays clean."""
+        from datetime import datetime
+
+        from app.services import trip_service
+
+        self._tramo(trip, 'BCN', 'Barcelona', 'LGW', 'Londres',
+                    datetime(2026, 10, 31, 7, 55))
+        self._tramo(trip, 'LGW', 'Londres', 'BCN', 'Barcelona',
+                    datetime(2026, 11, 2, 19, 55))
+        db.session.refresh(trip)
+
+        trip_service.sync_destinations_from_itinerary(gestor, trip, commit=True)
+        db.session.refresh(trip)
+
+        assert 'GB' in trip.paises
+        assert 'ES' not in trip.paises, (
+            'Salir de Barcelona no debe pedir recomendaciones para España.'
+        )
+        assert 'Barcelona' not in trip.resumen_destinos
+        assert 'Barcelona' in trip.resumen_ruta

@@ -294,6 +294,8 @@
                     <dd>{{ trip.fin_local | local_dt(trip.fin_tz) }}</dd>
                     <dt>Gestor</dt>
                     <dd>{{ trip.gestor.nombre_completo if trip.gestor else '—' }}</dd>
+                    <dt>Ruta</dt>
+                    <dd>{{ trip.resumen_ruta }}</dd>
                     <dt>Destinos</dt>
                     <dd>{{ trip.resumen_destinos }}</dd>
                     {% if trip.observaciones %}

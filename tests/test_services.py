@@ -696,3 +696,62 @@ class TestZonaHorariaDeUnLugarSinCodigo:
         assert zona == 'Europe/Lisbon', (
             'Sin dato en el catálogo no hay nada mejor que lo que dijo el modelo.'
         )
+
+
+@pytest.mark.unit
+class TestElLugarEscritoEnOtroIdioma:
+    """The catalogue holds «Londres»; the model wrote «London».
+
+    An exact match on the city found nothing, so the stay kept the timezone the
+    model had guessed and carried no country at all -- which left the security
+    advisories with no destination to look up.
+    """
+
+    def _hotel(self, ciudad, pais=None):
+        return normalization_service.normalize({'servicios': [{
+            'campos': {
+                'nombre': 'Zedwell Piccadilly Circus',
+                'ciudad': ciudad,
+                'pais': pais,
+                'check_in': {'local': '2026-10-31T15:00',
+                             'zona_horaria': 'Europe/Madrid'},
+            },
+            'confianzas': {},
+        }]}, clasificacion='hotel').servicios[0]['campos']
+
+    def test_se_resuelve_por_el_nombre_del_aeropuerto(self, app, seeded):
+        campos = self._hotel('London')
+
+        assert campos['check_in']['zona_horaria'] == 'Europe/London'
+
+    def test_se_deduce_tambien_el_pais(self, app, seeded):
+        """Without it the advisories have nothing to look up."""
+        campos = self._hotel('London')
+
+        assert campos['pais'] == 'GB'
+
+    def test_sigue_funcionando_el_nombre_en_castellano(self, app, seeded):
+        campos = self._hotel('Londres')
+
+        assert campos['check_in']['zona_horaria'] == 'Europe/London'
+        assert campos['pais'] == 'GB'
+
+    def test_un_nombre_ambiguo_no_se_resuelve(self, app, seeded):
+        """Refuse rather than guess: two zones is a question for a person."""
+        from app.models.catalog import Location
+        from app.services.normalization_service import resolver_lugar
+
+        db.session.add(Location(
+            codigo='XYZ1', nombre='London Ontario', ciudad='London Ontario',
+            pais_codigo='CA', zona_horaria='America/Toronto', activo=True,
+        ))
+        db.session.commit()
+
+        zona, pais, ciudad = resolver_lugar(['London'], None)
+
+        assert (zona, pais, ciudad) == (None, None, None)
+
+    def test_un_lugar_desconocido_sigue_sin_inventarse(self, app, seeded):
+        from app.services.normalization_service import resolver_lugar
+
+        assert resolver_lugar(['Ciudad Inexistente'], None) == (None, None, None)

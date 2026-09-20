@@ -166,12 +166,37 @@ class TestDestinosDeducidosDelItinerario:
         assert creados[0].pais_codigo == 'GB'
         assert creados[0].pais_nombre, 'El nombre del país sale del catálogo.'
 
+    def _vuelo_en(self, trip, destino_codigo, destino_pais, salida, llegada,
+                  origen_codigo='MAD'):
+        from app.models.itinerary import TravelSegment
+        from app.utils.timeutil import set_instant
+
+        segmento = TravelSegment(
+            trip_id=trip.id, numero='IB1',
+            origen_codigo=origen_codigo, destino_codigo=destino_codigo,
+            destino_pais=destino_pais,
+        )
+        set_instant(segmento, 'salida', salida, 'Europe/Madrid')
+        set_instant(segmento, 'llegada', llegada, 'Europe/Madrid')
+        db.session.add(segmento)
+        db.session.commit()
+        return segmento
+
     def test_un_aeropuerto_de_paso_no_es_un_destino(self, gestor, trip, seeded):
         """Changing planes somewhere is not going there."""
+        from datetime import datetime
+
         from app.services import trip_service
 
-        self._vuelo(trip, 'LHR', 'London', 'GB', origen_codigo='MAD')
-        self._vuelo(trip, 'JFK', 'New York', 'US', origen_codigo='LHR')
+        self._vuelo_en(
+            trip, 'LHR', 'GB',
+            datetime(2026, 6, 1, 8, 0), datetime(2026, 6, 1, 10, 0),
+        )
+        self._vuelo_en(
+            trip, 'JFK', 'US',
+            datetime(2026, 6, 1, 12, 0), datetime(2026, 6, 1, 20, 0),
+            origen_codigo='LHR',
+        )
 
         creados = trip_service.sync_destinations_from_itinerary(
             gestor, trip, commit=True,
@@ -179,7 +204,80 @@ class TestDestinosDeducidosDelItinerario:
 
         paises = {d.pais_codigo for d in creados}
         assert 'US' in paises
-        assert 'GB' not in paises, 'LHR es escala: otro tramo sale de ahí.'
+        assert 'GB' not in paises, 'Dos horas en LHR es un trasbordo.'
+
+    def test_el_destino_de_una_ida_y_vuelta_no_es_una_escala(
+        self, gestor, trip, seeded
+    ):
+        """The one place the trip is about was being thrown away.
+
+        On a return booking the destination is always also where the journey
+        home departs from, so «is the origin of a later leg» discarded London
+        and left the trip with no country -- and the security advisories with
+        nothing to look up. What separates a stopover from a stay is time.
+        """
+        from datetime import datetime
+
+        from app.services import trip_service
+
+        self._vuelo_en(
+            trip, 'LGW', 'GB',
+            datetime(2026, 10, 31, 7, 55), datetime(2026, 10, 31, 9, 20),
+            origen_codigo='BCN',
+        )
+        self._vuelo_en(
+            trip, 'BCN', 'ES',
+            datetime(2026, 11, 2, 19, 55), datetime(2026, 11, 2, 23, 5),
+            origen_codigo='LGW',
+        )
+
+        creados = trip_service.sync_destinations_from_itinerary(
+            gestor, trip, commit=True,
+        )
+
+        assert 'GB' in {d.pais_codigo for d in creados}, (
+            'Dos noches en Londres no son un trasbordo.'
+        )
+        assert 'ES' not in {d.pais_codigo for d in creados}, (
+            'Volver a casa no es ir a un destino.'
+        )
+
+    def test_un_alojamiento_sin_pais_no_duplica_la_ciudad(
+        self, gestor, trip, seeded
+    ):
+        """Two entries for one city, one of them with nothing to look up."""
+        from datetime import datetime
+
+        from app.models.itinerary import Accommodation
+        from app.services import trip_service
+        from app.utils.timeutil import set_instant
+
+        self._vuelo_en(
+            trip, 'LGW', 'GB',
+            datetime(2026, 10, 31, 7, 55), datetime(2026, 10, 31, 9, 20),
+            origen_codigo='BCN',
+        )
+        alojamiento = Accommodation(
+            trip_id=trip.id, nombre='Zedwell', ciudad='London', pais=None,
+        )
+        set_instant(alojamiento, 'check_in', datetime(2026, 10, 31, 15, 0),
+                    'Europe/London')
+        db.session.add(alojamiento)
+        db.session.commit()
+        db.session.refresh(trip)
+
+        creados = trip_service.sync_destinations_from_itinerary(
+            gestor, trip, commit=True,
+        )
+
+        assert len(creados) == 1, (
+            'Una ciudad escrita de dos maneras sigue siendo una ciudad.'
+        )
+        assert creados[0].pais_codigo == 'GB'
+        assert creados[0].ciudad == 'Londres', (
+            'Se guarda como la nombra el catálogo, que es lo que permite '
+            'reconocerla la próxima vez.'
+        )
 
     def test_no_se_duplica_un_destino_que_ya_existe(self, gestor, trip, seeded):
         from app.services import trip_service

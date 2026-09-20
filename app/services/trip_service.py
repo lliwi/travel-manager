@@ -385,6 +385,44 @@ def propose_traveler_window(trip):
     return None, None, None
 
 
+def _punto_de_partida(tramos):
+    """Where the journey starts, by the earliest departure."""
+    con_hora = [s for s in tramos if s.salida_utc is not None and s.origen_codigo]
+    if not con_hora:
+        return None
+    return min(con_hora, key=lambda s: s.salida_utc).origen_codigo
+
+
+def _es_escala(segmento, tramos):
+    """Whether a leg's arrival is somewhere passed through, not stayed in.
+
+    Being the origin of a later leg is not enough: on a return booking the
+    destination is always also where the journey home departs from, so that
+    test threw away the one place the trip is actually about -- and with it the
+    country the security advisories are built from.
+
+    What separates the two is time. If the next departure from there is soon
+    enough to be a connection, nobody stayed; otherwise they did.
+    """
+    from app.services.itinerary_service import es_conexion
+    from app.utils.timeutil import minutes_between
+
+    if segmento.llegada_utc is None:
+        return False
+
+    siguientes = [
+        s.salida_utc for s in tramos
+        if s is not segmento
+        and s.origen_codigo == segmento.destino_codigo
+        and s.salida_utc is not None
+        and s.salida_utc >= segmento.llegada_utc
+    ]
+    if not siguientes:
+        return False
+
+    return es_conexion(minutes_between(segmento.llegada_utc, min(siguientes)))
+
+
 def sync_destinations_from_itinerary(actor, trip, commit=False):
     """Derive the trip's destinations from where its itinerary actually goes.
 
@@ -408,20 +446,22 @@ def sync_destinations_from_itinerary(actor, trip, commit=False):
     }
     paises_existentes = {d.pais_codigo for d in trip.destinations if d.pais_codigo}
 
-    salidas = {
-        s.origen_codigo for s in trip.segments
-        if not s.is_deleted and s.origen_codigo
-    }
+    tramos = [s for s in trip.segments if not s.is_deleted]
+    origen = _punto_de_partida(tramos)
 
     candidatos = []
-    for segmento in trip.segments:
-        if segmento.is_deleted or not segmento.destino_codigo:
+    for segmento in tramos:
+        if not segmento.destino_codigo:
             continue
-        # An airport another leg departs from is a connection, not a stay.
-        es_escala = segmento.destino_codigo in salidas
+        # Arriving back where the journey started is coming home, not going
+        # somewhere: a return booking would otherwise make the traveller's own
+        # city a destination with advisories of its own.
+        if origen and segmento.destino_codigo == origen:
+            continue
         candidatos.append((
             segmento.destino_codigo, segmento.destino_ciudad,
-            segmento.destino_pais, segmento.llegada_tz, es_escala,
+            segmento.destino_pais, segmento.llegada_tz,
+            _es_escala(segmento, tramos),
         ))
 
     for alojamiento in trip.accommodations:
@@ -442,11 +482,31 @@ def sync_destinations_from_itinerary(actor, trip, commit=False):
             location = Location.query.filter_by(codigo=codigo, activo=True).first()
         ciudad = ciudad or (location.ciudad if location else None)
         pais = pais or (location.pais_codigo if location else None)
+
+        # Through the catalogue, so a hotel that says «London» and a flight
+        # whose airport the catalogue files under «Londres» do not become two
+        # destinations -- one of them without a country to look anything up by.
+        if ciudad:
+            from app.services.normalization_service import resolver_lugar
+
+            zona_catalogo, pais_catalogo, ciudad_catalogo = resolver_lugar(
+                [ciudad], pais,
+            )
+            ciudad = ciudad_catalogo or ciudad
+            pais = pais or pais_catalogo
+            zona = zona or zona_catalogo
+
         if not ciudad and not pais:
             continue
 
         clave = (pais, (ciudad or '').lower())
+        ciudades_existentes = {c for _, c in existentes if c}
         if clave in existentes or (pais and pais in paises_existentes):
+            continue
+        # A candidate whose country could not be resolved still duplicates one
+        # that names the same city; keeping both would ask for advisories twice
+        # and once without a country to look up.
+        if not pais and (ciudad or '').lower() in ciudades_existentes:
             continue
 
         pais_nombre = None
