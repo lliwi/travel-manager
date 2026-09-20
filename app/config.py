@@ -101,6 +101,15 @@ class Config:
     CACHE_DEFAULT_TIMEOUT = 300
 
     # ------------------------------------------------------------------
+    # Metrics
+    # ------------------------------------------------------------------
+    #: Bearer token a Prometheus scraper must present. Optional: with none set,
+    #: /metrics still refuses anything from outside the private network, which
+    #: is what a single-host Compose deployment relies on. Set it when the
+    #: scraper lives somewhere else.
+    METRICS_TOKEN = os.environ.get('METRICS_TOKEN')
+
+    # ------------------------------------------------------------------
     # Celery
     # ------------------------------------------------------------------
     CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://redis:6379/1')

@@ -418,6 +418,42 @@ def assistant(trip_id, trip):
     )
 
 
+@trips_bp.route('/<trip_id>/resumen', methods=['GET', 'POST'])
+@login_required
+@require_trip_access(Permiso.CONSULTAR_IA)
+@rate_limited('6 per minute; 40 per hour')
+def summary(trip_id, trip):
+    """An executive summary and a readable itinerary, written on request.
+
+    On request and not on opening the trip: a summary costs a model call of
+    some seconds, and generating one every time somebody glances at the page
+    would make the page slow for the many to serve the few who want it.
+
+    Like the assistant, it reads the trip through ``build_ai_context``, so a
+    traveller's summary covers their own itinerary and nobody else's.
+    """
+    from app.services import ai_service
+
+    resumen = None
+
+    if request.method == 'POST':
+        try:
+            resumen = ai_service.summarize_trip(
+                actor=current_user._get_current_object(), trip=trip
+            )
+        except AppError as error:
+            flash(error.mensaje, 'danger')
+        except Exception:
+            logger.exception('Falló el resumen del viaje %s', trip.id)
+            flash(
+                'No se pudo generar el resumen en este momento. '
+                'Inténtelo de nuevo en unos minutos.',
+                'danger',
+            )
+
+    return render_template('trips/summary.html', trip=trip, resumen=resumen)
+
+
 # ======================================================================
 # Itinerary
 # ======================================================================

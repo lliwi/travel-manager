@@ -121,6 +121,7 @@ services:
     restart: unless-stopped
     command: >
       gunicorn
+      --config /app/docker/flask/gunicorn.conf.py
       --workers ${GUNICORN_WORKERS:-4}
       --bind 0.0.0.0:5000
       --timeout 120
@@ -136,6 +137,12 @@ services:
       SECRETS_ENCRYPTION_KEY: ${SECRETS_ENCRYPTION_KEY:?SECRETS_ENCRYPTION_KEY debe estar definida}
       SECRETS_ENCRYPTION_KEY_PREVIOUS: ${SECRETS_ENCRYPTION_KEY_PREVIOUS:-}
       APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost}
+
+      # Where the Gunicorn workers pool their counters so a scrape sees all
+      # four rather than whichever one answered. On tmpfs: these files are
+      # rebuilt on every start and must not survive a restart.
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
 
       DATABASE_URL: postgresql://${POSTGRES_USER:-travel}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-travel_manager}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0

@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}Resumen — {{ trip.referencia }} — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('trips.index') }}">Viajes</a></li>
+<li class="breadcrumb-item"><a href="{{ url_for('trips.detail', trip_id=trip.id) }}">{{ trip.referencia }}</a></li>
+<li class="breadcrumb-item active">Resumen</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Resumen del viaje</h1>
+    <p class="text-muted mb-0">{{ trip.titulo }} · <code>{{ trip.referencia }}</code></p>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        {% if not resumen %}
+        <div class="card mb-3">
+            <div class="card-body text-center py-4">
+                <i class="bi bi-file-earmark-text display-6 text-muted d-block mb-3"></i>
+                <p class="text-muted">
+                    Redacta un resumen ejecutivo y un itinerario legible a partir
+                    de lo que hay registrado en el viaje ahora mismo.
+                </p>
+                <form method="post">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-stars me-1"></i>Generar resumen
+                    </button>
+                </form>
+                <p class="text-muted small mt-3 mb-0">
+                    Tarda unos segundos: se redacta al pedirlo, no se guarda.
+                </p>
+            </div>
+        </div>
+        {% else %}
+        <div class="card mb-3">
+            <div class="card-header">Resumen ejecutivo</div>
+            <div class="card-body">
+                <p class="mb-0" style="white-space: pre-wrap;">{{ resumen.resumen }}</p>
+            </div>
+        </div>
+
+        {% if resumen.itinerario %}
+        <div class="card mb-3">
+            <div class="card-header">Itinerario</div>
+            <ul class="list-group list-group-flush">
+                {% for entrada in resumen.itinerario %}
+                <li class="list-group-item">
+                    <div class="d-flex gap-3">
+                        <div class="text-muted small text-nowrap" style="min-width: 8rem;">
+                            {{ entrada.fecha or '' }}
+                            {% if entrada.hora %}
+                            <div>
+                                {{ entrada.hora }}
+                                {% if entrada.zona_horaria %}
+                                {# An hour without its zone is ambiguous the moment
+                                   the itinerary crosses one, so it never appears alone. #}
+                                <span class="badge bg-light text-muted border">{{ entrada.zona_horaria }}</span>
+                                {% endif %}
+                            </div>
+                            {% endif %}
+                        </div>
+                        <div>{{ entrada.descripcion }}</div>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        {% if resumen.puntos_atencion %}
+        <div class="card mb-3">
+            <div class="card-header">
+                <i class="bi bi-exclamation-triangle text-warning me-1"></i>
+                Puntos de atención
+            </div>
+            <ul class="list-group list-group-flush">
+                {% for punto in resumen.puntos_atencion %}
+                <li class="list-group-item">{{ punto }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        <div class="d-flex gap-2">
+            <form method="post">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-outline-secondary btn-sm">
+                    <i class="bi bi-arrow-clockwise me-1"></i>Volver a generar
+                </button>
+            </form>
+            <a href="{{ url_for('trips.detail', trip_id=trip.id) }}"
+               class="btn btn-outline-secondary btn-sm">Volver al viaje</a>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header">Qué es esto</div>
+            <div class="card-body small text-muted">
+                <p>Una redacción de lo que ya está registrado en el viaje. No
+                   añade nada que no esté en el itinerario, los documentos
+                   aprobados y las alertas.</p>
+                <p>Solo ve <strong>lo que usted ya puede ver</strong>: si no está
+                   asignado a un trayecto, ese trayecto no entra en el resumen.</p>
+                <p class="mb-0">Se redacta cada vez que lo pide y no se guarda,
+                   así que refleja el viaje tal y como está en este momento.</p>
+            </div>
+        </div>
+
+        {% if resumen %}
+        <div class="card mt-3">
+            <div class="card-body small text-muted">
+                Datos del viaje leídos el {{ resumen.fecha_datos | local_dt }}.
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

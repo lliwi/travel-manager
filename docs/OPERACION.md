@@ -13,6 +13,53 @@ Use `/healthz` para reinicios automáticos y `/readyz` para decidir si enviar
 tráfico: un proceso vivo cuya base de datos no responde debe salir del balanceo,
 no reiniciarse.
 
+### Métricas
+
+`/metrics` expone en formato Prometheus el estado de la API y del proceso
+documental. Las sondas dicen si el sistema está vivo; esto dice cómo va.
+
+| Métrica | Para qué |
+| --- | --- |
+| `travelmanager_http_requests_total` | Tráfico por regla y por código de respuesta. |
+| `travelmanager_http_request_duration_seconds` | Histograma de latencia. El objetivo del requerimiento es un p95 por debajo de 500 ms. |
+| `travelmanager_documents` | Documentos por estado del proceso. |
+| `travelmanager_documents_stuck` | **La que hay que vigilar**: documentos parados en un estado intermedio más de 30 minutos. Si sube, el proceso documental se ha detenido. |
+| `travelmanager_queue_depth` | Tareas aceptadas y no empezadas. Un valor que solo crece es un worker caído. |
+| `travelmanager_ai_runs` | Ejecuciones de IA por estado. Un `error` que crece es un proveedor que ha dejado de responder. |
+| `travelmanager_ai_duration_ms_avg` | Duración media por tarea. Sirve para notar que un modelo se ha vuelto cuatro veces más lento tras cambiarlo en el panel. |
+| `travelmanager_alerts_open` | Alertas abiertas por severidad. |
+| `travelmanager_trips` | Viajes por estado. |
+
+Las cifras del negocio se consultan a la base de datos en el momento del
+scrape, no se llevan en memoria. Por eso el worker de Celery se ve sin exponer
+ningún puerto: lo que hace acaba en esas tablas.
+
+**No es público.** Nginx lo niega fuera de la red privada y la aplicación lo
+vuelve a comprobar por su cuenta. Si el recolector vive en otra máquina, defina
+`METRICS_TOKEN` y haga que presente `Authorization: Bearer <token>`.
+
+Ejemplo de recolección:
+
+```yaml
+scrape_configs:
+  - job_name: travel-manager
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['travelmanager_web:5000']
+```
+
+Alertas que merecen la pena:
+
+```yaml
+- alert: ProcesoDocumentalDetenido
+  expr: travelmanager_documents_stuck > 0
+  for: 15m
+
+- alert: ColaCreciendo
+  expr: travelmanager_queue_depth > 50
+  for: 10m
+```
+
 ### Registro
 
 Los registros salen en JSON por la salida estándar, con el identificador de

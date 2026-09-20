@@ -120,6 +120,7 @@ jobs:
           file: docker/flask/Dockerfile
           push: false
           tags: travel-manager-web:ci
+          load: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -130,5 +131,28 @@ jobs:
           file: docker/celery/Dockerfile
           push: false
           tags: travel-manager-worker:ci
+          load: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # pip-audit cubre lo que declaramos en requirements.txt; esto cubre lo
+      # que acaba dentro de la imagen y no declara nadie: la distribución base,
+      # OpenSSL, las bibliotecas de sistema de Tesseract y poppler. Una
+      # vulnerabilidad ahí no aparece en ningún fichero del repositorio.
+      - name: Vulnerabilidades en la imagen de la aplicación
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: travel-manager-web:ci
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+
+      - name: Vulnerabilidades en la imagen del worker
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: travel-manager-worker:ci
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'

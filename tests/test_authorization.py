@@ -267,8 +267,12 @@ class TestParidadDeLaAPI:
 
     def test_los_endpoints_web_requieren_sesion(self, app, client):
         """Every page except login and the probes redirects an anonymous visitor."""
+        # «metrics» va con las sondas y por el mismo motivo: un recolector de
+        # Prometheus no inicia sesión. No está desprotegido -- se defiende por
+        # red y por token, y eso lo comprueba tests/test_metricas.py, no esta
+        # barrera, que solo sabe preguntar por la sesión.
         exentos = {
-            'auth.login', 'static', 'index', 'healthz', 'readyz',
+            'auth.login', 'static', 'index', 'healthz', 'readyz', 'metrics',
         }
         fallos = []
 

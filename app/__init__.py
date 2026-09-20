@@ -58,6 +58,7 @@ def create_app(config_name=None):
     # correlation id so the failure can be found in the logs.
     register_request_hooks(app)
     initialize_extensions(app)
+    register_metrics(app)
     register_blueprints(app)
     register_error_handlers(app)
     register_template_helpers(app)
@@ -164,6 +165,13 @@ def register_request_hooks(app):
         db.session.remove()
 
 
+def register_metrics(app):
+    """Time every request so /metrics has something to report."""
+    from app.utils import metrics
+
+    metrics.register(app)
+
+
 def register_blueprints(app):
     """Register the Jinja surface and the versioned REST API."""
     from app.blueprints.admin import admin_bp
@@ -248,6 +256,65 @@ def register_blueprints(app):
             'checks': checks,
             'version': __version__,
         }), (200 if healthy else 503)
+
+    @app.route('/metrics')
+    @limiter.exempt
+    @talisman(force_https=False)
+    def metrics():
+        """Prometheus exposition of API and worker state.
+
+        Exempt from the HTTPS redirect and from rate limiting for the same
+        reasons as the probes: the scraper talks to the container directly and
+        comes back every few seconds.
+
+        Not public. `_scrape_autorizado` refuses anything that is neither
+        carrying the token nor coming from inside the network, so there is no
+        configuration in which the counts of trips, users and documents are
+        readable from the internet. Nginx refuses it at the edge as well; this
+        is the half that still holds if somebody reaches the container by
+        another route.
+        """
+        from app.utils import metrics as metricas
+
+        if not _scrape_autorizado(app):
+            app.logger.warning(
+                'Scrape de /metrics rechazado desde %s', request.remote_addr
+            )
+            return jsonify({'error': 'no autorizado'}), 403
+
+        cuerpo, tipo = metricas.render(app)
+        return app.response_class(cuerpo, mimetype=tipo)
+
+
+def _scrape_autorizado(app):
+    """Whether this request may read /metrics.
+
+    A scraper cannot hold a session, so the usual decorators do not apply. Two
+    ways in, and no third: the configured bearer token, or an address inside
+    the perimeter. With no token configured the endpoint is still not open --
+    it just falls back to the network check, which is what an ordinary Compose
+    deployment relies on.
+    """
+    import ipaddress
+
+    token = app.config.get('METRICS_TOKEN')
+    if token:
+        cabecera = request.headers.get('Authorization', '')
+        prefijo = 'Bearer '
+        if cabecera.startswith(prefijo):
+            # Constant time: a token compared with == leaks its prefix to
+            # anyone willing to time the responses.
+            import hmac
+
+            if hmac.compare_digest(cabecera[len(prefijo):], token):
+                return True
+
+    try:
+        direccion = ipaddress.ip_address(request.remote_addr or '')
+    except ValueError:
+        return False
+
+    return direccion.is_loopback or direccion.is_private
 
 
 def register_error_handlers(app):
