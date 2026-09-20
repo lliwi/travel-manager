@@ -820,3 +820,43 @@ class TestElCorreoDeUnDespliegueInterno:
             formulario.validate()
 
         assert not formulario.email.errors
+
+
+@pytest.mark.unit
+class TestLoQueAportaElCatalogo:
+    """Reference data is not a weaker source than the document.
+
+    A country resolved from an airport code scored 0.0 -- «not found in the
+    document» -- which is literally true and exactly backwards as a measure of
+    trust, and it kept every booking away from automatic approval.
+    """
+
+    def test_el_pais_resuelto_por_codigo_vale_mas_que_lo_inferido(self, app, seeded):
+        from app.services.ai_service import CONFIANZA_LITERAL
+        from app.services.normalization_service import CONFIANZA_CATALOGO
+
+        resultado = normalization_service.normalize({'servicios': [{
+            'campos': {'origen_codigo': 'MAD',
+                       'salida': {'local': '2026-06-01T10:00', 'zona_horaria': None}},
+            'confianzas': {'origen_codigo': 0.85},
+        }]}, clasificacion='vuelo')
+
+        campos = resultado.servicios[0]['campos']
+        confianzas = resultado.servicios[0]['confianzas']
+
+        assert campos['origen_pais'] == 'ES'
+        assert confianzas['origen_pais'] == CONFIANZA_CATALOGO
+        assert CONFIANZA_CATALOGO > CONFIANZA_LITERAL
+
+    def test_el_pais_deducido_de_la_ciudad_tambien(self, app, seeded):
+        from app.services.normalization_service import CONFIANZA_CATALOGO
+
+        resultado = normalization_service.normalize({'servicios': [{
+            'campos': {'nombre': 'Zedwell', 'ciudad': 'London', 'pais': None,
+                       'check_in': {'local': '2026-10-31T15:00',
+                                    'zona_horaria': 'Europe/Madrid'}},
+            'confianzas': {},
+        }]}, clasificacion='hotel')
+
+        assert resultado.servicios[0]['campos']['pais'] == 'GB'
+        assert resultado.servicios[0]['confianzas']['pais'] == CONFIANZA_CATALOGO

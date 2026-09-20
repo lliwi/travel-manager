@@ -47,8 +47,11 @@ DEFAULTS = {
         False,
     ),
     'DOCUMENTOS_UMBRAL_AUTO_APROBAR': (
-        0.95, 'float', 'documentos', 'Umbral de aprobación automática',
-        'Confianza global mínima para aprobar sin intervención humana.',
+        0.85, 'float', 'documentos', 'Umbral de aprobación automática',
+        'Confianza mínima que debe alcanzar el campo MENOS fiable para aprobar '
+        'sin intervención humana. Un campo copiado literalmente del documento '
+        'vale 0,85 y uno inferido 0,50, así que por encima de 0,85 no se '
+        'aprueba nunca nada.',
         False,
     ),
     'DOCUMENTOS_UMBRAL_REVISION': (

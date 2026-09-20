@@ -369,7 +369,11 @@ def _ground_in_document(datos, blocks):
         procedencias = dict(servicio.get('procedencias') or {})
 
         for nombre, valor in campos.items():
-            literal = _find_literal(valor, paginas)
+            literal = (
+                _find_literal_instante(valor, paginas)
+                if isinstance(valor, dict)
+                else _find_literal(valor, paginas)
+            )
 
             if literal is not None:
                 pagina, fragmento = literal
@@ -449,6 +453,40 @@ def _flag_invented_years(datos, paginas, confianzas, campos):
 
 #: How much text around a match to keep as the supporting excerpt.
 _CONTEXTO = 60
+
+
+def _find_literal_instante(valor, paginas):
+    """Locate a timestamp in the document by its parts.
+
+    An instant is never written the way it is stored: the booking says «31
+    October 2026» and «07:55h», never «2026-10-31T07:55». Searching for the
+    stored form finds nothing, so every date in every document was recorded as
+    inferred -- and a document whose dates are all inferred can never be
+    trusted enough to skip review, which is how auto-approval became
+    unreachable for anything with a date in it.
+
+    Both parts must appear: a time alone is worth little when a booking lists
+    several, and a year alone is in the footer. Together they are evidence the
+    model copied rather than composed.
+    """
+    from datetime import datetime
+
+    crudo = (valor or {}).get('local') if isinstance(valor, dict) else None
+    if not crudo:
+        return None
+
+    try:
+        momento = datetime.fromisoformat(str(crudo))
+    except ValueError:
+        return None
+
+    hora = f'{momento.hour:02d}:{momento.minute:02d}'
+    for pagina, texto in paginas:
+        pajar = _searchable(texto)
+        if _searchable(hora) in pajar and str(momento.year) in pajar:
+            return pagina, _aproximar(texto, _searchable(hora))
+
+    return None
 
 
 def _find_literal(valor, paginas):

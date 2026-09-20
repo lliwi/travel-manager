@@ -519,24 +519,24 @@ def finalize_for_review(self, document_id):
         document, S.PENDIENTE_REVISION, tarea='finalize', commit=True
     )
 
-    # Auto-approval exists but ships disabled: phase 1 delivers mandatory review
-    # as section 2.3 step 6 describes.
-    if (
-        settings_service.get_bool('DOCUMENTOS_AUTO_APROBAR', False)
-        and extraction is not None
-        and extraction.confianza_global is not None
-        and float(extraction.confianza_global)
-        >= settings_service.get_float('DOCUMENTOS_UMBRAL_AUTO_APROBAR', 0.95)
-        and not extraction.avisos
-    ):
-        logger.info(
-            'Aprobación automática de la extracción %s (confianza %.2f).',
-            extraction.id, float(extraction.confianza_global),
-        )
-        from app.services import extraction_service
+    # Whether a person has to look is decided in one place, so the reason a
+    # document waited can be told to whoever enabled this.
+    from app.services import extraction_service
 
-        extraction_service.approve(document.subido_por, extraction,
-                                   comentario='Aprobación automática por confianza alta.')
+    puede, motivo = extraction_service.puede_aprobarse_sola(extraction)
+    if puede:
+        logger.info(
+            'Aprobación automática de la extracción %s: %s.', extraction.id, motivo,
+        )
+        extraction_service.approve(
+            document.subido_por, extraction,
+            comentario=f'Aprobación automática: {motivo}.',
+        )
+    elif settings_service.get_bool('DOCUMENTOS_AUTO_APROBAR', False):
+        logger.info(
+            'La extracción %s espera revisión humana: %s.',
+            getattr(extraction, 'id', None), motivo,
+        )
 
     return document_id
 

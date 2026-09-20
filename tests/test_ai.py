@@ -389,15 +389,73 @@ class TestAnclajeEnElDocumento:
 
         assert r['servicios'][0]['confianzas']['aerolinea'] == CONFIANZA_INFERIDA
 
-    def test_ni_lo_literal_alcanza_la_aprobacion_automatica(self):
-        """Copying is not correctness: «Payment details» is in the document too."""
-        from app.services.ai_service import CONFIANZA_LITERAL
+    def test_una_fecha_se_ancla_por_sus_partes(self):
+        """A booking never writes a date the way it is stored.
+
+        It says «31 October 2026» and «07:55h», never «2026-10-31T07:55», so
+        searching for the stored form found nothing and every date in every
+        document was recorded as inferred.
+        """
+        from app.services.ai_service import CONFIANZA_LITERAL, _ground_in_document
+
+        datos = {'servicios': [{'campos': {
+            'salida': {'local': '2026-10-31T07:55', 'zona_horaria': 'Europe/Madrid'},
+        }}]}
+
+        r = _ground_in_document(datos, self._blocks(
+            'Outbound | Saturday, 31 October 2026\nBCN | 07:55h | LGW'
+        ))
+
+        assert r['servicios'][0]['confianzas']['salida'] == CONFIANZA_LITERAL
+
+    def test_una_fecha_con_el_ano_cambiado_no_se_ancla(self):
+        """Both parts must appear: the year is what a model gets wrong."""
+        from app.services.ai_service import CONFIANZA_LITERAL, _ground_in_document
+
+        datos = {'servicios': [{'campos': {
+            'salida': {'local': '2023-10-31T07:55', 'zona_horaria': 'Europe/Madrid'},
+        }}]}
+
+        r = _ground_in_document(datos, self._blocks(
+            'Outbound | Saturday, 31 October 2026\nBCN | 07:55h | LGW'
+        ))
+
+        assert r['servicios'][0]['confianzas']['salida'] < CONFIANZA_LITERAL
+
+    def test_una_hora_que_no_esta_no_se_ancla(self):
+        from app.services.ai_service import CONFIANZA_LITERAL, _ground_in_document
+
+        datos = {'servicios': [{'campos': {
+            'salida': {'local': '2026-10-31T23:45', 'zona_horaria': 'Europe/Madrid'},
+        }}]}
+
+        r = _ground_in_document(datos, self._blocks('31 October 2026, 07:55h'))
+
+        assert r['servicios'][0]['confianzas']['salida'] < CONFIANZA_LITERAL
+
+    def test_solo_lo_literal_puede_aprobarse_solo(self):
+        """Copying is the most this check can prove, so it is where the bar sits.
+
+        It proves the model did not invent the value; it does not prove it
+        copied the right one -- asked for a booking reference, a weak model
+        will return «Payment details», which is in the document and is wrong.
+        That residual risk is why the bar is every field literal, not most of
+        them, and why a single warning from normalisation still sends the
+        document to a person.
+
+        Earlier this asserted the opposite: that not even a literal value could
+        auto-approve. That made the threshold unreachable at any setting, so
+        the switch in the panel did nothing at all, which is worse than a bar
+        an administrator can see and decide on.
+        """
+        from app.services.ai_service import CONFIANZA_INFERIDA, CONFIANZA_LITERAL
         from app.services.settings_service import DEFAULTS
 
         umbral_auto = DEFAULTS['DOCUMENTOS_UMBRAL_AUTO_APROBAR'][0]
-        assert CONFIANZA_LITERAL < umbral_auto, (
-            'Un valor copiado del documento puede ser el equivocado; no debe '
-            'poder aprobarse solo.'
+
+        assert CONFIANZA_INFERIDA < umbral_auto <= CONFIANZA_LITERAL, (
+            'El umbral debe quedar por encima de lo inferido y ser alcanzable '
+            'por lo copiado literalmente.'
         )
 
     def test_la_confianza_global_es_la_media(self):

@@ -17,6 +17,15 @@ from app.models.catalog import Country, Location
 
 logger = logging.getLogger(__name__)
 
+#: Confidence given to a value the catalogue supplied rather than the model.
+#:
+#: Above a literal match on purpose. A literal match proves the model copied
+#: something from the document; reference data is not a copy of anything the
+#: model said. A country resolved from an airport code was scored 0.0 -- «not
+#: found in the document» -- which is true and exactly backwards as a measure
+#: of how much it can be trusted.
+CONFIANZA_CATALOGO = 0.9
+
 #: How much confidence survives each kind of uncertainty.
 PENALTY_TZ_UNRESOLVED = 0.6
 PENALTY_LOCATION_UNRESOLVED = 0.8
@@ -73,7 +82,7 @@ def normalize(payload, clasificacion=None):
         _normalize_currency(campos, propios)
         _normalize_locations(campos, confianzas, propios, resueltos)
         _normalize_countries(campos)
-        _normalize_place_timezones(campos, propios, resueltos)
+        _normalize_place_timezones(campos, confianzas, propios, resueltos)
         _normalize_instants(campos, confianzas, propios, resueltos)
 
         # Say which service a warning is about, or a reviewer looking at two
@@ -202,6 +211,7 @@ def _normalize_locations(campos, confianzas, avisos, resueltos):
         if not campos.get(city_field):
             campos[city_field] = location.ciudad
         campos[country_field] = location.pais_codigo
+        confianzas[country_field] = CONFIANZA_CATALOGO
         campos[f'{code_field}_location_id'] = str(location.id)
         resueltos[code_field] = f'{location.codigo} — {location.nombre}'
 
@@ -325,7 +335,7 @@ _LUGARES_CON_INSTANTES = (
 )
 
 
-def _normalize_place_timezones(campos, avisos, resueltos):
+def _normalize_place_timezones(campos, confianzas, avisos, resueltos):
     """Give a hotel, a car or a service the timezone of where it happens.
 
     Airports arrive with an IATA code the catalogue resolves; a hotel arrives
@@ -348,6 +358,7 @@ def _normalize_place_timezones(campos, avisos, resueltos):
         # country gives the security advisories nothing to look up.
         if pais and not campos.get(campo_pais):
             campos[campo_pais] = pais
+            confianzas[campo_pais] = CONFIANZA_CATALOGO
             resueltos[campo_pais] = pais
 
         if not zona:

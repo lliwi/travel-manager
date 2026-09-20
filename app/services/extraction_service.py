@@ -728,6 +728,68 @@ def _display(value):
     return str(value)
 
 
+def confianza_minima(extraction):
+    """The confidence of this extraction's weakest field, or None.
+
+    The aggregate that decides whether a human has to look. A mean lets one
+    inferred field hide behind several copied ones -- four fields at 0.85 and
+    one at 0.5 average 0.78, and the 0.5 is exactly the one worth reading. The
+    minimum cannot be averaged away.
+
+    None when no field carries a confidence at all, which is not an invitation
+    to assume the best: a caller deciding whether to skip review must treat the
+    absence of evidence as a reason to ask.
+    """
+    valores = []
+    for servicio in servicios_de(extraction):
+        campos = servicio.get('campos') or {}
+        for nombre, valor in (servicio.get('confianzas') or {}).items():
+            # A field the document does not mention is absent, not unreliable.
+            # Counting it would mean no real booking ever qualifies: none of
+            # them fills every optional field.
+            if campos.get(nombre) in (None, '', {}, []):
+                continue
+            if isinstance(valor, (int, float)):
+                valores.append(float(valor))
+    return min(valores) if valores else None
+
+
+def puede_aprobarse_sola(extraction):
+    """Whether this extraction may reach the itinerary without a person.
+
+    Three conditions, all of them about evidence rather than about the model's
+    opinion of itself: every field was copied literally from the document, none
+    was inferred, and normalisation raised no warning. The threshold is
+    administrable, and it lives on the same scale as the per-field confidence
+    so that the number in the panel means something.
+
+    Returns ``(puede, motivo)``; the reason is logged, so an administrator who
+    enabled this can see why a given document still waited for them.
+    """
+    from app.services import settings_service
+
+    if not settings_service.get_bool('DOCUMENTOS_AUTO_APROBAR', False):
+        return False, 'la aprobación automática está desactivada'
+
+    if extraction is None:
+        return False, 'no hay extracción'
+
+    if extraction.avisos:
+        return False, f'la normalización dejó {len(extraction.avisos)} aviso(s)'
+
+    minima = confianza_minima(extraction)
+    if minima is None:
+        return False, 'ningún campo lleva confianza'
+
+    umbral = settings_service.get_float('DOCUMENTOS_UMBRAL_AUTO_APROBAR', 0.85)
+    if minima < umbral:
+        return False, (
+            f'el campo menos fiable está en {minima:.2f}, por debajo de {umbral:.2f}'
+        )
+
+    return True, f'todos los campos en {minima:.2f} o más'
+
+
 def _review_threshold():
     from app.services import settings_service
 
