@@ -23,6 +23,8 @@ def register_commands(app):
     app.cli.add_command(ai_health)
     app.cli.add_command(apply_retention)
     app.cli.add_command(openapi)
+    app.cli.add_command(evaluar)
+    app.cli.add_command(ai_stats)
 
 
 @click.command('init-db')
@@ -503,6 +505,87 @@ def openapi(output):
         click.echo(click.style(f'Escrito en {output}.', fg='green'))
         return
     click.echo(documento)
+
+
+@click.command('evaluar')
+@click.option('--modelo', default=None, help='Probar otro modelo, sin cambiar la configuración.')
+@click.option('--json', 'como_json', is_flag=True, help='Salida en JSON.')
+@with_appcontext
+def evaluar(modelo, como_json):
+    """Run the golden set and score the extraction."""
+    import json as _json
+
+    from app.services import evaluation_service
+
+    casos = evaluation_service.casos_dorados()
+    if not casos:
+        click.echo(click.style(
+            'No hay casos en data/evaluacion. Sin ellos, cambiar de modelo es '
+            'un acto de fe disfrazado de cambio de configuración.', fg='yellow',
+        ))
+        raise SystemExit(1)
+
+    click.echo(f'Evaluando {len(casos)} casos…')
+    resultado = evaluation_service.evaluar(modelo=modelo, casos=casos)
+
+    if como_json:
+        click.echo(_json.dumps(resultado, ensure_ascii=False, indent=2))
+        return
+
+    for caso in resultado['casos']:
+        color = 'green' if caso['porcentaje'] == 100 else (
+            'red' if caso['error'] or caso['porcentaje'] < 50 else 'yellow'
+        )
+        click.echo(click.style(
+            f"  {caso['caso']:28} {caso['porcentaje']:3}%  "
+            f"{len(caso['aciertos'])}/{caso['total']} campos  "
+            f"{caso['servicios_obtenidos']}/{caso['servicios_esperados']} servicios  "
+            f"{caso['duracion_s']}s",
+            fg=color,
+        ))
+        if caso['error']:
+            click.echo(f'      error: {caso["error"]}')
+        for fallo in caso['fallos']:
+            click.echo(
+                f'      {fallo["campo"]}: esperaba «{fallo["esperado"]}», '
+                f'devolvió «{fallo["obtenido"]}»'
+            )
+        if caso['ausentes']:
+            click.echo(f'      sin responder: {", ".join(caso["ausentes"])}')
+
+    click.echo()
+    click.echo(click.style(
+        f"Total: {resultado['porcentaje']}% "
+        f"({resultado['aciertos']}/{resultado['total']} campos) "
+        f"en {resultado['duracion_s']}s",
+        fg='green' if resultado['porcentaje'] >= 90 else 'yellow',
+    ))
+
+
+@click.command('ai-stats')
+@click.option('--dias', default=30, help='Ventana a resumir.')
+@with_appcontext
+def ai_stats(dias):
+    """How each model has behaved lately, from the runs already recorded."""
+    from app.services import evaluation_service
+
+    filas = evaluation_service.rendimiento_por_modelo(dias=dias)
+    if not filas:
+        click.echo(f'No hay ejecuciones en los últimos {dias} días.')
+        return
+
+    click.echo(f'Últimos {dias} días:')
+    for fila in filas:
+        color = 'red' if fila['tasa_error'] > 10 else 'green'
+        click.echo(click.style(
+            f"  {fila['proveedor']}/{fila['modelo']:22} "
+            f"{fila['total']:4} ejecuciones  "
+            f"{fila['tasa_error']:5}% error  "
+            f"{fila['duracion_media_ms']:6} ms de media  "
+            f"{fila['tokens_entrada'] + fila['tokens_salida']:7} tokens",
+            fg=color,
+        ))
+        click.echo(f"      tareas: {', '.join(fila['tareas'])}")
 
 
 @click.command('generate-key')

@@ -80,6 +80,9 @@ services:
       # La suite comprueba las propiedades de los scripts de copia, así que
       # tienen que estar donde ella pueda leerlos.
       - ../scripts:/app/scripts
+      # El conjunto de evaluación: documentos cuya extracción correcta está
+      # escrita, para poder medir un modelo sin reconstruir la imagen.
+      - ../data:/app/data
       - ../wsgi.py:/app/wsgi.py
     ports:
       - '${DEV_PORT:-5000}:5000'

@@ -131,6 +131,9 @@ $COMPOSE exec web flask verify-audit
 $COMPOSE exec web flask apply-retention      # simula; --execute borra
 $COMPOSE logs -f worker
 
+$COMPOSE exec web flask evaluar              # conjunto dorado; --modelo para probar otro
+$COMPOSE exec web flask ai-stats             # cómo se ha portado cada modelo
+
 ./scripts/backup.sh                         # base de datos + documentos, juntos
 ./scripts/restore.sh --from backups/backup_AAAAMMDD_HHMMSS
 ```
