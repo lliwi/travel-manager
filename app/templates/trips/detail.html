@@ -205,7 +205,7 @@
                                     {% endif %}
                                 </div>
                                 <div class="item-actions">
-                                    {% if item.documento_origen_id %}
+                                    {% if item.documento_origen_abrible %}
                                     <a class="btn btn-sm btn-outline-secondary"
                                        href="{{ url_for('documents.detail', document_id=item.documento_origen_id) }}"
                                        title="Ver el documento del que salió"
@@ -328,7 +328,7 @@
                         </div>
                         {# Igual que en los trayectos: lo que se pulsa, aparte. #}
                         <div class="item-actions">
-                            {% if hotel.documento_origen_id %}
+                            {% if hotel.documento_origen_abrible %}
                             <a class="btn btn-sm btn-outline-secondary"
                                href="{{ url_for('documents.detail', document_id=hotel.documento_origen_id) }}"
                                title="Ver el documento del que salió"

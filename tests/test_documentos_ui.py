@@ -183,3 +183,66 @@ class TestQuienPuedeBorrarUnDocumento:
             html = client.get(f'/documents/{documento.id}').get_data(as_text=True)
 
         assert 'Eliminar documento' not in html
+
+
+@pytest.mark.integration
+class TestUnDocumentoBorradoNoSeOfrece:
+    """Borrar un documento deja atrás lo que produjo, y debe dejarlo.
+
+    «Esto salió de aquel documento» es un hecho sobre cómo se construyó el
+    viaje, y la aprobación que lo convirtió en itinerario la hizo una persona.
+    Borrar la procedencia para no dejar un enlace muerto tiraría la respuesta a
+    «de dónde salió esto».
+
+    Lo que no debe sobrevivir es el ofrecimiento: un botón que lleva a un 404
+    parece una aplicación rota, no un documento que alguien quitó a propósito.
+    """
+
+    def test_el_enlace_desaparece_al_borrar_el_documento(
+        self, as_user, gestor, trip, documento_aprobado,
+    ):
+        from app.models.itinerary import TravelSegment
+        from app.services import document_service
+
+        item = TravelSegment.query.filter_by(
+            documento_origen_id=documento_aprobado.id).first()
+        assert item is not None, 'el documento debería haber producido un tramo'
+
+        with as_user(gestor) as client:
+            antes = client.get(f'/trips/{trip.id}').get_data(as_text=True)
+            assert f'/documents/{documento_aprobado.id}' in antes
+
+            document_service.delete(gestor, documento_aprobado)
+            despues = client.get(f'/trips/{trip.id}').get_data(as_text=True)
+
+        assert f'/documents/{documento_aprobado.id}' not in despues
+
+    def test_pero_la_procedencia_se_conserva(
+        self, app, gestor, documento_aprobado,
+    ):
+        from app.extensions import db
+        from app.models.itinerary import TravelSegment
+        from app.services import document_service
+
+        item = TravelSegment.query.filter_by(
+            documento_origen_id=documento_aprobado.id).first()
+
+        document_service.delete(gestor, documento_aprobado)
+        db.session.refresh(item)
+
+        assert item.documento_origen_id == documento_aprobado.id
+        assert item.documento_origen_abrible is False
+
+    def test_uno_vivo_si_se_ofrece(self, app, documento_aprobado):
+        from app.models.itinerary import TravelSegment
+
+        item = TravelSegment.query.filter_by(
+            documento_origen_id=documento_aprobado.id).first()
+
+        assert item.documento_origen_abrible is True
+
+    def test_un_elemento_a_mano_no_ofrece_ninguno(self, app, trip, segment_factory):
+        item = segment_factory(numero='IB0000')
+
+        assert item.documento_origen_id is None
+        assert item.documento_origen_abrible is False
