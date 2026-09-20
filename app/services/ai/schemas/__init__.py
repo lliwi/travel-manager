@@ -117,14 +117,36 @@ _INSTANTE = {
     },
 }
 
+#: A booking covers people, and each of them has their own seat on each leg.
+#: One «pasajero» and one «asiento» per service could hold one of the three
+#: names the confirmation listed and one of the six seats, so the model left
+#: both empty rather than choose -- the data was in the document all along and
+#: had nowhere to go.
+_PASAJEROS = {
+    'type': ['array', 'null'],
+    'description': (
+        'Personas de la reserva, con su asiento EN ESTE trayecto. Una reserva '
+        'con varias personas lista un asiento por persona y por trayecto.'
+    ),
+    'items': {
+        'type': 'object',
+        'properties': {
+            'nombre': _STR,
+            'asiento': _STR,
+            'equipaje': dict(_STR, description='Tal y como lo describa el documento.'),
+        },
+    },
+}
+
 EXTRACT_VUELO = _extraction_schema({
     'localizador': _STR,
     'aerolinea': _STR,
     'numero_vuelo': _STR,
     'operado_por': _STR,
-    'pasajero': _STR,
+    'pasajero': dict(_STR, description='Si la reserva es de una sola persona.'),
+    'pasajeros': _PASAJEROS,
     'clase': _STR,
-    'asiento': _STR,
+    'asiento': dict(_STR, description='Si la reserva es de una sola persona.'),
     'origen_codigo': dict(_STR, description='Código IATA de tres letras.'),
     'origen_nombre': _STR,
     'origen_ciudad': _STR,
@@ -143,10 +165,11 @@ EXTRACT_TREN = _extraction_schema({
     'localizador': _STR,
     'operador': _STR,
     'numero_tren': _STR,
-    'pasajero': _STR,
+    'pasajero': dict(_STR, description='Si la reserva es de una sola persona.'),
+    'pasajeros': _PASAJEROS,
     'clase': _STR,
     'coche': _STR,
-    'asiento': _STR,
+    'asiento': dict(_STR, description='Si la reserva es de una sola persona.'),
     'origen_nombre': _STR,
     'origen_ciudad': _STR,
     'salida': _INSTANTE,

@@ -131,6 +131,40 @@ class TestEliminarUnDocumento:
 
 
 @pytest.mark.security
+class TestQuienPuedeRevisar:
+    """A button that answers 403 is worse than no button.
+
+    Reviewing an extraction is a manager's job; a traveller was being offered
+    it anyway, because the link was conditioned on there being something
+    extracted rather than on being allowed to touch it.
+    """
+
+    def test_al_viajero_no_se_le_ofrece_revisar(
+        self, as_user, viajero, documento_procesado
+    ):
+        with as_user(viajero) as client:
+            html = client.get(
+                f'/documents/{documento_procesado.id}'
+            ).get_data(as_text=True)
+
+        assert 'Revisar' not in html
+
+    def test_y_la_ruta_se_lo_niega(self, as_user, viajero, documento_procesado):
+        with as_user(viajero) as client:
+            respuesta = client.get(f'/documents/{documento_procesado.id}/revision')
+
+        assert respuesta.status_code == 403
+
+    def test_al_gestor_si(self, as_user, gestor, documento_procesado):
+        with as_user(gestor) as client:
+            html = client.get(
+                f'/documents/{documento_procesado.id}'
+            ).get_data(as_text=True)
+
+        assert 'Revisar' in html
+
+
+@pytest.mark.security
 class TestQuienPuedeBorrarUnDocumento:
     def test_un_viajero_no_puede(self, as_user, viajero, trip, booking_pdf, gestor):
         documento = _subir(gestor, trip, booking_pdf)

@@ -334,3 +334,116 @@ class TestTextoDeUnCorreoHTML:
 
         assert '|' in ida
         assert '| |' not in ida
+
+
+@pytest.mark.unit
+class TestVariasPersonasEnUnaReserva:
+    """A booking covers people, and each has their own seat on each leg.
+
+    One «pasajero» and one «asiento» per service could hold one of the three
+    names a confirmation listed and one of its six seats, so the model left
+    both empty rather than choose. The data was in the document all along and
+    had nowhere to go: the limit was the shape, not the model.
+    """
+
+    def _payload(self):
+        return {'servicios': [
+            {
+                'campos': {
+                    'numero_vuelo': 'VY7604',
+                    'origen_codigo': 'BCN', 'destino_codigo': 'LGW',
+                    'pasajeros': [
+                        {'nombre': 'Llibert Morreres', 'asiento': '15D'},
+                        {'nombre': 'Ailime Lemus', 'asiento': '15E'},
+                        {'nombre': 'Ona Morreres', 'asiento': '15F'},
+                    ],
+                },
+                'confianzas': {'numero_vuelo': 0.85, 'pasajeros': 0.85},
+            },
+            {
+                'campos': {
+                    'numero_vuelo': 'VY7623',
+                    'origen_codigo': 'LGW', 'destino_codigo': 'BCN',
+                    'pasajeros': [
+                        {'nombre': 'Llibert Morreres', 'asiento': '15D'},
+                        {'nombre': 'Ailime Lemus', 'asiento': '15F'},
+                        {'nombre': 'Ona Morreres', 'asiento': '15E'},
+                    ],
+                },
+                'confianzas': {'numero_vuelo': 0.85, 'pasajeros': 0.85},
+            },
+        ]}
+
+    def _aprobar(self, gestor, documento_procesado):
+        extraction = documento_procesado.current_extraction
+        documento_procesado.clasificacion = DocumentClassification.VUELO
+        extraction.payload = self._payload()
+        extraction.payload_normalizado = self._payload()
+        db.session.commit()
+        return extraction_service.approve(gestor, extraction)
+
+    def test_cada_tramo_guarda_su_lista_de_pasajeros(
+        self, gestor, documento_procesado, trip
+    ):
+        self._aprobar(gestor, documento_procesado)
+
+        ida = TravelSegment.query.filter_by(numero='VY7604').first()
+        assert len(ida.datos['pasajeros']) == 3
+
+    def test_el_asiento_es_el_de_ese_trayecto(self, gestor, documento_procesado, trip):
+        """The hard part: the seats swap between outbound and return."""
+        self._aprobar(gestor, documento_procesado)
+
+        ida = TravelSegment.query.filter_by(numero='VY7604').first()
+        vuelta = TravelSegment.query.filter_by(numero='VY7623').first()
+
+        def asiento(segmento, nombre):
+            return next(
+                p['asiento'] for p in segmento.datos['pasajeros']
+                if p['nombre'] == nombre
+            )
+
+        assert asiento(ida, 'Ailime Lemus') == '15E'
+        assert asiento(vuelta, 'Ailime Lemus') == '15F'
+        assert asiento(ida, 'Ona Morreres') == '15F'
+        assert asiento(vuelta, 'Ona Morreres') == '15E'
+
+    def test_una_persona_sin_nombre_se_descarta(self, gestor, documento_procesado):
+        """A seat belonging to nobody is not worth recording."""
+        documento_procesado.clasificacion = DocumentClassification.VUELO
+        extraction = documento_procesado.current_extraction
+        payload = {'servicios': [{
+            'campos': {
+                'numero_vuelo': 'VY1',
+                'pasajeros': [{'nombre': None, 'asiento': '1A'},
+                              {'nombre': 'Alguien', 'asiento': '1B'}],
+            },
+            'confianzas': {},
+        }]}
+        extraction.payload = payload
+        extraction.payload_normalizado = payload
+        db.session.commit()
+
+        extraction_service.approve(gestor, extraction)
+
+        segmento = TravelSegment.query.filter_by(numero='VY1').first()
+        assert [p['nombre'] for p in segmento.datos['pasajeros']] == ['Alguien']
+
+    def test_una_reserva_de_una_sola_persona_sigue_funcionando(
+        self, gestor, documento_procesado
+    ):
+        documento_procesado.clasificacion = DocumentClassification.VUELO
+        extraction = documento_procesado.current_extraction
+        payload = {'servicios': [{
+            'campos': {'numero_vuelo': 'IB1', 'pasajero': 'Solo Yo', 'asiento': '3C'},
+            'confianzas': {},
+        }]}
+        extraction.payload = payload
+        extraction.payload_normalizado = payload
+        db.session.commit()
+
+        extraction_service.approve(gestor, extraction)
+
+        segmento = TravelSegment.query.filter_by(numero='IB1').first()
+        assert segmento.asiento == '3C'
+        assert not (segmento.datos or {}).get('pasajeros')

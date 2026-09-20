@@ -548,6 +548,25 @@ def _apply_to_itinerary(actor, document, extraction, kind, model, servicio, indi
             actor=actor,
         )
 
+    # A list of people with their seats has no column of its own: it belongs to
+    # the segment, varies per leg, and a table for it would be a schema change
+    # for something only some bookings carry. It goes in the entity's own JSON,
+    # which is exactly what that column is for.
+    pasajeros = campos.get('pasajeros')
+    if isinstance(pasajeros, list) and pasajeros and hasattr(entity, 'datos'):
+        limpios = [
+            {clave: p.get(clave) for clave in ('nombre', 'asiento', 'equipaje')}
+            for p in pasajeros if isinstance(p, dict) and p.get('nombre')
+        ]
+        if limpios:
+            entity.datos = {**(entity.datos or {}), 'pasajeros': limpios}
+            applied.append('pasajeros')
+            provenance_service.record_extracted_field(
+                entity, kind, 'pasajeros', limpios, extraction,
+                confianza=(servicio.get('confianzas') or {}).get('pasajeros'),
+                actor=actor,
+            )
+
     for source, prefix in instants.items():
         instant = campos.get(source)
         if not isinstance(instant, dict) or not instant.get('local'):

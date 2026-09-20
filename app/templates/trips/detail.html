@@ -171,6 +171,16 @@
                                     <i class="bi bi-pencil"></i>Editar</a>
                                 {% endif %}
                             </div>
+                            {% set pasajeros = (item.datos or {}).get('pasajeros') %}
+                            {% if pasajeros %}
+                            <div class="timeline-meta mt-1">
+                                {% for p in pasajeros %}
+                                <span class="chip">
+                                    <i class="bi bi-person-badge"></i>{{ p.nombre }}{% if p.asiento %} · {{ p.asiento }}{% endif %}
+                                </span>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
                         </div>
                     </div>
                     {% endfor %}

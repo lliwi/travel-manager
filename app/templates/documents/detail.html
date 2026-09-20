@@ -20,8 +20,10 @@
     <div class="btn-group">
         {# Reachable whenever there is something extracted, not only while it
            waits: with automatic approval the data is already in the itinerary,
-           and this screen is where it gets corrected. #}
-        {% if document.current_extraction %}
+           and this screen is where it gets corrected. Offered only to whoever
+           may actually use it -- a traveller cannot review an extraction, and
+           a button that answers 403 is worse than no button. #}
+        {% if document.current_extraction and Permiso.REVISAR_EXTRACCION in permisos %}
         <a href="{{ url_for('documents.review', document_id=document.id) }}"
            class="btn btn-sm btn-{{ 'warning' if document.estado_proceso == enums.DocumentProcessState.PENDIENTE_REVISION else 'outline-warning' }}">
             <i class="bi bi-check2-square me-1"></i>
