@@ -548,22 +548,30 @@ def _apply_to_itinerary(actor, document, extraction, kind, model, servicio, indi
             actor=actor,
         )
 
-    # A list of people with their seats has no column of its own: it belongs to
-    # the segment, varies per leg, and a table for it would be a schema change
-    # for something only some bookings carry. It goes in the entity's own JSON,
-    # which is exactly what that column is for.
-    pasajeros = campos.get('pasajeros')
-    if isinstance(pasajeros, list) and pasajeros and hasattr(entity, 'datos'):
-        limpios = [
-            {clave: p.get(clave) for clave in ('nombre', 'asiento', 'equipaje')}
-            for p in pasajeros if isinstance(p, dict) and p.get('nombre')
-        ]
-        if limpios:
-            entity.datos = {**(entity.datos or {}), 'pasajeros': limpios}
-            applied.append('pasajeros')
+    # Fields with no column of their own go to the entity's JSON. This used to
+    # be a special case for one of them; the rest were read from the document
+    # and then dropped on the floor.
+    extras = {}
+    for nombre in EXTRA_FIELDS.get(kind, ()):
+        valor = campos.get(nombre)
+        if valor in (None, '', {}, []):
+            continue
+        if nombre == 'pasajeros':
+            valor = [
+                {clave: p.get(clave) for clave in ('nombre', 'asiento', 'equipaje')}
+                for p in valor if isinstance(p, dict) and p.get('nombre')
+            ]
+            if not valor:
+                continue
+        extras[nombre] = valor
+
+    if extras and hasattr(entity, 'datos'):
+        entity.datos = {**(entity.datos or {}), **extras}
+        applied.extend(extras)
+        for nombre, valor in extras.items():
             provenance_service.record_extracted_field(
-                entity, kind, 'pasajeros', limpios, extraction,
-                confianza=(servicio.get('confianzas') or {}).get('pasajeros'),
+                entity, kind, nombre, valor, extraction,
+                confianza=confianzas.get(nombre),
                 actor=actor,
             )
 
@@ -693,7 +701,36 @@ FIELD_MAPPINGS = {
         'pais': 'pais',
         'importe': 'importe',
         'moneda': 'moneda',
+        # A visa's own identifiers. Without these a visa extraction wrote
+        # nothing at all: eight fields read from the document and none of them
+        # with a column to land in.
+        'numero': 'localizador',
+        'pais_emisor': 'pais',
     },
+}
+
+#: Fields that belong to an entity but have no column of their own, kept in its
+#: JSON. They are real data -- a visa's holder, an insurance policy's cover, the
+#: seats on a booking -- that only some documents carry, and giving each a
+#: column would be a migration per document type.
+EXTRA_FIELDS = {
+    'segmento': ('pasajeros', 'pasajero', 'coche'),
+    'alojamiento': ('huesped',),
+    'vehiculo': (),
+    'servicio': (
+        'tipo', 'tipo_servicio', 'titular', 'entradas', 'estancia_maxima_dias',
+        'asegurado', 'cobertura', 'telefono_asistencia',
+    ),
+}
+
+#: Extracted fields the entity works out for itself, dropped on purpose.
+#:
+#: «noches» is the nights between check-in and check-out; storing what the model
+#: counted would let it disagree with the dates beside it, and the dates are the
+#: evidence. Listed rather than ignored silently, so the barrier test can tell
+#: «we decided not to keep this» from «nobody noticed it was being lost».
+DERIVED_FIELDS = {
+    'alojamiento': ('noches',),
 }
 
 #: Extracted instant -> entity column prefix, per entity kind.
@@ -701,7 +738,12 @@ INSTANT_MAPPINGS = {
     'segmento': {'salida': 'salida', 'llegada': 'llegada'},
     'alojamiento': {'check_in': 'check_in', 'check_out': 'check_out'},
     'vehiculo': {'recogida': 'recogida', 'devolucion': 'devolucion'},
-    'servicio': {'inicio': 'inicio', 'fin': 'fin'},
+    # A visa is valid between two dates, and that window is what the expiry
+    # rule compares against the trip's.
+    'servicio': {
+        'inicio': 'inicio', 'fin': 'fin',
+        'fecha_emision': 'inicio', 'fecha_caducidad': 'fin',
+    },
 }
 
 #: Spanish labels for the review screen.

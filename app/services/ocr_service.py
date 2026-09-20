@@ -129,7 +129,7 @@ def _extract_pdf(stream):
 def _ocr_pdf_pages(stream, page_numbers):
     """Rasterise and OCR the named pages of a PDF."""
     try:
-        import pytesseract
+        import pytesseract  # noqa: F401  (comprobación de disponibilidad)
         from pdf2image import convert_from_bytes
     except ImportError:
         return {}
@@ -148,10 +148,8 @@ def _ocr_pdf_pages(stream, page_numbers):
             )
             if not images:
                 continue
-            text = pytesseract.image_to_string(
-                _preprocess(images[0]), lang=languages, config='--psm 6'
-            )
-            results[number] = PageText(number, text.strip(), uso_ocr=True)
+            text = _leer(images[0], languages)
+            results[number] = PageText(number, text, uso_ocr=True)
         except Exception as exc:
             logger.warning('Falló el OCR de la página %s: %s', number, exc)
 
@@ -165,18 +163,13 @@ def _extract_image(stream):
             'El documento es una imagen y el motor de OCR no está disponible.'
         )
 
-    import pytesseract
     from PIL import Image
 
     if hasattr(stream, 'seek'):
         stream.seek(0)
     image = Image.open(stream)
-    text = pytesseract.image_to_string(
-        _preprocess(image),
-        lang=current_app.config['OCR_LANGUAGES'],
-        config='--psm 6',
-    )
-    page = PageText(1, text.strip(), uso_ocr=True)
+    text = _leer(image, current_app.config['OCR_LANGUAGES'])
+    page = PageText(1, text, uso_ocr=True)
     return ExtractedText([page], motor='tesseract', uso_ocr=True,
                          idioma=_detect_language([page]))
 
@@ -218,13 +211,127 @@ def _extract_email(stream):
                          idioma=_detect_language([page]))
 
 
+#: Page segmentation modes worth trying, in the order they tend to win.
+#:
+#: 6 assumes one uniform block, which a ticket is not: a boarding pass is a
+#: grid of little labelled boxes, and read as a paragraph its columns interleave
+#: into nonsense. 4 reads columns, 11 reads scattered text, 3 lets Tesseract
+#: decide. Trying several and keeping the best costs a second per page and is
+#: the difference between a locator read and a locator missed.
+_MODOS_SEGMENTACION = (6, 4, 11, 3)
+
+
+def _umbral_otsu(histograma):
+    """The threshold that best separates ink from paper, from a histogram.
+
+    A fixed cut at 160 assumes a clean scan on white. A photographed ticket, a
+    grey fax or a dark-mode boarding pass falls entirely on one side of it and
+    comes back blank. Otsu's method derives the cut from the image instead of
+    assuming one.
+    """
+    total = sum(histograma)
+    if not total:
+        return 128
+
+    suma_total = sum(i * n for i, n in enumerate(histograma))
+    suma_fondo = 0.0
+    peso_fondo = 0
+    mejor_varianza = -1.0
+    mejor = 128
+
+    for nivel, cuenta in enumerate(histograma):
+        peso_fondo += cuenta
+        if peso_fondo == 0:
+            continue
+        peso_primer_plano = total - peso_fondo
+        if peso_primer_plano == 0:
+            break
+
+        suma_fondo += nivel * cuenta
+        media_fondo = suma_fondo / peso_fondo
+        media_primer = (suma_total - suma_fondo) / peso_primer_plano
+        varianza = peso_fondo * peso_primer_plano * (media_fondo - media_primer) ** 2
+
+        if varianza > mejor_varianza:
+            mejor_varianza = varianza
+            mejor = nivel
+
+    return mejor
+
+
+def _puntuar_lectura(texto):
+    """How much of a reading looks like language rather than speckle.
+
+    Tesseract returns something for every attempt; picking the longest would
+    reward the mode that turned the border of the scan into punctuation. What
+    counts is alphanumeric characters that sit inside words.
+    """
+    if not texto:
+        return 0
+
+    palabras = [p for p in texto.split() if any(c.isalnum() for c in p)]
+    utiles = sum(len(p) for p in palabras if len(p) > 1)
+    ruido = sum(1 for c in texto if not c.isalnum() and not c.isspace())
+    return utiles - ruido // 4
+
+
 def _preprocess(image):
-    """Greyscale and threshold an image, which measurably helps Tesseract."""
+    """Greyscale, stretch the contrast, and threshold where the image says."""
     try:
-        grey = image.convert('L')
-        return grey.point(lambda p: 255 if p > 160 else 0)
+        from PIL import ImageOps
+
+        grey = ImageOps.autocontrast(image.convert('L'))
+        umbral = _umbral_otsu(grey.histogram())
+        return grey.point(lambda p: 255 if p > umbral else 0)
     except Exception:
         return image
+
+
+def _enderezar(image):
+    """Rotate a page that was scanned or photographed sideways.
+
+    Best effort: orientation detection needs a trained model that may not be
+    installed, and a page read upside down is worth trying to fix but not worth
+    failing over.
+    """
+    try:
+        import pytesseract
+
+        osd = pytesseract.image_to_osd(image, output_type=pytesseract.Output.DICT)
+        giro = int(osd.get('rotate') or 0) % 360
+    except Exception:
+        return image
+
+    return image.rotate(-giro, expand=True) if giro else image
+
+
+def _leer(image, languages):
+    """Read a page, keeping the best of several segmentation modes."""
+    import pytesseract
+
+    preparada = _preprocess(_enderezar(image))
+
+    mejor_texto = ''
+    mejor_puntuacion = 0
+    for modo in _MODOS_SEGMENTACION:
+        try:
+            texto = pytesseract.image_to_string(
+                preparada, lang=languages, config=f'--psm {modo}',
+            )
+        except Exception as exc:
+            logger.debug('El modo psm %s falló: %s', modo, exc)
+            continue
+
+        puntuacion = _puntuar_lectura(texto)
+        if puntuacion > mejor_puntuacion:
+            mejor_texto, mejor_puntuacion = texto, puntuacion
+
+        # A clean page reads well on the first mode; the rest are for the ones
+        # that do not, so there is no point paying for them every time.
+        if mejor_puntuacion > 400:
+            break
+
+    return mejor_texto.strip()
 
 
 _TAG_RE = re.compile(r'<[^>]+>')

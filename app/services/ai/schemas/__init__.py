@@ -238,8 +238,11 @@ EXTRACT_VISADO = _extraction_schema({
     'pais_emisor': _STR,
     'titular': _STR,
     'entradas': _STR,
-    'fecha_emision': _STR,
-    'fecha_caducidad': _STR,
+    # Instants, not strings: the validity window is what the expiry rule
+    # compares against the trip's dates, and a bare string cannot be compared
+    # with anything.
+    'fecha_emision': _INSTANTE,
+    'fecha_caducidad': _INSTANTE,
     'estancia_maxima_dias': _INT,
 })
 
