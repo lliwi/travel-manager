@@ -147,11 +147,22 @@ DEFAULTS = {
         'para conservar la que ya hay.',
         False,
     ),
+    'PROXY_DIRECTO_PRIVADAS': (
+        True, 'bool', 'red', 'La red local no pasa por el proxy',
+        'Trata como internas todas las direcciones privadas (10.x, 172.16-31.x, '
+        '192.168.x y las de bucle). Es lo que casi siempre se quiere: un '
+        'servidor de IA o un servicio de su red no tienen por qué salir y '
+        'volver por el proxy.',
+        False,
+    ),
     'PROXY_EXCEPCIONES': (
-        '', 'string', 'red', 'Destinos que no pasan por el proxy',
-        'Separados por comas, además de los internos, que nunca pasan: '
-        'localhost, host.docker.internal y los demás contenedores. Añada aquí '
-        'un servidor de IA propio que esté en su red.',
+        '', 'string', 'red', 'Destinos que no pasan por el proxy (NO_PROXY)',
+        'Separados por comas. Admite un nombre («ia.corp.local»), un dominio '
+        'entero («corp.local», que cubre todo lo que acabe así) y un rango '
+        '(«10.8.0.0/16»). Úselo para sus modelos locales y para lo que esté en '
+        'su red pero no en un rango privado. Lo interno —localhost, '
+        'host.docker.internal y los demás contenedores— no pasa nunca, esté o '
+        'no escrito aquí.',
         False,
     ),
 
