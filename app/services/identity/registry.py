@@ -13,6 +13,7 @@ from app.models.enums import AuditResourceType, AuditResult, IdentityProviderCod
 from app.models.user import Role, User
 from app.services import audit_service
 from app.services.identity.base import IdentityProvider
+from app.services.identity.ldap import LDAPIdentityProvider
 from app.services.identity.local import LocalIdentityProvider
 from app.utils.errors import AccountLocked, AuthenticationFailed
 from app.utils.timeutil import utcnow
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 #: Registered provider classes, keyed by their code.
 _PROVIDERS = {
     LocalIdentityProvider.codigo: LocalIdentityProvider,
+    LDAPIdentityProvider.codigo: LDAPIdentityProvider,
 }
 
 
@@ -78,7 +80,7 @@ def authenticate(username, credential, provider_code=None):
     Returns:
         The authenticated :class:`User`.
     """
-    provider = get_provider(provider_code)
+    provider = get_provider(provider_code or _provider_for(username))
     result = provider.authenticate(username, credential)
 
     if not result.exito:
@@ -103,6 +105,42 @@ def authenticate(username, credential, provider_code=None):
         metadatos={'proveedor': provider.codigo},
     )
     return user
+
+
+def _provider_for(username):
+    """Decide which directory owns a login name.
+
+    The corporate directory does not replace local accounts; both work at once.
+    So the question is not «which provider is configured» but «whose account is
+    this», and the account itself answers it.
+
+    Resolved before attempting anything rather than by trying one and falling
+    back to the other. A fallback would write a failed-login audit entry for
+    every directory user on every successful login, and the trail is the thing
+    somebody reads after an incident -- filling it with failures that were not
+    failures is how it stops being read.
+
+    An unknown name goes to the directory when one is configured, because that
+    is the only provider that can create an account for somebody who has never
+    logged in. When none is, it goes to the local provider and fails there, the
+    same way and in the same time as any wrong password.
+    """
+    from app.services.identity.ldap import esta_configurado
+
+    if not username:
+        return None
+
+    texto = str(username).strip()
+    existente = User.query.filter(
+        db.or_(User.username == texto, User.email == texto.lower()),
+        User.is_deleted.is_(False),
+    ).first()
+    if existente is not None:
+        return existente.identity_provider
+
+    if esta_configurado():
+        return IdentityProviderCode.LDAP.value
+    return None
 
 
 def _resolve_local_user(provider, record):
@@ -131,7 +169,7 @@ def _resolve_local_user(provider, record):
             user = None
 
     if user is None and provider.supports_provisioning():
-        if not current_app.config['IDENTITY_JIT_PROVISIONING']:
+        if not _jit_permitido(provider):
             logger.warning(
                 'Identidad %s autenticada pero el aprovisionamiento JIT está desactivado.',
                 record.username,
@@ -143,6 +181,25 @@ def _resolve_local_user(provider, record):
         _sync_attributes(provider, user, record)
 
     return user
+
+
+def _jit_permitido(provider):
+    """Whether a directory account may be created on first login.
+
+    Turning the directory on in Ajustes *is* the decision. A second switch in
+    the environment saying «and I meant it» would sit there forgotten, and the
+    symptom would be somebody authenticating correctly and being refused with
+    no explanation -- the directory said yes, the application said no, and
+    nothing on screen says why.
+
+    The environment value stays as the answer for any other provider, and as
+    the bootstrap on a fresh install.
+    """
+    from app.services.identity.ldap import esta_configurado
+
+    if provider.codigo == IdentityProviderCode.LDAP.value:
+        return esta_configurado()
+    return bool(current_app.config['IDENTITY_JIT_PROVISIONING'])
 
 
 def provision_user(provider, record):

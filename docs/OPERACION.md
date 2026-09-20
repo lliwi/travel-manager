@@ -158,6 +158,62 @@ Tres límites del conector que conviene saber antes de prometer nada:
   ferroviario el asistente orienta como antes y lo dice; una lista vacía no
   significa que no haya tren.
 
+## Directorio corporativo (AD / LDAP)
+
+Se activa en **Ajustes → Directorio corporativo**. Hacen falta cuatro cosas: el
+servidor, un usuario de consulta con su contraseña, y la ruta de la OU o del
+grupo donde están las personas. El botón **Probar conexión** dice cuántas ve.
+
+**No sustituye a las cuentas locales.** Las dos funcionan a la vez y cada cuenta
+sabe de dónde viene; en la lista de usuarios hay una columna «Origen». Esto es
+deliberado: un administrador que se quede sin directorio sigue pudiendo entrar,
+que es la diferencia entre una tarde mala y quedarse fuera de la aplicación que
+gestiona los viajes.
+
+**Los roles son nuestros.** El directorio dice quién es alguien, no qué puede
+hacer. La primera vez que una persona entra se le crea la cuenta con el rol
+básico de usuario, y cualquier cosa por encima de eso se concede aquí, a mano,
+en Usuarios. Mientras no se configuren correspondencias entre grupos y roles,
+un rol concedido a mano no se lo quita un inicio de sesión posterior.
+
+| Ajuste | Qué poner |
+| --- | --- |
+| Servidor / Puerto | El controlador de dominio. 389, o 636 con LDAPS. |
+| LDAPS / STARTTLS | Uno de los dos en producción. Sin ninguno, la contraseña viaja legible. |
+| Usuario de consulta | `CN=svc,OU=Servicios,DC=corp,DC=local` o `svc@corp.local`. Le basta con leer. |
+| Ruta de la OU o del grupo | Dónde están las personas. Se distingue solo cuál de las dos es. |
+| Atributo del nombre de usuario | `sAMAccountName` en AD; `uid` en OpenLDAP. |
+
+Indicar una **OU** deja entrar a quien esté dentro. Indicar un **grupo** deja
+entrar solo a sus miembros, que es lo habitual cuando la OU contiene a toda la
+empresa y solo algunas personas usan el gestor de viajes.
+
+### Probarlo en desarrollo
+
+El compose de desarrollo levanta un OpenLDAP con un árbol sembrado:
+
+```bash
+docker compose -f docker/docker-compose.yml -f docker/docker-compose.dev.yml up -d openldap
+```
+
+| Ajuste | Valor |
+| --- | --- |
+| Servidor | `openldap` |
+| Usuario de consulta | `cn=admin,dc=corp,dc=test` |
+| Contraseña | `Directorio.2026` |
+| Ruta | `ou=usuarios,dc=corp,dc=test` (4 personas) o `cn=viajes,ou=usuarios,dc=corp,dc=test` (2) |
+| Atributo | `uid` |
+
+Cuentas: `alopez`, `bmartin`, `cruiz`, `dperez`, todas con `Directorio.2026`.
+`alopez` y `bmartin` están en el grupo; `dperez` no, para poder comprobar que
+acotando por grupo se queda fuera.
+
+**Es LDAP, no AD.** Aquí el nombre de usuario es `uid` y los grupos son
+`groupOfNames`; en Active Directory son `sAMAccountName` y `group`. El conector
+sirve para los dos porque esos nombres se configuran, pero una prueba que pase
+aquí no garantiza por sí sola que el dominio real esté bien puesto: para eso
+está el botón de probar conexión contra el dominio de verdad.
+
 ## Correo
 
 El servidor de salida se configura en Administración → Ajustes → Correo: host,

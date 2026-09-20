@@ -15,10 +15,21 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
     {% for clave, nombre, ayuda, ajustes in bloques %}
-    <div class="card mb-3">
-        <div class="card-header">
-            {{ nombre }}
-            {% if ayuda %}<small class="text-muted ms-2">{{ ayuda }}</small>{% endif %}
+    <div class="card mb-3" id="{{ clave }}">
+        <div class="card-header d-flex justify-content-between align-items-center gap-3">
+            <span>
+                {{ nombre }}
+                {% if ayuda %}<small class="text-muted ms-2">{{ ayuda }}</small>{% endif %}
+            </span>
+            {% if clave == 'directorio' %}
+            {# Fuera del formulario y por GET a propósito: probar no guarda. La
+               alternativa es enterarse de que la configuración está mal porque
+               alguien no consigue entrar. #}
+            <a href="{{ url_for('admin.test_directory') }}"
+               class="btn btn-sm btn-outline-secondary text-nowrap">
+                <i class="bi bi-plug me-1"></i>Probar conexión
+            </a>
+            {% endif %}
         </div>
         <div class="card-body">
             {% for ajuste in ajustes %}

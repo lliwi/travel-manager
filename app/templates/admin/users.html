@@ -29,7 +29,7 @@
 <div class="card">
     <div class="table-responsive">
         <table class="table table-hover align-middle mb-0">
-            <thead><tr><th>Persona</th><th>Usuario</th><th>Roles</th>
+            <thead><tr><th>Persona</th><th>Usuario</th><th>Origen</th><th>Roles</th>
                        <th>Estado</th><th>Último acceso</th><th></th></tr></thead>
             <tbody>
             {% for user in users %}
@@ -44,6 +44,10 @@
                     </div>
                 </td>
                 <td><code>{{ user.username }}</code></td>
+                {# Las cuentas locales y las del directorio conviven, así que
+                   de dónde viene cada una decide dónde se cambia su contraseña
+                   y qué se puede editar aquí. #}
+                <td>{{ badge(user.origen, 'secondary' if user.es_local else 'info') }}</td>
                 <td>{% for role in user.roles %}{{ badge(role.nombre, 'primary') }} {% endfor %}</td>
                 <td>
                     {{ badge(user.estado.label,

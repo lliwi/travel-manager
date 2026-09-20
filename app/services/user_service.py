@@ -142,6 +142,16 @@ def update_user(actor, user, role_codes=None, password=None, commit=True, **camp
                 commit=False,
             )
 
+    if password and not user.es_local:
+        # The login path routes by `identity_provider`, so this hash would
+        # never be consulted: a password that can be set and never works is
+        # worse than one that cannot be set, because somebody will rely on it
+        # the day the directory is down.
+        raise ValidationError(
+            'Esta cuenta se autentica contra el directorio corporativo; su '
+            'contraseña se cambia allí, no aquí.'
+        )
+
     if password:
         problems = validate_password_strength(password)
         if problems:

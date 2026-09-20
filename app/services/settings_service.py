@@ -33,6 +33,9 @@ GRUPOS = (
     ('politica', 'Política corporativa',
      'Límites que un viaje debe respetar, y por encima de los cuales hace '
      'falta una aprobación.'),
+    ('directorio', 'Directorio corporativo (AD / LDAP)',
+     'Permite iniciar sesión con las credenciales del directorio. No sustituye '
+     'a las cuentas locales: conviven, y cada cuenta sabe de dónde viene.'),
     ('funcionalidad', 'Funcionalidad opcional',
      'Partes del sistema que su organización puede no necesitar.'),
     ('retencion', 'Retención', 'Cuánto tiempo se conserva cada cosa.'),
@@ -116,6 +119,62 @@ DEFAULTS = {
     'BUSQUEDA_VIAJES_MONEDA': (
         'EUR', 'string', 'busqueda_viajes', 'Moneda',
         'En la que se piden los precios. Código ISO de tres letras.',
+        False,
+    ),
+
+    # --- Corporate directory ------------------------------------------
+    'LDAP_HABILITADO': (
+        False, 'bool', 'directorio', 'Permitir inicio de sesión con el directorio',
+        'Mientras esté desactivado solo se puede entrar con cuentas locales. '
+        'Activarlo no desactiva ninguna cuenta local: conviven.',
+        False,
+    ),
+    'LDAP_SERVIDOR': (
+        '', 'string', 'directorio', 'Servidor',
+        'Nombre o dirección del controlador de dominio. En desarrollo, «openldap».',
+        False,
+    ),
+    'LDAP_PUERTO': (
+        389, 'int', 'directorio', 'Puerto',
+        '389 sin cifrar o con STARTTLS; 636 para LDAPS.',
+        False,
+    ),
+    'LDAP_SSL': (
+        False, 'bool', 'directorio', 'Usar LDAPS',
+        'Cifrado desde el primer byte, sobre el puerto 636. Con 389, marque '
+        'STARTTLS en su lugar.',
+        False,
+    ),
+    'LDAP_STARTTLS': (
+        False, 'bool', 'directorio', 'Usar STARTTLS',
+        'Eleva a cifrado una conexión que empieza en claro por el puerto 389. '
+        'Sin esto ni LDAPS, la contraseña viaja legible por la red.',
+        False,
+    ),
+    'LDAP_USUARIO': (
+        '', 'string', 'directorio', 'Usuario de consulta',
+        'La cuenta con la que la aplicación busca en el directorio. Admite el '
+        'DN completo («CN=svc,OU=Servicios,DC=corp,DC=local») o el formato '
+        'usuario@dominio. Le basta con permiso de lectura.',
+        False,
+    ),
+    'LDAP_CONTRASENA': (
+        '', 'secreto', 'directorio', 'Contraseña del usuario de consulta',
+        'Se guarda cifrada y no vuelve a mostrarse. Deje el campo en blanco '
+        'para conservar la que ya hay.',
+        False,
+    ),
+    'LDAP_RUTA': (
+        '', 'string', 'directorio', 'Ruta de la OU o del grupo',
+        'Dónde buscar a las personas. Si indica una unidad organizativa, se '
+        'busca dentro de ella; si indica un grupo, solo entran sus miembros. '
+        'Se distingue solo, no hace falta decir cuál es.',
+        False,
+    ),
+    'LDAP_ATRIBUTO_USUARIO': (
+        'sAMAccountName', 'string', 'directorio', 'Atributo del nombre de usuario',
+        'Con qué se escribe el usuario al entrar. En Active Directory es '
+        '«sAMAccountName»; en un OpenLDAP suele ser «uid».',
         False,
     ),
 

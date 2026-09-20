@@ -1,0 +1,86 @@
+# Árbol de pruebas del directorio corporativo.
+#
+# Reproduce la forma que tiene un Active Directory real —una unidad
+# organizativa con personas dentro, y un grupo con solo algunas de ellas—
+# porque las dos cosas son configurables en Ajustes y las dos hay que poder
+# probarlas: indicando la OU entran los cuatro, indicando el grupo entran dos.
+#
+# Lo que NO reproduce, y conviene saberlo antes de dar por buena una prueba:
+# esto es OpenLDAP, no AD. Aquí el nombre de usuario es «uid» y los grupos son
+# «groupOfNames»; en Active Directory son «sAMAccountName» y «group». Por eso
+# el atributo del nombre de usuario se configura en Ajustes en vez de estar
+# escrito en el código: el mismo conector sirve para los dos.
+#
+# Contraseña de todas las cuentas: Directorio.2026
+
+dn: ou=usuarios,dc=corp,dc=test
+objectClass: organizationalUnit
+ou: usuarios
+
+dn: ou=servicios,dc=corp,dc=test
+objectClass: organizationalUnit
+ou: servicios
+
+# La cuenta con la que la aplicación consulta. Solo lee: si alguien le da
+# permisos de escritura, es que ha configurado más de lo que hace falta.
+dn: cn=svc-viajes,ou=servicios,dc=corp,dc=test
+objectClass: inetOrgPerson
+cn: svc-viajes
+sn: Servicio
+uid: svc-viajes
+userPassword: Consulta.2026
+
+dn: uid=alopez,ou=usuarios,dc=corp,dc=test
+objectClass: inetOrgPerson
+uid: alopez
+cn: Ana López
+givenName: Ana
+sn: López
+mail: alopez@corp.test
+telephoneNumber: +34 600 000 001
+title: Responsable de operaciones
+departmentNumber: Operaciones
+userPassword: Directorio.2026
+
+dn: uid=bmartin,ou=usuarios,dc=corp,dc=test
+objectClass: inetOrgPerson
+uid: bmartin
+cn: Bruno Martín
+givenName: Bruno
+sn: Martín
+mail: bmartin@corp.test
+telephoneNumber: +34 600 000 002
+title: Técnico de sistemas
+departmentNumber: Tecnología
+userPassword: Directorio.2026
+
+dn: uid=cruiz,ou=usuarios,dc=corp,dc=test
+objectClass: inetOrgPerson
+uid: cruiz
+cn: Carmen Ruiz
+givenName: Carmen
+sn: Ruiz
+mail: cruiz@corp.test
+title: Comercial
+departmentNumber: Ventas
+userPassword: Directorio.2026
+
+# Fuera del grupo a propósito: sirve para comprobar que, configurando el grupo
+# en lugar de la OU, esta persona no entra.
+dn: uid=dperez,ou=usuarios,dc=corp,dc=test
+objectClass: inetOrgPerson
+uid: dperez
+cn: Daniel Pérez
+givenName: Daniel
+sn: Pérez
+mail: dperez@corp.test
+title: Becario
+departmentNumber: Administración
+userPassword: Directorio.2026
+
+dn: cn=viajes,ou=usuarios,dc=corp,dc=test
+objectClass: groupOfNames
+cn: viajes
+description: Quien puede usar el gestor de viajes
+member: uid=alopez,ou=usuarios,dc=corp,dc=test
+member: uid=bmartin,ou=usuarios,dc=corp,dc=test

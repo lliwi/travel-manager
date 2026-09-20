@@ -27,10 +27,14 @@ Two things remain, deliberately last:
   nothing, its prices are Google's and therefore indicative, and it has no
   train engine at all -- for rail the assistant orients as before and says so,
   because an empty list must never read as «there is no way to get there».
-- **AD/LDAP, group sync and MFA/SSO.** The seam is in place --
-  `IdentityProvider`, `users.identity_provider`, `users.external_id`,
-  `role_group_mappings` -- so this is writing an implementation, not reopening
-  the model.
+- **Group sync and MFA/SSO.** AD/LDAP sign-in itself is done:
+  `identity/ldap.py` authenticates against a directory, and the two kinds of
+  account coexist -- turning the directory on disables no local account, which
+  is what keeps an administrator from being locked out when the directory is
+  unreachable. What remains is populating `role_group_mappings` so directory
+  groups drive roles automatically; today a provisioned account gets `usuario`
+  and anything above that is granted by hand, which is the safe default and
+  never taken back by a later login.
 
 ## Architecture
 

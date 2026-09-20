@@ -19,7 +19,7 @@ from flask_login import current_user, login_required
 from app.blueprints.admin import admin_bp
 from app.extensions import db
 from app.models.alert import AlertRuleSetting
-from app.models.enums import AuditResourceType, UserStatus
+from app.models.enums import AuditResourceType, AuditResult, UserStatus
 from app.models.user import Role, User
 from app.services import audit_service, settings_service
 from app.utils.decorators import require_admin
@@ -188,6 +188,37 @@ def delete_user(user_id):
 # ======================================================================
 # Settings and alert thresholds
 # ======================================================================
+@admin_bp.route('/directorio/probar')
+@login_required
+@require_admin
+def test_directory():
+    """Check the directory answers, and say precisely why when it does not.
+
+    Worth its own button because every other way of finding out is a person
+    failing to log in. The message is specific -- wrong service account, path
+    that resolves to nothing, unreachable host -- because it goes to an
+    administrator fixing their own configuration, not to a stranger at a login
+    form who must never learn which half was wrong.
+    """
+    from app.services.identity.ldap import LDAPIdentityProvider
+
+    try:
+        ok, detalle = LDAPIdentityProvider().health_check()
+    except Exception:
+        logger.exception('Falló la prueba del directorio')
+        ok, detalle = False, 'La prueba no se pudo completar. Revise los registros.'
+
+    audit_service.record(
+        'directory.tested',
+        recurso_tipo=AuditResourceType.CONFIGURACION,
+        actor=current_user._get_current_object(),
+        resultado=AuditResult.EXITO if ok else AuditResult.ERROR,
+        metadatos={'detalle': detalle},
+    )
+    flash(detalle, 'success' if ok else 'danger')
+    return redirect(url_for('admin.settings', _anchor='directorio'))
+
+
 @admin_bp.route('/ajustes', methods=['GET', 'POST'])
 @login_required
 @require_admin

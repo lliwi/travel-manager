@@ -56,6 +56,42 @@ services:
       timeout: 5s
       retries: 5
 
+  # Directorio de pruebas. Un OpenLDAP con un árbol sembrado que imita la forma
+  # de un Active Directory: una unidad organizativa con cuatro personas y un
+  # grupo con dos de ellas, para poder probar las dos maneras de acotar quién
+  # entra. En producción se apunta al controlador de dominio de verdad desde
+  # Ajustes; aquí lo que interesa es poder equivocarse sin tocar el dominio.
+  #
+  # Es LDAP, no AD: el nombre de usuario es «uid» y no «sAMAccountName». Por eso
+  # ese atributo se configura en Ajustes, y por eso una prueba que pase aquí no
+  # garantiza por sí sola que el dominio real esté bien configurado.
+  openldap:
+    image: osixia/openldap:1.5.0
+    container_name: travelmanager_openldap
+    restart: unless-stopped
+    command: ['--copy-service']
+    environment:
+      LDAP_ORGANISATION: Travel Manager
+      LDAP_DOMAIN: corp.test
+      LDAP_ADMIN_PASSWORD: ${LDAP_DEV_ADMIN_PASSWORD:-Directorio.2026}
+      LDAP_TLS: 'false'
+      LDAP_REMOVE_CONFIG_AFTER_SETUP: 'false'
+    volumes:
+      - ./openldap/seed.ldif:/container/service/slapd/assets/config/bootstrap/ldif/custom/50-seed.ldif:ro
+      - openldap_data:/var/lib/ldap
+      - openldap_config:/etc/ldap/slapd.d
+    ports:
+      - '127.0.0.1:${LDAP_PORT:-389}:389'
+    networks:
+      - backend
+    healthcheck:
+      test: ['CMD-SHELL',
+             'ldapsearch -x -H ldap://localhost -b dc=corp,dc=test -D "cn=admin,dc=corp,dc=test" -w "$${LDAP_ADMIN_PASSWORD}" >/dev/null 2>&1']
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
   web:
     build:
       context: ..
@@ -121,3 +157,10 @@ services:
     deploy:
       replicas: 0
     profiles: ['proxy']
+
+volumes:
+  # Del directorio de pruebas. Con nombre y no anónimos: al recrear el
+  # contenedor, el árbol sembrado sigue donde estaba y las cuentas de prueba
+  # conservan su contraseña.
+  openldap_data:
+  openldap_config:
