@@ -94,6 +94,12 @@ def make_celery():
                 'task': 'app.tasks.maintenance.watch_advisory_sources',
                 'schedule': crontab(hour=6, minute=0),
             },
+            # Cada cuarto de hora: una notificación por correo que llega al día
+            # siguiente ya no sirve para actuar sobre lo que avisa.
+            'enviar-notificaciones-por-correo': {
+                'task': 'app.tasks.maintenance.send_notification_mail',
+                'schedule': crontab(minute='*/15'),
+            },
             'caducar-recomendaciones': {
                 'task': 'app.tasks.maintenance.expire_advisories',
                 'schedule': crontab(hour=3, minute=30),

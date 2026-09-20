@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Notificaciones — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('dashboard.index') }}">Inicio</a></li>
+<li class="breadcrumb-item active">Notificaciones</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+    <div>
+        <h1>Notificaciones</h1>
+        <p class="text-muted mb-0">
+            {% if sin_leer %}{{ sin_leer }} sin leer{% else %}Todo al día{% endif %}
+        </p>
+    </div>
+    {% if sin_leer %}
+    <form method="post" action="{{ url_for('dashboard.read_all_notifications') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-outline-secondary btn-sm" type="submit">
+            <i class="bi bi-check2-all me-1"></i>Marcar todas como leídas
+        </button>
+    </form>
+    {% endif %}
+</div>
+
+{% if notificaciones %}
+<div class="card">
+    <ul class="list-group list-group-flush">
+        {% for n in notificaciones %}
+        <li class="list-group-item {{ '' if n.leida else 'bg-body-tertiary' }}">
+            <div class="d-flex justify-content-between align-items-start gap-3">
+                <div class="d-flex gap-3">
+                    <i class="bi bi-{{ n.tipo.icon }} fs-5 text-muted"></i>
+                    <div>
+                        <div class="{{ '' if n.leida else 'fw-semibold' }}">{{ n.titulo }}</div>
+                        {% if n.mensaje %}
+                        <p class="text-muted small mb-1">{{ n.mensaje }}</p>
+                        {% endif %}
+                        <div class="timeline-meta">
+                            <span class="chip">{{ n.tipo.label }}</span>
+                            {% if n.trip %}
+                            <a class="chip" href="{{ url_for('trips.detail', trip_id=n.trip_id) }}">
+                                <i class="bi bi-briefcase"></i>{{ n.trip.referencia }}</a>
+                            {% endif %}
+                            <span class="chip"><i class="bi bi-clock"></i>
+                                {{ n.created_at | local_dt('UTC') }}</span>
+                        </div>
+                    </div>
+                </div>
+                {% if not n.leida %}
+                <form method="post"
+                      action="{{ url_for('dashboard.read_notification', notification_id=n.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-sm btn-outline-primary text-nowrap" type="submit">
+                        {{ 'Ver' if n.enlace else 'Marcar leída' }}
+                    </button>
+                </form>
+                {% endif %}
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+</div>
+{% else %}
+<div class="empty-state">
+    <i class="bi bi-bell"></i>
+    <p>No hay nada que contar. Aquí aparecerán las alertas graves de sus viajes,
+       los documentos que no se hayan podido procesar y los cambios en las
+       recomendaciones de seguridad.</p>
+</div>
+{% endif %}
+{% endblock %}

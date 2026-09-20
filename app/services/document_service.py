@@ -183,6 +183,9 @@ def mark_failed(document, codigo, mensaje, tarea=None, estado=None, commit=True)
         recurso_id=str(document.id),
         metadatos={'codigo': codigo, 'tarea': tarea},
     )
+
+    if commit:
+        _avisar_del_fallo(document)
     return document
 
 
@@ -357,6 +360,34 @@ RESUME_FROM = {
     S.EXTRAIDO: 'normalize',
     S.NORMALIZADO: 'finalize',
 }
+
+
+def _avisar_del_fallo(document):
+    """Tell whoever uploaded it that its processing failed.
+
+    A document that failed looks exactly like one still working until somebody
+    opens it: the pipeline is asynchronous, so nobody is watching when it
+    breaks.
+    """
+    from flask import url_for
+
+    from app.models.enums import NotificationKind
+    from app.services import notification_service
+
+    try:
+        enlace = url_for('documents.detail', document_id=document.id)
+    except Exception:
+        enlace = None
+
+    notification_service.notificar(
+        document.subido_por,
+        tipo=NotificationKind.DOCUMENTO,
+        clave=f'documento-error:{document.id}:{document.error_codigo}',
+        titulo=f'No se pudo procesar «{document.nombre_original}»',
+        mensaje=document.error_mensaje,
+        enlace=enlace,
+        trip=document.trip,
+    )
 
 
 def reprocess(actor, document, from_start=False):

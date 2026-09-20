@@ -10,6 +10,15 @@
         </a>
     </li>
     <li>
+        <a href="{{ url_for('dashboard.notifications') }}" class="nav-link">
+            <i class="bi bi-bell"></i><span>Notificaciones</span>
+            {% if notificaciones_sin_leer %}
+            <span class="badge bg-danger rounded-pill ms-auto">
+                {{ notificaciones_sin_leer }}</span>
+            {% endif %}
+        </a>
+    </li>
+    <li>
         <a href="{{ url_for('trips.index') }}" class="nav-link">
             <i class="bi bi-suitcase-lg"></i><span>Viajes</span>
         </a>

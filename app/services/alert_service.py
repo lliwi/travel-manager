@@ -160,7 +160,51 @@ def recalculate(trip, trigger=AlertTrigger.MANUAL, actor=None):
             'cerradas': run.cerradas,
         },
     )
+
+    _avisar_de_las_graves(trip)
     return run
+
+
+def _avisar_de_las_graves(trip):
+    """Tell the people on a trip about its serious open alerts.
+
+    Only the serious ones, and only while open. An inbox that reports every
+    informative finding is an inbox that gets muted, and then the one that
+    mattered goes unread with the rest.
+
+    Keyed by the alert, so the nightly recalculation finds yesterday's telling
+    already there instead of repeating it.
+    """
+    from flask import url_for
+
+    from app.models.enums import AlertSeverity, AlertState, NotificationKind
+    from app.services import notification_service
+
+    graves = [
+        a for a in trip.alerts
+        if a.estado is AlertState.ABIERTA
+        and a.severidad in (AlertSeverity.ALTA, AlertSeverity.CRITICA)
+    ]
+    if not graves:
+        return
+
+    interesados = notification_service.interesados_en(trip)
+    for alerta in graves:
+        try:
+            enlace = url_for('alerts.detail', alert_id=alerta.id)
+        except Exception:
+            enlace = None
+
+        notification_service.notificar_a_varios(
+            interesados,
+            tipo=NotificationKind.ALERTA,
+            clave=f'alerta:{alerta.id}',
+            titulo=alerta.titulo,
+            mensaje=alerta.mensaje,
+            enlace=enlace,
+            trip=trip,
+            datos={'severidad': str(alerta.severidad)},
+        )
 
 
 def schedule_recalculation(trip_id, trigger=AlertTrigger.ITINERARIO, actor=None):

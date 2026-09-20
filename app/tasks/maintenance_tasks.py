@@ -102,6 +102,17 @@ def watch_advisory_sources(self):
     return resumen
 
 
+@celery.task(name='app.tasks.maintenance.send_notification_mail', bind=True)
+def send_notification_mail(self):
+    """Mail the notifications nobody has read yet."""
+    from app.services import notification_service
+
+    enviadas = notification_service.enviar_pendientes_por_correo()
+    if enviadas:
+        logger.info('Notificaciones enviadas por correo: %s.', enviadas)
+    return {'enviadas': enviadas}
+
+
 @celery.task(name='app.tasks.maintenance.purge_web_cache', bind=True)
 def purge_web_cache(self, keep_days=90):
     """Drop expired web research cache entries."""

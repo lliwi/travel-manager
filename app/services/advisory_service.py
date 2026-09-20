@@ -20,6 +20,7 @@ from app.models.enums import (
 )
 from app.services import audit_service
 from app.utils.errors import ConflictError, ValidationError
+from app.utils.hashing import sha256_text
 from app.utils.timeutil import utcnow
 
 logger = logging.getLogger(__name__)
@@ -301,6 +302,8 @@ def vigilar_fuentes(actor=None, regenerar=None):
             metadatos={'trip_id': str(trip.id), 'fuentes': urls},
         )
 
+        _avisar_del_cambio(trip, urls)
+
         if not regenerar:
             continue
 
@@ -313,6 +316,40 @@ def vigilar_fuentes(actor=None, regenerar=None):
             )
 
     return resumen
+
+
+def _avisar_del_cambio(trip, urls):
+    """Tell the people on a trip that the advice behind it moved.
+
+    Whether or not the advisories are regenerated: a country raising its
+    warning level is the kind of thing somebody wants to know happened, not
+    just to find quietly rewritten the next time they look.
+    """
+    from flask import url_for
+
+    from app.models.enums import NotificationKind
+    from app.services import notification_service
+
+    try:
+        enlace = url_for('advisories.index', trip_id=trip.id)
+    except Exception:
+        enlace = None
+
+    notification_service.notificar_a_varios(
+        notification_service.interesados_en(trip),
+        tipo=NotificationKind.RECOMENDACION,
+        # Keyed by what changed, so a source that moves again next month is
+        # told again, and one that sits still is not repeated.
+        clave=f'fuente-cambiada:{trip.id}:{sha256_text(*sorted(urls))[:24]}',
+        titulo=f'Han cambiado las recomendaciones de «{trip.titulo}»',
+        mensaje=(
+            'Una fuente oficial ha cambiado lo que dice del destino. '
+            'Conviene revisar las recomendaciones del viaje.'
+        ),
+        enlace=enlace,
+        trip=trip,
+        datos={'fuentes': urls},
+    )
 
 
 def _consultar_fuentes(destino, trip, actor):

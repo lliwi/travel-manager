@@ -332,7 +332,27 @@ def register_template_helpers(app):
                 'traveler_documents': app.config['TRAVELER_DOCUMENTS_ENABLED'],
                 'web_research': app.config['WEB_RESEARCH_ENABLED'],
             },
+            'notificaciones_sin_leer': _sin_leer(),
         }
+
+    def _sin_leer():
+        """The badge on the bell, on every page.
+
+        Swallows its own failures: a count that cannot be read is a reason to
+        show no badge, never a reason for the page around it not to render.
+        """
+        from flask_login import current_user
+
+        if not getattr(current_user, 'is_authenticated', False):
+            return 0
+        try:
+            from app.services import notification_service
+
+            return notification_service.contar_sin_leer(
+                current_user._get_current_object()
+            )
+        except Exception:
+            return 0
 
     app.jinja_env.filters['local_dt'] = timeutil.format_local
     app.jinja_env.filters['local_date'] = timeutil.format_local_date
