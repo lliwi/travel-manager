@@ -108,13 +108,19 @@ def record_extracted_field(entity, entity_kind, campo, valor, extraction,
     )
 
 
-def current_for(entity, entity_kind=None):
+def current_for(entity, entity_kind):
     """The current provenance of every field of an entity.
+
+    ``entity_kind`` is required, and that is the point. It used to default to
+    the class name, which is «travelsegment» while every stored row says
+    «segmento»: a caller who left it out got an empty result and no error, so
+    the screen showed «nothing was extracted» for a row full of extracted
+    fields. A missing argument is a better failure than a wrong answer.
 
     Returns:
         ``{campo: FieldProvenance}`` holding the newest row per field.
     """
-    kind = entity_kind or type(entity).__name__.lower()
+    kind = entity_kind
     rows = (
         FieldProvenance.query
         .filter_by(entidad_tipo=kind, entidad_id=entity.id)
@@ -136,7 +142,7 @@ def history_for(entity, entity_kind=None, campo=None):
     return query.order_by(FieldProvenance.created_at.asc()).all()
 
 
-def recalculate_rollup(entity, entity_kind=None, threshold=None, commit=False):
+def recalculate_rollup(entity, entity_kind, threshold=None, commit=False):
     """Refresh the denormalised confidence rollup on an itinerary entity.
 
     Keeping ``confianza_min`` and ``requiere_revision`` on the row itself lets
@@ -163,6 +169,16 @@ def recalculate_rollup(entity, entity_kind=None, threshold=None, commit=False):
     if commit:
         db.session.commit()
     return entity.confianza_min, entity.requiere_revision
+
+
+def umbral_revision():
+    """The confidence below which a field is worth a person's attention.
+
+    Public because the screens need it too: marking a field as doubtful and
+    deciding whether an item «requires review» have to use the same number, or
+    the list and the form disagree about the same row.
+    """
+    return _review_threshold()
 
 
 def _review_threshold():

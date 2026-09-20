@@ -315,3 +315,75 @@ class TestLasAlertasSeRehacen:
         assert conexiones[0].estado is not AlertState.ABIERTA, (
             'Una alerta que ya no se reproduce debe cerrarse sola.'
         )
+
+
+@pytest.mark.integration
+class TestQueCampoHayQueConfirmar:
+    """«Sin confirmar» tenía que decir de qué habla.
+
+    La marca sale de la confianza mínima con que se extrajo cada campo, no del
+    estado del documento: un documento aprobado puede contener campos que la
+    extracción no vio claros. El aviso llevaba al listado de documentos, donde
+    todo figura «Aprobado», y la aplicación parecía contradecirse.
+    """
+
+    def test_el_aviso_no_manda_a_los_documentos(self, as_user, gestor, trip):
+        with as_user(gestor) as client:
+            html = client.get(f'/trips/{trip.id}').get_data(as_text=True)
+
+        assert 'que alguien confirme sus datos' not in html
+
+    def test_el_formulario_dice_que_campo_es(
+        self, app, as_user, gestor, trip, segment_factory,
+    ):
+        """Sin esto, abrir un elemento marcado lleva a un formulario igual que
+        cualquier otro y hay que adivinar cuál de doce campos era."""
+        from app.extensions import db
+        from app.models.enums import ProvenanceOrigin
+        from app.services import provenance_service
+
+        item = segment_factory(numero='IB9100')
+        provenance_service.record(
+            item, 'segmento', 'numero', origen=ProvenanceOrigin.IA,
+            valor_actual='IB9100', confianza=0.25, commit=True,
+        )
+        provenance_service.recalculate_rollup(item, 'segmento', commit=True)
+        db.session.commit()
+
+        with as_user(gestor) as client:
+            html = client.get(
+                f'/trips/{trip.id}/itinerario/segmento/{item.id}/editar'
+            ).get_data(as_text=True)
+
+        assert 'Sin confirmar' in html
+        assert '25%' in html
+        assert 'Numero' in html or 'numero' in html
+
+    def test_un_campo_seguro_no_se_señala(
+        self, app, as_user, gestor, trip, segment_factory,
+    ):
+        """Señalar todo sería no señalar nada."""
+        from app.extensions import db
+        from app.models.enums import ProvenanceOrigin
+        from app.services import provenance_service
+
+        item = segment_factory(numero='IB9200')
+        provenance_service.record(
+            item, 'segmento', 'numero', origen=ProvenanceOrigin.DOCUMENTO,
+            valor_actual='IB9200', confianza=1.0, commit=True,
+        )
+        db.session.commit()
+
+        with as_user(gestor) as client:
+            html = client.get(
+                f'/trips/{trip.id}/itinerario/segmento/{item.id}/editar'
+            ).get_data(as_text=True)
+
+        assert 'Sin confirmar' not in html
+
+    def test_el_umbral_es_el_mismo_en_los_dos_sitios(self, app, seeded):
+        """La lista y el formulario tienen que discrepar nunca sobre la misma
+        fila, así que leen el mismo número."""
+        from app.services import provenance_service
+
+        assert provenance_service.umbral_revision() == provenance_service._review_threshold()

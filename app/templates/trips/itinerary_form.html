@@ -18,7 +18,7 @@
 {% block content %}
 <div class="page-header">
     <h1>{{ accion }} {{ etiqueta }}</h1>
-    <p class="text-muted mb-0">{{ trip.titulo }} · <code>{{ trip.referencia }}</code></p>
+    <p class="text-muted mb-0">{{ trip.titulo }} · <span class="ref-code">{{ trip.referencia }}</span></p>
 </div>
 
 <div class="row">
@@ -148,6 +148,47 @@
     </div>
 
     <div class="col-lg-4">
+        {# Qué campo concreto es el dudoso. Antes el elemento salía marcado
+           «sin confirmar» en el itinerario y al abrirlo aparecía un formulario
+           igual que cualquier otro: había que adivinar cuál de doce campos era
+           el que la extracción no vio claro. #}
+        {% set dudosos = [] %}
+        {% for campo, fila in (procedencia or {}).items() %}
+        {% if fila.confianza is not none and fila.confianza | float < umbral_revision %}
+        {% set _ = dudosos.append((campo, fila)) %}
+        {% endif %}
+        {% endfor %}
+        {% if dudosos %}
+        <div class="card mb-3 border-warning">
+            <div class="card-header">
+                <i class="bi bi-exclamation-triangle text-warning me-2"></i>Sin confirmar
+            </div>
+            <div class="card-body">
+                <p class="text-muted small">
+                    Estos campos se extrajeron con poca seguridad. Compruébelos
+                    contra el documento; al guardar, lo que escriba queda como
+                    dato confirmado por usted.
+                </p>
+                <dl class="detail-list mb-0">
+                    {% for campo, fila in dudosos %}
+                    <dt class="text-capitalize">{{ campo.replace('_', ' ') }}</dt>
+                    <dd>
+                        <span class="chip chip-warning">
+                            {{ (fila.confianza | float * 100) | round | int }}%
+                        </span>
+                        {% if fila.valor_actual %}
+                        <span class="text-muted small">{{ fila.valor_actual }}</span>
+                        {% endif %}
+                        {% if fila.pagina %}
+                        <div class="text-muted small">Página {{ fila.pagina }} del documento</div>
+                        {% endif %}
+                    </dd>
+                    {% endfor %}
+                </dl>
+            </div>
+        </div>
+        {% endif %}
+
         <div class="card">
             <div class="card-header">Sobre este elemento</div>
             <div class="card-body">

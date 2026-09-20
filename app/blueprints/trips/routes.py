@@ -642,9 +642,16 @@ def edit_itinerary_item(trip_id, kind, item_id, trip):
             flash(f'Se ha actualizado el {etiqueta}.', 'success')
             return redirect(url_for('trips.detail', trip_id=trip.id))
 
+    # Qué campo es el dudoso, y no solo que hay uno. Sin esto, «este elemento
+    # tiene algo sin confirmar» lleva a un formulario idéntico a cualquier
+    # otro, donde hay que adivinar cuál de doce campos era.
+    from app.services import provenance_service
+
     return render_template(
         'trips/itinerary_form.html',
         trip=trip, form=form, kind=kind, etiqueta=etiqueta, item=item,
+        procedencia=provenance_service.current_for(item, kind),
+        umbral_revision=provenance_service.umbral_revision(),
     )
 
 

@@ -125,18 +125,23 @@
                 {% set trayectos = timeline.desplazamientos %}
                 {% set por_revisar = timeline.entries | selectattr('item.requiere_revision') | list %}
                 {% if por_revisar %}
-                {# Uno, no uno por fila. La misma frase repetida cuatro veces
-                   deja de leerse a la segunda, y ocupaba el sitio donde debía
-                   estar lo que distingue un trayecto de otro. #}
-                <div class="alert alert-warning d-flex justify-content-between align-items-center gap-3 py-2">
-                    <span>
-                        <i class="bi bi-exclamation-triangle me-1"></i>
-                        {{ por_revisar | length }}
-                        {{ 'elemento necesita' if por_revisar | length == 1 else 'elementos necesitan' }}
-                        que alguien confirme sus datos.
-                    </span>
-                    <a href="{{ url_for('documents.index', trip_id=trip.id) }}"
-                       class="btn btn-sm btn-outline-secondary text-nowrap">Revisar</a>
+                {# Uno, no uno por fila: la misma frase repetida cuatro veces
+                   deja de leerse a la segunda.
+
+                   Y dice de qué habla. Esta marca sale de la confianza mínima
+                   con que se extrajo cada campo, no del estado del documento:
+                   un documento aprobado puede contener campos que la
+                   extracción no vio claros. Llevaba al listado de documentos,
+                   donde todo figura «Aprobado», y la aplicación parecía
+                   contradecirse. Se corrige en cada elemento, con el lápiz de
+                   su fila. #}
+                <div class="alert alert-warning py-2 mb-3">
+                    <i class="bi bi-exclamation-triangle me-1"></i>
+                    {{ por_revisar | length }}
+                    {{ 'elemento tiene' if por_revisar | length == 1 else 'elementos tienen' }}
+                    algún campo que la extracción no leyó con seguridad.
+                    Van marcados abajo como <strong>sin confirmar</strong>:
+                    ábralos para comprobarlos o corregirlos.
                 </div>
                 {% endif %}
                 {% if not trayectos %}

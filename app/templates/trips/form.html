@@ -14,7 +14,7 @@
 {% block content %}
 <div class="page-header">
     <h1>{{ 'Editar viaje' if trip else 'Nuevo viaje' }}</h1>
-    {% if trip %}<p class="text-muted mb-0"><code>{{ trip.referencia }}</code></p>{% endif %}
+    {% if trip %}<p class="text-muted mb-0"><span class="ref-code">{{ trip.referencia }}</span></p>{% endif %}
 </div>
 
 {% if not trip %}
