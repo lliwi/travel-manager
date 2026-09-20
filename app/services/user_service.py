@@ -104,9 +104,33 @@ def create_user(actor, username, email, nombre, password, apellidos=None,
     return user
 
 
+#: Fields a directory owns. They are refreshed from it on every login, so a
+#: change made here survives exactly until the person next signs in -- which is
+#: worse than refusing it, because the edit appears to work.
+CAMPOS_DEL_DIRECTORIO = (
+    'email', 'nombre', 'apellidos', 'puesto', 'departamento', 'telefono',
+)
+
+
 def update_user(actor, user, role_codes=None, password=None, commit=True, **campos):
-    """Update an account, auditing what changed."""
+    """Update an account, auditing what changed.
+
+    A directory-backed account is read-only except for what this application
+    owns: its roles and whether it may be used. Everything describing the
+    person comes from the directory and is changed there.
+    """
     cambios = []
+
+    if not user.es_local:
+        intentados = [c for c in CAMPOS_DEL_DIRECTORIO
+                      if c in campos and campos[c] != getattr(user, c)]
+        if intentados:
+            raise ValidationError(
+                'Esta cuenta se gestiona en el directorio corporativo. Sus '
+                'datos personales se modifican allí; aquí solo se le asignan '
+                'roles y se activa o desactiva.',
+                detalles={'campos': sorted(intentados)},
+            )
 
     for field in ('email', 'nombre', 'apellidos', 'puesto', 'departamento',
                   'telefono', 'estado', 'idioma', 'zona_horaria'):

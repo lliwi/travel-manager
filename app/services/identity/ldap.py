@@ -284,11 +284,7 @@ class LDAPIdentityProvider(IdentityProvider):
     def _registro(self, entrada):
         """Turn a directory entry into an :class:`IdentityRecord`."""
         def _uno(nombre):
-            valor = getattr(entrada, nombre, None)
-            if valor is None:
-                return None
-            texto = str(valor).strip()
-            return texto or None
+            return _texto(entrada, nombre)
 
         conf = _conf()
         username = _uno(conf['atributo']) or _uno('cn')
@@ -299,7 +295,7 @@ class LDAPIdentityProvider(IdentityProvider):
         # history.
         external_id = _uno('objectGUID') or _uno('entryUUID') or str(entrada.entry_dn)
 
-        grupos = [str(g) for g in (getattr(entrada, 'memberOf', None) or [])]
+        grupos = _lista(entrada, 'memberOf')
 
         nombre = _uno('givenName')
         apellidos = _uno('sn')
@@ -504,22 +500,112 @@ class LDAPIdentityProvider(IdentityProvider):
                 attributes=self._atributos(conexion),
                 size_limit=200,
             )
-            cuantos = sum(
-                1 for e in conexion.entries
+            dentro = [
+                e for e in conexion.entries
                 if self._es_miembro(conexion, e, grupo)
-            )
-            if not cuantos:
+            ]
+            if not dentro:
                 return False, (
                     'La conexión funciona, pero no se ve ninguna persona en la '
                     'ruta indicada. Revise la OU o el grupo, y el atributo del '
                     'nombre de usuario.'
                 )
+
             donde = 'en el grupo' if grupo else 'en la ruta'
-            return True, f'Conexión correcta. Se ven {cuantos} personas {donde}.'
+            return True, (
+                f'Conexión correcta. Se ven {len(dentro)} personas {donde}. '
+                + _resumen_de_atributos(_conf()['atributo'], dentro[0])
+            )
         except Exception as exc:  # noqa: BLE001
             return False, f'La ruta indicada no se pudo leer: {type(exc).__name__}'
         finally:
             conexion.unbind()
+
+
+#: Which directory attribute fills which field of an account, in the order
+#: somebody reads them. The login attribute is separate: it is configured.
+CAMPOS = (
+    ('nombre', ('givenName', 'displayName', 'cn')),
+    ('apellidos', ('sn',)),
+    ('correo', ('mail',)),
+    ('teléfono', ('telephoneNumber',)),
+    ('puesto', ('title',)),
+    ('departamento', ('department', 'departmentNumber')),
+    ('grupos', ('memberOf',)),
+)
+
+
+def _texto(entrada, nombre):
+    """One attribute as text, or None when the directory has no value for it.
+
+    Read through ``.value`` rather than ``str()`` on the attribute: an
+    attribute that was asked for and does not exist still comes back as an
+    empty one, and stringifying that gives «[]» -- which is not empty, so it
+    passes every «is there a value here» check and ends up stored as somebody's
+    email address.
+    """
+    bruto = getattr(entrada, nombre, None)
+    if bruto is None:
+        return None
+
+    valor = getattr(bruto, 'value', bruto)
+    if valor is None:
+        return None
+    if isinstance(valor, (list, tuple)):
+        valor = valor[0] if valor else None
+        if valor is None:
+            return None
+
+    texto = str(valor).strip()
+    return texto or None
+
+
+def _lista(entrada, nombre):
+    """One multi-valued attribute as a list of strings."""
+    bruto = getattr(entrada, nombre, None)
+    valores = getattr(bruto, 'values', None) if bruto is not None else None
+    return [str(v).strip() for v in (valores or []) if str(v).strip()]
+
+
+def _resumen_de_atributos(atributo_login, ejemplo):
+    """Say which attributes are being used, and which came back empty.
+
+    The count alone says the connection works, which is the easy half. What an
+    administrator actually needs to know is whether they picked the right login
+    attribute -- ``sAMAccountName`` and ``uid`` are both plausible and only one
+    of them is right -- and what will be missing from every account before
+    anybody logs in and finds out. An empty «correo» is a trip nobody can be
+    notified about.
+    """
+    def _valor(nombres):
+        for nombre in nombres:
+            texto = _texto(ejemplo, nombre)
+            if texto:
+                return nombre, texto
+        return None, None
+
+    login = _texto(ejemplo, atributo_login) or ''
+    partes = [
+        f'Se identifican por «{atributo_login}»'
+        + (f' (por ejemplo, «{login}»).' if login else
+           ', que no trae valor en esta ruta: revíselo.')
+    ]
+
+    usados, vacios = [], []
+    for etiqueta, nombres in CAMPOS:
+        nombre, valor = _valor(nombres)
+        if valor:
+            usados.append(f'{etiqueta} ({nombre})')
+        else:
+            vacios.append(etiqueta)
+
+    if usados:
+        partes.append('Se leen además: ' + ', '.join(usados) + '.')
+    if vacios:
+        partes.append(
+            'Sin valor en la primera persona encontrada: ' + ', '.join(vacios) + '.'
+        )
+    return ' '.join(partes)
 
 
 def _escapar(valor):

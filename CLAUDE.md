@@ -135,6 +135,20 @@ Each is a considered decision, not an oversight:
 - Records are soft-deleted. Retention-driven erasure is a separate, explicit,
   audited operation.
 
+## Directory accounts are read-only
+
+A directory-backed account authenticates and nothing else. Its personal fields
+are refreshed from the directory on every sign-in, so an edit made here would
+appear to work and then revert -- which is why `user_service.update_user`
+refuses them rather than the templates merely hiding them. The same goes for a
+local password on such an account: the login path routes by
+`identity_provider`, so that hash would never be read, and somebody would rely
+on it the day the directory is down.
+
+What stays editable is what this application owns: roles and whether the
+account may be used. `User.es_local` is the single question both the screens
+and the login path ask.
+
 ## What the AI is allowed to restate
 
 The planning assistant receives real flight and hotel rows and may reason about

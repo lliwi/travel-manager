@@ -394,3 +394,198 @@ class TestLaContrasenaDeConsultaNoSeEscapa:
         volcado = json.dumps([e.metadatos for e in eventos], default=str)
         assert 'Consulta.2026' not in volcado
         assert 'mal' not in volcado.replace('normal', '')
+
+
+@pytest.mark.integration
+class TestLaConfirmacionDiceQueAtributosUsa:
+    """The count alone says the connection works, which is the easy half.
+
+    What an administrator needs is whether they picked the right login
+    attribute -- «sAMAccountName» and «uid» are both plausible and only one is
+    right -- and what will be missing from every account before anybody logs in
+    and finds out.
+    """
+
+    def test_dice_el_atributo_de_inicio_de_sesion(self, app, seeded, directorio):
+        _configurar(atributo='uid')
+
+        ok, detalle = directorio.health_check()
+
+        assert ok is True
+        assert '«uid»' in detalle
+        # Cualquiera de las dos: el orden en que el directorio devuelve las
+        # entradas no está garantizado, y fijarlo probaría eso y no el mensaje.
+        assert 'alopez' in detalle or 'dperez' in detalle
+
+    def test_dice_que_atributos_rellenan_cada_campo(self, app, seeded, directorio):
+        _configurar()
+
+        _, detalle = directorio.health_check()
+
+        assert 'correo (mail)' in detalle
+        assert 'apellidos (sn)' in detalle
+
+    def test_avisa_de_lo_que_viene_vacio(self, app, seeded, directorio):
+        """An empty «correo» is a trip nobody can be notified about."""
+        _configurar()
+
+        _, detalle = directorio.health_check()
+
+        assert 'Sin valor' in detalle
+        # «departamento» no lo tiene ninguna de las dos personas del árbol de
+        # pruebas, así que no depende de cuál devuelva primero el directorio.
+        assert 'departamento' in detalle.split('Sin valor')[1]
+
+    def test_un_atributo_equivocado_se_nota(self, app, seeded, directorio):
+        """The failure it prevents: the search still finds people, so the
+        connection looks fine, and every login fails afterwards."""
+        _configurar(atributo='sAMAccountName')
+
+        ok, detalle = directorio.health_check()
+
+        assert ok is True
+        assert 'no trae valor' in detalle
+
+
+@pytest.mark.security
+class TestUnaCuentaDelDirectorioEsSoloLectura:
+    """It authenticates and nothing more.
+
+    Everything describing the person is refreshed from the directory on every
+    sign-in, so an edit made here would appear to work and then revert -- and
+    nobody would know which of the two versions the application believed.
+    """
+
+    def _del_directorio(self, directorio):
+        from app.services.identity import authenticate
+
+        _configurar()
+        return authenticate('alopez', CLAVE)
+
+    def test_no_se_pueden_cambiar_sus_datos(self, app, seeded, directorio, admin):
+        from app.services import user_service
+        from app.utils.errors import ValidationError
+
+        user = self._del_directorio(directorio)
+
+        with pytest.raises(ValidationError):
+            user_service.update_user(actor=admin, user=user, nombre='Otra')
+
+    def test_ni_su_correo(self, app, seeded, directorio, admin):
+        from app.services import user_service
+        from app.utils.errors import ValidationError
+
+        user = self._del_directorio(directorio)
+
+        with pytest.raises(ValidationError):
+            user_service.update_user(actor=admin, user=user, email='otro@corp.test')
+
+    def test_pero_sus_roles_si(self, app, seeded, directorio, admin):
+        """Which is the whole point of the previous requirement: the directory
+        says who somebody is, we say what they may do."""
+        from app.services import user_service
+
+        user = self._del_directorio(directorio)
+
+        user_service.update_user(actor=admin, user=user, role_codes=['gestor'])
+
+        assert 'gestor' in user.role_codes
+
+    def test_y_se_puede_desactivar(self, app, seeded, directorio, admin):
+        from app.models.enums import UserStatus
+        from app.services import user_service
+
+        user = self._del_directorio(directorio)
+
+        user_service.update_user(actor=admin, user=user, estado=UserStatus.INACTIVO)
+
+        assert user.estado is UserStatus.INACTIVO
+
+    def test_el_formulario_de_administracion_no_ofrece_editarlos(
+        self, as_user, admin, seeded, directorio,
+    ):
+        user = self._del_directorio(directorio)
+
+        with as_user(admin) as client:
+            html = client.get(f'/admin/usuarios/{user.id}/editar').get_data(as_text=True)
+
+        assert 'directorio corporativo' in html
+        assert 'name="nombre"' not in html
+        assert 'name="password"' not in html
+        # Lo nuestro sí se edita.
+        assert 'name="roles"' in html
+        assert 'name="estado"' in html
+
+    def test_el_de_una_cuenta_local_sigue_completo(
+        self, as_user, admin, seeded, gestor,
+    ):
+        with as_user(admin) as client:
+            html = client.get(f'/admin/usuarios/{gestor.id}/editar').get_data(as_text=True)
+
+        assert 'name="nombre"' in html
+        assert 'name="password"' in html
+
+
+@pytest.mark.integration
+class TestSuPerfilNoSeEdita:
+    """Signed in for real, through the login route and the directory.
+
+    Not with the local fixture password: a directory account has none, and a
+    test that logged in some other way would prove nothing about the path a
+    person actually takes.
+    """
+
+    def _entrar(self, directorio, client, login):
+        from app.services.identity import authenticate
+
+        _configurar()
+        user = authenticate('alopez', CLAVE)
+        login(user, CLAVE)
+        return user
+
+    def test_el_perfil_se_muestra_sin_formulario(
+        self, app, seeded, directorio, client, login,
+    ):
+        self._entrar(directorio, client, login)
+
+        html = client.get('/auth/perfil').get_data(as_text=True)
+
+        assert 'se gestiona en el directorio corporativo' in html
+        assert 'name="nombre"' not in html
+
+    def test_no_se_ofrece_cambiar_la_contrasena(
+        self, app, seeded, directorio, client, login,
+    ):
+        """Offering it and then refusing is worse than not offering it."""
+        self._entrar(directorio, client, login)
+
+        html = client.get('/auth/perfil').get_data(as_text=True)
+
+        assert '/auth/cambiar-contrasena' not in html
+        assert 'Su contraseña se cambia en el' in html
+
+    def test_aunque_se_pida_a_mano_se_niega(
+        self, app, seeded, directorio, client, login,
+    ):
+        """The link is hidden; the route still has to refuse."""
+        self._entrar(directorio, client, login)
+
+        assert client.get('/auth/cambiar-contrasena').status_code == 302
+
+    def test_un_envio_directo_no_cambia_nada(
+        self, app, seeded, directorio, client, login,
+    ):
+        """A form arrives from wherever the sender likes."""
+        user = self._entrar(directorio, client, login)
+        antes = user.nombre
+
+        client.post('/auth/perfil', data={'nombre': 'Falsificada'})
+
+        assert user.nombre == antes
+
+    def test_una_cuenta_local_lo_sigue_editando(self, as_user, gestor, seeded):
+        with as_user(gestor) as client:
+            html = client.get('/auth/perfil').get_data(as_text=True)
+
+        assert 'name="nombre"' in html
+        assert '/auth/cambiar-contrasena' in html

@@ -13,6 +13,30 @@
     <div class="card"><div class="card-body">
         <form method="post" novalidate>
             {{ form.hidden_tag() }}
+            {% set del_directorio = user and not user.es_local %}
+            {% if del_directorio %}
+            {# Lo que describe a la persona lo manda el directorio y se refresca
+               en cada inicio de sesión: editarlo aquí parecería funcionar y se
+               desharía solo. Lo que sí es nuestro —los roles y si la cuenta
+               puede usarse— se sigue editando. #}
+            <div class="alert alert-info">
+                <i class="bi bi-building me-1"></i>
+                Cuenta del <strong>directorio corporativo</strong>. Sus datos
+                personales y su contraseña se gestionan allí. Aquí se le asignan
+                roles y se activa o desactiva.
+            </div>
+            <dl class="detail-list mb-3">
+                <dt>Usuario</dt><dd><code>{{ user.username }}</code></dd>
+                <dt>Correo</dt><dd>{{ user.email }}</dd>
+                <dt>Nombre</dt><dd>{{ user.nombre_completo }}</dd>
+                <dt>Puesto</dt><dd>{{ user.puesto or '—' }}</dd>
+                <dt>Departamento</dt><dd>{{ user.departamento or '—' }}</dd>
+            </dl>
+            <div class="row">
+                <div class="col-md-6">{{ render_field(form.estado) }}</div>
+            </div>
+            {{ render_field(form.roles) }}
+            {% else %}
             <div class="row">
                 <div class="col-md-6">{{ render_field(form.username) }}</div>
                 <div class="col-md-6">{{ render_field(form.email) }}</div>
@@ -24,6 +48,7 @@
             </div>
             {{ render_field(form.roles) }}
             {{ render_field(form.password) }}
+            {% endif %}
             <div class="d-flex gap-2">
                 {{ form.submit }}
                 <a href="{{ url_for('admin.users') }}" class="btn btn-outline-secondary">Cancelar</a>

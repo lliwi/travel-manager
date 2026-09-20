@@ -113,8 +113,17 @@ def logout():
 @auth_bp.route('/perfil', methods=['GET', 'POST'])
 @login_required
 def profile():
-    """View and edit one's own profile."""
+    """View and edit one's own profile.
+
+    Read-only for a directory-backed account. Every field here comes from the
+    directory and is refreshed from it on the next sign-in, so an edit would
+    appear to work and then quietly revert -- and the person would have no way
+    of knowing which of the two versions the application believed.
+    """
     user = current_user._get_current_object()
+    if not user.es_local:
+        return render_template('auth/profile.html', form=None, user=user)
+
     form = ProfileForm(obj=user)
 
     if form.validate_on_submit():

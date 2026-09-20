@@ -12,6 +12,7 @@
     <div class="col-lg-7">
         <div class="card">
             <div class="card-body">
+                {% if form %}
                 <form method="post" novalidate>
                     {{ form.hidden_tag() }}
                     <div class="row">
@@ -24,6 +25,27 @@
                     </div>
                     {{ form.submit }}
                 </form>
+                {% else %}
+                {# Cuenta del directorio: se muestra lo que hay, no se edita.
+                   Estos campos se refrescan desde el directorio en cada inicio
+                   de sesión, así que un cambio hecho aquí parecería funcionar y
+                   se desharía solo. #}
+                <div class="alert alert-info mb-3">
+                    <i class="bi bi-building me-1"></i>
+                    Su cuenta se gestiona en el directorio corporativo. Estos
+                    datos se leen de allí y se actualizan solos al iniciar
+                    sesión; para cambiarlos, hable con quien administre el
+                    directorio.
+                </div>
+                <dl class="detail-list">
+                    <dt>Nombre</dt><dd>{{ user.nombre or '—' }}</dd>
+                    <dt>Apellidos</dt><dd>{{ user.apellidos or '—' }}</dd>
+                    <dt>Teléfono</dt><dd>{{ user.telefono or '—' }}</dd>
+                    <dt>Puesto</dt><dd>{{ user.puesto or '—' }}</dd>
+                    <dt>Departamento</dt><dd>{{ user.departamento or '—' }}</dd>
+                    <dt>Zona horaria</dt><dd>{{ user.zona_horaria or '—' }}</dd>
+                </dl>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -42,9 +64,18 @@
                     <dt>Último acceso</dt>
                     <dd>{{ user.last_login_at | local_dt('UTC') if user.last_login_at else '—' }}</dd>
                 </dl>
+                {% if user.es_local %}
                 <a href="{{ url_for('auth.change_password') }}" class="btn btn-outline-secondary btn-sm">
                     <i class="bi bi-key me-1"></i>Cambiar contraseña
                 </a>
+                {% else %}
+                {# Ofrecerlo y luego negarlo es peor que no ofrecerlo: la
+                   contraseña de esta cuenta no vive aquí. #}
+                <p class="text-muted small mb-0">
+                    <i class="bi bi-key me-1"></i>Su contraseña se cambia en el
+                    directorio corporativo.
+                </p>
+                {% endif %}
             </div>
         </div>
     </div>

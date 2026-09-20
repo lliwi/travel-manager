@@ -40,8 +40,10 @@
                         <li><span class="dropdown-header">{{ current_user.role_codes | join(', ') }}</span></li>
                         <li><a class="dropdown-item" href="{{ url_for('auth.profile') }}">
                             <i class="bi bi-person me-2"></i>Mi perfil</a></li>
+                        {% if current_user.es_local %}
                         <li><a class="dropdown-item" href="{{ url_for('auth.change_password') }}">
                             <i class="bi bi-key me-2"></i>Cambiar contraseña</a></li>
+                        {% endif %}
                         <li><hr class="dropdown-divider"></li>
                         <li>
                             <form method="post" action="{{ url_for('auth.logout') }}" class="px-1">

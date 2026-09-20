@@ -135,19 +135,39 @@ def edit_user(user_id):
     form.roles.choices = [(str(r.codigo), r.nombre) for r in Role.query.all()]
     form.password.validators = []
 
+    if not user.es_local:
+        # These fields are not rendered for a directory account, so they arrive
+        # empty and their «required» validators would fail the whole form --
+        # the symptom being a save button that silently does nothing.
+        for campo in ('username', 'email', 'nombre'):
+            getattr(form, campo).validators = []
+
     if form.validate_on_submit():
-        try:
-            user_service.update_user(
-                actor=current_user._get_current_object(),
-                user=user,
+        # What this application owns, and is editable whoever the account
+        # belongs to: whether it may be used, and what it may do.
+        cambios = {
+            'estado': UserStatus.coerce(form.estado.data, user.estado),
+            'role_codes': form.roles.data,
+        }
+        # The rest describes the person, and for a directory account the
+        # directory describes them. The template hides those fields, but a form
+        # arrives from wherever the sender likes: what is never read here
+        # cannot be changed by sending it anyway.
+        if user.es_local:
+            cambios.update(
                 email=form.email.data,
                 nombre=form.nombre.data,
                 apellidos=form.apellidos.data or None,
                 puesto=form.puesto.data or None,
                 departamento=form.departamento.data or None,
-                estado=UserStatus.coerce(form.estado.data, user.estado),
-                role_codes=form.roles.data,
                 password=form.password.data or None,
+            )
+
+        try:
+            user_service.update_user(
+                actor=current_user._get_current_object(),
+                user=user,
+                **cambios,
             )
         except AppError as error:
             flash(error.mensaje, 'danger')

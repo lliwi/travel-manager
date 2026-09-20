@@ -188,6 +188,30 @@ Indicar una **OU** deja entrar a quien esté dentro. Indicar un **grupo** deja
 entrar solo a sus miembros, que es lo habitual cuando la OU contiene a toda la
 empresa y solo algunas personas usan el gestor de viajes.
 
+**Probar conexión** no dice solo que el servidor responda: dice con qué
+atributo se identifican las personas y con cuáles se rellena cada campo, y
+avisa de lo que viene vacío. Eso es lo que distingue una configuración correcta
+de una que conecta y luego falla en cada inicio de sesión:
+
+> Conexión correcta. Se ven 4 personas en la ruta. Se identifican por «uid»
+> (por ejemplo, «alopez»). Se leen además: nombre (givenName), apellidos (sn),
+> correo (mail), puesto (title). Sin valor en la primera persona encontrada:
+> teléfono, departamento.
+
+Un correo vacío ahí significa que esas personas no recibirán ninguna
+notificación, y se ve antes de que nadie entre.
+
+### Las cuentas del directorio son de solo lectura
+
+Autentican, y nada más. Ni su contraseña ni sus datos personales se cambian
+desde aquí: se leen del directorio y se refrescan en cada inicio de sesión, así
+que un cambio hecho en la aplicación parecería funcionar y se desharía solo.
+La pantalla de perfil los muestra sin formulario y no ofrece cambiar la
+contraseña.
+
+Lo que sí es nuestro se sigue administrando: **los roles y si la cuenta puede
+usarse**. Es la única parte editable de una cuenta del directorio en Usuarios.
+
 ### Probarlo en desarrollo
 
 El compose de desarrollo levanta un OpenLDAP con un árbol sembrado:
