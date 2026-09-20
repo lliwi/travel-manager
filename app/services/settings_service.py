@@ -33,6 +33,9 @@ GRUPOS = (
     ('politica', 'Política corporativa',
      'Límites que un viaje debe respetar, y por encima de los cuales hace '
      'falta una aprobación.'),
+    ('red', 'Salida a internet',
+     'Cómo alcanza este servidor los servicios de fuera. Lo interno nunca pasa '
+     'por el proxy.'),
     ('seguridad', 'Seguridad de las cuentas',
      'Qué hace falta para entrar, además de la contraseña.'),
     ('directorio', 'Directorio corporativo (AD / LDAP)',
@@ -121,6 +124,34 @@ DEFAULTS = {
     'BUSQUEDA_VIAJES_MONEDA': (
         'EUR', 'string', 'busqueda_viajes', 'Moneda',
         'En la que se piden los precios. Código ISO de tres letras.',
+        False,
+    ),
+
+    # --- Outbound proxy ------------------------------------------------
+    'PROXY_SALIDA': (
+        '', 'string', 'red', 'Proxy de salida',
+        'Por dónde sale el tráfico hacia internet: búsqueda de vuelos, fuentes '
+        'oficiales y proveedores de IA externos. Por ejemplo '
+        '«http://proxy.corp.local:3128», sin usuario ni contraseña. En blanco '
+        'se usan las variables HTTPS_PROXY y NO_PROXY del entorno, si las hay.',
+        False,
+    ),
+    'PROXY_USUARIO': (
+        '', 'string', 'red', 'Usuario del proxy',
+        'Solo si el proxy pide autenticación. En blanco si no.',
+        False,
+    ),
+    'PROXY_CONTRASENA': (
+        '', 'secreto', 'red', 'Contraseña del proxy',
+        'Se guarda cifrada y no vuelve a mostrarse. Deje el campo en blanco '
+        'para conservar la que ya hay.',
+        False,
+    ),
+    'PROXY_EXCEPCIONES': (
+        '', 'string', 'red', 'Destinos que no pasan por el proxy',
+        'Separados por comas, además de los internos, que nunca pasan: '
+        'localhost, host.docker.internal y los demás contenedores. Añada aquí '
+        'un servidor de IA propio que esté en su red.',
         False,
     ),
 

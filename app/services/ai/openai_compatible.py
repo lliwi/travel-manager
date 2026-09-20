@@ -12,6 +12,7 @@ import httpx
 
 from app.models.enums import EXTERNAL_AI_PROVIDERS, AIProviderCode
 from app.services.ai.base import AIProvider, AIResponse
+from app.utils import http
 from app.utils.errors import AIError, TransientError
 
 logger = logging.getLogger(__name__)
@@ -122,7 +123,7 @@ class OpenAICompatibleProvider(AIProvider):
 
         start = time.monotonic()
         try:
-            with httpx.Client(timeout=self.timeout) as client:
+            with http.cliente(timeout=self.timeout) as client:
                 response = self._post(client, payload, headers)
                 response.raise_for_status()
                 data = response.json()
@@ -231,7 +232,7 @@ class OpenAICompatibleProvider(AIProvider):
         key = self._key()
         headers = {'Authorization': f'Bearer {key}'} if key else {}
         try:
-            with httpx.Client(timeout=15) as client:
+            with http.cliente(timeout=15) as client:
                 response = client.get(f'{self.base_url}/models', headers=headers)
                 response.raise_for_status()
                 data = response.json()

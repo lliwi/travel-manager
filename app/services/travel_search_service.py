@@ -31,6 +31,7 @@ import httpx
 
 from app.extensions import db
 from app.services import settings_service
+from app.utils import http
 from app.utils.errors import AppError
 
 logger = logging.getLogger(__name__)
@@ -170,7 +171,7 @@ def _pedir(actor, motor, parametros, timeout=TIMEOUT):
         consulta.setdefault('hl', 'es')
 
     try:
-        with httpx.Client(timeout=timeout) as client:
+        with http.cliente(timeout=timeout) as client:
             respuesta = client.get(ENDPOINT, params=consulta)
     except httpx.HTTPError as exc:
         # The key must never reach a log line, and httpx puts the full URL --

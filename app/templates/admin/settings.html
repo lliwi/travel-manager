@@ -21,6 +21,12 @@
                 {{ nombre }}
                 {% if ayuda %}<small class="text-muted ms-2">{{ ayuda }}</small>{% endif %}
             </span>
+            {% if clave == 'red' %}
+            {# Lo que de verdad importa no es qué hay escrito, sino por dónde
+               está saliendo el tráfico ahora mismo: la variable del entorno y
+               el ajuste pueden decir cosas distintas. #}
+            <span class="badge bg-light text-muted border">{{ salida_actual }}</span>
+            {% endif %}
             {% if clave == 'directorio' %}
             {# Fuera del formulario y por GET a propósito: probar no guarda. La
                alternativa es enterarse de que la configuración está mal porque

@@ -144,6 +144,20 @@ services:
       PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus
       METRICS_TOKEN: ${METRICS_TOKEN:-}
 
+      # Proxy de salida, para un servidor que no alcanza internet directamente.
+      # Lo normal es configurarlo en Ajustes, que manda sobre esto; estas
+      # variables son la alternativa para quien prefiera fijarlo en el
+      # despliegue, y las respeta también cualquier otra herramienta de la
+      # imagen. NO_PROXY trae ya lo interno: sin eso, la inferencia local
+      # saldría por el proxy el día que se configure uno.
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,::1,host.docker.internal,postgres,redis,minio,openldap,mailpit,web,worker}
+      # El proxy corporativo suele reemitir los certificados con su propia
+      # autoridad. Apunte esto al paquete de CA de su organización si es el
+      # caso; Python y httpx lo respetan sin más configuración.
+      SSL_CERT_FILE: ${SSL_CERT_FILE:-}
+
       DATABASE_URL: postgresql://${POSTGRES_USER:-travel}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-travel_manager}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/1

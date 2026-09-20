@@ -337,10 +337,12 @@ def settings():
     )
 
     from app.services import ai_provider_service
+    from app.utils import http
 
     return render_template(
         'admin/settings.html',
         bloques=bloques,
+        salida_actual=http.descripcion(),
         get=_valor_para_pantalla,
         proveedores=ai_provider_service.list_providers(),
         bindings=ai_provider_service.list_bindings(),

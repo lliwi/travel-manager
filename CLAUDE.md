@@ -135,6 +135,24 @@ Each is a considered decision, not an oversight:
 - Records are soft-deleted. Retention-driven erasure is a separate, explicit,
   audited operation.
 
+## Every outbound call goes through `utils/http.cliente`
+
+A deployment may sit behind a corporate proxy, so the places that open sockets
+are one function rather than seven. `tests/test_proxy_de_salida.py` fails if a
+module builds its own `httpx.Client`: that works everywhere except behind a
+proxy, and nothing says so until the deployment that has one.
+
+What must never be proxied is decided by address, not by feature:
+`EXCEPCIONES_POR_DEFECTO` covers loopback, `host.docker.internal` and the sibling
+containers. Local inference is the case that matters -- the same code path
+serves a local vLLM and a hosted OpenAI, and routing the local one outward
+either fails or succeeds slowly while a machine outside the perimeter logs every
+prompt.
+
+Precedence is stated and tested: Ajustes wins, the environment
+(`HTTPS_PROXY`/`NO_PROXY`) is the fallback. `trust_env` stays on so
+`SSL_CERT_FILE` still works for a proxy that re-signs certificates.
+
 ## The second factor happens before the session
 
 `mfa_service` is TOTP. Three things it exists to guarantee, each of which fails

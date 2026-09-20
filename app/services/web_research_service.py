@@ -17,13 +17,13 @@ import re
 import socket
 from urllib.parse import urljoin, urlparse
 
-import httpx
 from flask import current_app
 
 from app.extensions import db
 from app.models.advisory import WebFetch, WebSource
 from app.models.enums import AdvisoryCategory, AuditResourceType
 from app.services import audit_service
+from app.utils import http
 from app.utils.errors import SSRFBlocked, WebResearchError
 from app.utils.hashing import sha256_bytes
 from app.utils.timeutil import utcnow
@@ -184,7 +184,7 @@ def _do_fetch(url):
     max_bytes = current_app.config['WEB_FETCH_MAX_BYTES']
     current = url
 
-    with httpx.Client(
+    with http.cliente(
         timeout=timeout,
         follow_redirects=False,
         headers={

@@ -11,6 +11,7 @@ import httpx
 from app.models.enums import AIProviderCode
 from app.services.ai.base import AIProvider, AIResponse
 from app.services.ai.schemas import esquema_de_generacion
+from app.utils import http
 from app.utils.errors import AIError, TransientError
 
 logger = logging.getLogger(__name__)
@@ -63,7 +64,7 @@ class OllamaProvider(AIProvider):
 
         start = time.monotonic()
         try:
-            with httpx.Client(timeout=self.timeout) as client:
+            with http.cliente(timeout=self.timeout) as client:
                 response = client.post(f'{self.base_url}/api/chat', json=payload)
                 response.raise_for_status()
                 data = response.json()
@@ -99,7 +100,7 @@ class OllamaProvider(AIProvider):
     def list_models(self):
         """The models pulled on this Ollama."""
         try:
-            with httpx.Client(timeout=15) as client:
+            with http.cliente(timeout=15) as client:
                 response = client.get(f'{self.base_url}/api/tags')
                 response.raise_for_status()
                 data = response.json()

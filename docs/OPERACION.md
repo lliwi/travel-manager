@@ -158,6 +158,53 @@ Tres límites del conector que conviene saber antes de prometer nada:
   ferroviario el asistente orienta como antes y lo dice; una lista vacía no
   significa que no haya tren.
 
+## Salida a internet (proxy)
+
+Si el servidor no alcanza internet directamente, se configura en **Ajustes →
+Salida a internet**. Afecta a todo lo que sale: búsqueda de vuelos y
+alojamiento, fuentes oficiales de recomendaciones y proveedores de IA externos.
+
+| Ajuste | Qué poner |
+| --- | --- |
+| Proxy de salida | `http://proxy.corp.local:3128`, sin usuario ni contraseña. |
+| Usuario / Contraseña | Solo si el proxy autentica. La contraseña se guarda cifrada. |
+| Destinos que no pasan | Además de los internos, que nunca pasan. |
+
+**Lo interno nunca sale por el proxy**, y esto no es configurable a la baja:
+`localhost`, `127.0.0.1`, `[::1]`, `host.docker.internal` y los demás
+contenedores van siempre directos. El caso que importa es la **inferencia
+local**: un Ollama al lado de la aplicación se alcanza por
+`host.docker.internal`, y mandarlo por un proxy corporativo o falla o —peor—
+funciona despacio mientras el proxy registra cada prompt. Si su servidor de IA
+está en otra máquina de la red, añádalo a las excepciones.
+
+La cabecera del bloque en Ajustes dice **por dónde está saliendo el tráfico
+ahora mismo**, que no siempre es lo que está escrito: el ajuste manda sobre las
+variables del entorno.
+
+### Sin tocar Ajustes
+
+También se respetan `HTTPS_PROXY` y `NO_PROXY` del entorno, que el compose ya
+pasa a los contenedores. El orden es: lo de Ajustes gana; si está en blanco, se
+usa el entorno.
+
+### Certificados
+
+Un proxy que inspecciona TLS reemite los certificados con su propia autoridad.
+Apunte `SSL_CERT_FILE` al paquete de CA de su organización y monte el fichero
+en el contenedor; no hay nada más que configurar.
+
+```yaml
+# docker/docker-compose.yml, servicio web
+environment:
+  SSL_CERT_FILE: /etc/ssl/corp/ca-bundle.crt
+volumes:
+  - /ruta/al/ca-bundle.crt:/etc/ssl/corp/ca-bundle.crt:ro
+```
+
+**El directorio LDAP no pasa por aquí**: no es HTTP, es una conexión TCP
+directa al controlador de dominio, que normalmente es interno.
+
 ## Segundo factor (MFA)
 
 Un código de seis dígitos de una aplicación de autenticación, además de la
