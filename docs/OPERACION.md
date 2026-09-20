@@ -172,11 +172,30 @@ alojamiento, fuentes oficiales de recomendaciones y proveedores de IA externos.
 
 **Lo interno nunca sale por el proxy**, y esto no es configurable a la baja:
 `localhost`, `127.0.0.1`, `[::1]`, `host.docker.internal` y los demás
-contenedores van siempre directos. El caso que importa es la **inferencia
-local**: un Ollama al lado de la aplicación se alcanza por
-`host.docker.internal`, y mandarlo por un proxy corporativo o falla o —peor—
-funciona despacio mientras el proxy registra cada prompt. Si su servidor de IA
-está en otra máquina de la red, añádalo a las excepciones.
+contenedores van siempre directos.
+
+**La red local tampoco**, mientras «La red local no pasa por el proxy» esté
+activado —que es lo que viene de fábrica—. Con eso, cualquier dirección privada
+(10.x, 172.16–31.x, 192.168.x y las de bucle) se alcanza directamente sin que
+haya que escribir ningún rango. Desactívelo solo si en su organización el
+proxy es también la salida de su propia red.
+
+El caso que importa es la **inferencia local**: mandar un modelo propio por un
+proxy corporativo o falla o —peor— funciona despacio mientras el proxy registra
+cada prompt, y un prompt de extracción es el documento entero.
+
+El campo **NO_PROXY** admite las tres formas, y se pueden mezclar:
+
+| Lo que escribe | Qué cubre |
+| --- | --- |
+| `ia.corp.local` | Ese nombre exacto. |
+| `corp.local` | Todo lo que acabe así: `ia.corp.local`, `a.b.corp.local`. |
+| `10.8.0.0/16` | Todas las direcciones del rango. |
+
+Los nombres **no se resuelven** para decidir la ruta. Preguntar al DNS antes de
+cada petición añadiría una consulta a cada llamada y haría que el camino
+dependiera de lo que el resolutor contestara en ese momento: una máquina que se
+conoce por su nombre se escribe por su nombre.
 
 La cabecera del bloque en Ajustes dice **por dónde está saliendo el tráfico
 ahora mismo**, que no siempre es lo que está escrito: el ajuste manda sobre las
