@@ -433,29 +433,23 @@ class TestAnclajeEnElDocumento:
 
         assert r['servicios'][0]['confianzas']['salida'] < CONFIANZA_LITERAL
 
-    def test_solo_lo_literal_puede_aprobarse_solo(self):
-        """Copying is the most this check can prove, so it is where the bar sits.
+    def test_lo_copiado_vale_mas_que_lo_inferido(self):
+        """Copying is the most this check can prove, and it is worth marking.
 
         It proves the model did not invent the value; it does not prove it
         copied the right one -- asked for a booking reference, a weak model
         will return «Payment details», which is in the document and is wrong.
-        That residual risk is why the bar is every field literal, not most of
-        them, and why a single warning from normalisation still sends the
-        document to a person.
-
-        Earlier this asserted the opposite: that not even a literal value could
-        auto-approve. That made the threshold unreachable at any setting, so
-        the switch in the panel did nothing at all, which is worse than a bar
-        an administrator can see and decide on.
+        The distinction no longer gates whether data enters the itinerary, but
+        it is what flags an entity for review once it is there.
         """
         from app.services.ai_service import CONFIANZA_INFERIDA, CONFIANZA_LITERAL
         from app.services.settings_service import DEFAULTS
 
-        umbral_auto = DEFAULTS['DOCUMENTOS_UMBRAL_AUTO_APROBAR'][0]
+        umbral_revision = DEFAULTS['DOCUMENTOS_UMBRAL_REVISION'][0]
 
-        assert CONFIANZA_INFERIDA < umbral_auto <= CONFIANZA_LITERAL, (
-            'El umbral debe quedar por encima de lo inferido y ser alcanzable '
-            'por lo copiado literalmente.'
+        assert CONFIANZA_INFERIDA < umbral_revision <= CONFIANZA_LITERAL, (
+            'Lo inferido debe caer por debajo del umbral de revisión y lo '
+            'copiado alcanzarlo, o la marca no distingue nada.'
         )
 
     def test_la_confianza_global_es_la_media(self):

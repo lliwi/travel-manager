@@ -263,8 +263,11 @@ def approve(actor, extraction, correcciones=None, comentario=None):
     itinerary that no provenance record explains.
     """
     document = extraction.document
-    if extraction.estado is ExtractionState.APROBADA:
-        raise ConflictError('Esta extracción ya ha sido aprobada.')
+    if extraction.estado is ExtractionState.APROBADA and not correcciones:
+        raise ConflictError(
+            'Esta extracción ya se ha aplicado. Corrija algún campo para '
+            'volver a aplicarla.'
+        )
 
     if correcciones:
         # A correction is a new version, never an edit of the machine's answer.
@@ -755,16 +758,22 @@ def confianza_minima(extraction):
 
 
 def puede_aprobarse_sola(extraction):
-    """Whether this extraction may reach the itinerary without a person.
+    """Whether this extraction goes to the itinerary without waiting.
 
-    Three conditions, all of them about evidence rather than about the model's
-    opinion of itself: every field was copied literally from the document, none
-    was inferred, and normalisation raised no warning. The threshold is
-    administrable, and it lives on the same scale as the per-field confidence
-    so that the number in the panel means something.
+    When the setting is on, it always does. That is a deliberate inversion of
+    "a human confirms before data becomes real": the data lands, and the
+    correction happens afterwards on the review screen, which stays reachable
+    for exactly that. What the confidence buys is no longer a gate but a mark
+    -- a field below the review threshold flags its entity as
+    ``requiere_revision``, so the timeline shows what to look at instead of
+    holding everything back until someone looks at all of it.
 
-    Returns ``(puede, motivo)``; the reason is logged, so an administrator who
-    enabled this can see why a given document still waited for them.
+    The trade-off is stated rather than hidden: a value the model invented now
+    reaches the itinerary. It arrives flagged, attributable to its document,
+    and correctable, which is the bargain an organisation makes when it turns
+    this on.
+
+    Returns ``(puede, motivo)``; the reason is logged.
     """
     from app.services import settings_service
 
@@ -774,20 +783,15 @@ def puede_aprobarse_sola(extraction):
     if extraction is None:
         return False, 'no hay extracción'
 
-    if extraction.avisos:
-        return False, f'la normalización dejó {len(extraction.avisos)} aviso(s)'
+    if extraction.estado is ExtractionState.APROBADA:
+        return False, 'ya estaba aprobada'
 
     minima = confianza_minima(extraction)
-    if minima is None:
-        return False, 'ningún campo lleva confianza'
-
-    umbral = settings_service.get_float('DOCUMENTOS_UMBRAL_AUTO_APROBAR', 0.85)
-    if minima < umbral:
-        return False, (
-            f'el campo menos fiable está en {minima:.2f}, por debajo de {umbral:.2f}'
-        )
-
-    return True, f'todos los campos en {minima:.2f} o más'
+    detalle = (
+        f'el campo menos fiable está en {minima:.2f}' if minima is not None
+        else 'ningún campo lleva confianza'
+    )
+    return True, f'aprobación automática ({detalle})'
 
 
 def _review_threshold():

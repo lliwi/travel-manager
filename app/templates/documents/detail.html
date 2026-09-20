@@ -18,9 +18,15 @@
         </p>
     </div>
     <div class="btn-group">
-        {% if document.estado_proceso == enums.DocumentProcessState.PENDIENTE_REVISION %}
-        <a href="{{ url_for('documents.review', document_id=document.id) }}" class="btn btn-warning btn-sm">
-            <i class="bi bi-check2-square me-1"></i>Revisar datos</a>
+        {# Reachable whenever there is something extracted, not only while it
+           waits: with automatic approval the data is already in the itinerary,
+           and this screen is where it gets corrected. #}
+        {% if document.current_extraction %}
+        <a href="{{ url_for('documents.review', document_id=document.id) }}"
+           class="btn btn-sm btn-{{ 'warning' if document.estado_proceso == enums.DocumentProcessState.PENDIENTE_REVISION else 'outline-warning' }}">
+            <i class="bi bi-check2-square me-1"></i>
+            {{ 'Revisar datos' if document.estado_proceso == enums.DocumentProcessState.PENDIENTE_REVISION
+               else 'Revisar o corregir datos' }}</a>
         {% endif %}
         {% if document.esta_disponible %}
         <a href="{{ url_for('documents.download', document_id=document.id) }}"
@@ -35,6 +41,18 @@
         {% endif %}
     </div>
 </div>
+
+{% if Permiso.ELIMINAR_DOCUMENTO in permisos %}
+<div class="d-flex justify-content-end mb-3">
+    <form method="post" action="{{ url_for('documents.delete', document_id=document.id) }}"
+          onsubmit="return confirm('¿Eliminar «{{ document.nombre_original }}»? Dejará de aparecer en el viaje. Lo que se extrajo de él y ya está en el itinerario se conserva, igual que la traza de auditoría.');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-outline-danger btn-sm">
+            <i class="bi bi-trash me-1"></i>Eliminar documento
+        </button>
+    </form>
+</div>
+{% endif %}
 
 {% if document.error_codigo %}
 <div class="alert alert-danger">

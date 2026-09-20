@@ -51,17 +51,12 @@ DEFAULTS = {
     # --- Documents ----------------------------------------------------
     'DOCUMENTOS_AUTO_APROBAR': (
         False, 'bool', 'documentos', 'Aprobación automática',
-        'Aprobar sin revisión las extracciones cuya confianza supere el umbral. '
-        'Desactivado: la fase 1 exige revisión por un gestor.',
-        False,
-    ),
-    'DOCUMENTOS_UMBRAL_AUTO_APROBAR': (
-        0.85, 'float', 'documentos', 'Umbral de aprobación automática',
-        'Confianza mínima que debe alcanzar el campo MENOS fiable para aprobar '
-        'sin intervención humana. Un campo copiado literalmente del documento '
-        'vale 0,85 y uno inferido 0,50, así que por encima de 0,85 no se '
-        'aprueba nunca nada.',
-        False,
+        'Los datos extraídos de un documento pasan al itinerario en cuanto se '
+        'obtienen, sin esperar a que nadie los apruebe. Lo dudoso llega '
+        'marcado para revisión y la ficha de revisión sigue disponible para '
+        'corregirlo. Desactivado, ningún dato entra hasta que un gestor lo '
+        'confirma, como describe la sección 2.3 de la especificación.',
+        True,
     ),
     'DOCUMENTOS_UMBRAL_REVISION': (
         0.85, 'float', 'documentos', 'Umbral de revisión obligatoria',

@@ -1,13 +1,14 @@
-"""Auto-approval has to be reachable, or the switch is a lie.
+"""Data extracted from a document reaching the itinerary without waiting.
 
-The panel offered it, an administrator turned it on, and nothing ever happened:
-per-field confidence is 0.85 when a value was copied literally from the document
-and 0.50 when it was inferred, so the mean could never reach the 0.95 the
-threshold demanded. The control could not act at any setting.
+A deliberate inversion of «a human confirms before data becomes real»: with the
+setting on, the data lands and the correction happens afterwards. What the
+confidence buys is no longer a gate but a mark -- what is doubtful arrives
+flagged rather than withheld -- and the review screen stays reachable so the
+correction has somewhere to happen.
 
-The criterion is now the weakest field, which is both reachable and stricter in
-the way that matters: a mean lets one inferred value hide behind several copied
-ones, and that value is exactly the one worth reading.
+The cost is stated rather than hidden: a value the model invented now reaches
+the itinerary. It arrives flagged, attributable to its document and
+correctable, which is the bargain an organisation makes by turning this on.
 """
 import pytest
 
@@ -16,8 +17,6 @@ from app.services import extraction_service, settings_service
 
 
 def _payload(confianzas, avisos=None):
-    # Every scored field carries a value: an absent field is skipped on
-    # purpose, so scoring one that is not there would test nothing.
     return {
         'servicios': [{
             'campos': {nombre: f'valor-{nombre}' for nombre in confianzas},
@@ -40,115 +39,98 @@ def _preparar(extraccion, confianzas, avisos=None):
 
 
 @pytest.mark.unit
-class TestLaConfianzaMinima:
-    def test_es_la_del_campo_mas_debil(self, extraccion):
-        _preparar(extraccion, {'numero_vuelo': 0.85, 'origen_codigo': 0.5})
-
-        assert extraction_service.confianza_minima(extraccion) == 0.5
-
-    def test_sin_confianzas_no_hay_minimo(self, extraccion):
-        _preparar(extraccion, {})
-
-        assert extraction_service.confianza_minima(extraccion) is None
-
-
-@pytest.mark.unit
-class TestCuandoSeApruebaSola:
-    def test_desactivada_no_aprueba_aunque_todo_sea_literal(self, app, extraccion):
+class TestCuandoSeAplicaSola:
+    def test_desactivada_no_aplica_nada(self, app, extraccion):
         settings_service.set_value('DOCUMENTOS_AUTO_APROBAR', False)
-        _preparar(extraccion, {'numero_vuelo': 0.85, 'origen_codigo': 0.85})
+        _preparar(extraccion, {'numero_vuelo': 0.85})
 
         puede, motivo = extraction_service.puede_aprobarse_sola(extraccion)
 
         assert not puede
         assert 'desactivada' in motivo
 
-    def test_todo_literal_se_aprueba(self, app, extraccion):
+    def test_activada_aplica_aunque_la_confianza_sea_baja(self, app, extraccion):
+        """The point of the change: importing is what triggers it, not a score."""
         settings_service.set_value('DOCUMENTOS_AUTO_APROBAR', True)
-        settings_service.set_value('DOCUMENTOS_UMBRAL_AUTO_APROBAR', 0.85)
-        _preparar(extraccion, {'numero_vuelo': 0.85, 'origen_codigo': 0.85})
+        _preparar(extraccion, {'numero_vuelo': 0.5, 'localizador': 0.5})
 
         puede, _ = extraction_service.puede_aprobarse_sola(extraccion)
 
         assert puede
 
-    def test_un_solo_campo_inferido_lo_impide(self, app, extraccion):
-        """The point of using the minimum: it cannot be averaged away.
-
-        Four literal fields and one inferred average 0.78, which a mean-based
-        threshold of 0.7 would wave through -- and the inferred one is the
-        field a reviewer would have wanted to see.
-        """
+    def test_activada_aplica_aunque_haya_avisos(self, app, extraccion):
         settings_service.set_value('DOCUMENTOS_AUTO_APROBAR', True)
-        settings_service.set_value('DOCUMENTOS_UMBRAL_AUTO_APROBAR', 0.85)
-        _preparar(extraccion, {
-            'a': 0.85, 'b': 0.85, 'c': 0.85, 'd': 0.85, 'localizador': 0.5,
-        })
-
-        puede, motivo = extraction_service.puede_aprobarse_sola(extraccion)
-
-        assert not puede
-        assert '0.50' in motivo
-
-    def test_un_aviso_de_normalizacion_lo_impide(self, app, extraccion):
-        settings_service.set_value('DOCUMENTOS_AUTO_APROBAR', True)
-        settings_service.set_value('DOCUMENTOS_UMBRAL_AUTO_APROBAR', 0.85)
         _preparar(
             extraccion, {'numero_vuelo': 0.85},
             avisos=['La zona horaria no corresponde al aeropuerto.'],
         )
 
-        puede, motivo = extraction_service.puede_aprobarse_sola(extraccion)
-
-        assert not puede
-        assert 'aviso' in motivo
-
-    def test_sin_confianzas_se_pide_revision(self, app, extraccion):
-        """Absence of evidence is a reason to ask, not to assume the best."""
-        settings_service.set_value('DOCUMENTOS_AUTO_APROBAR', True)
-        _preparar(extraccion, {})
-
-        puede, motivo = extraction_service.puede_aprobarse_sola(extraccion)
-
-        assert not puede
-        assert 'confianza' in motivo
-
-    def test_un_ano_inventado_lo_impide(self, app, extraccion):
-        """Invented-year detection zeroes the field; the minimum sees it."""
-        settings_service.set_value('DOCUMENTOS_AUTO_APROBAR', True)
-        settings_service.set_value('DOCUMENTOS_UMBRAL_AUTO_APROBAR', 0.85)
-        _preparar(extraccion, {'numero_vuelo': 0.85, 'salida': 0.0})
-
         puede, _ = extraction_service.puede_aprobarse_sola(extraccion)
 
+        assert puede
+
+    def test_no_se_aplica_dos_veces(self, app, extraccion):
+        from app.models.enums import ExtractionState
+
+        settings_service.set_value('DOCUMENTOS_AUTO_APROBAR', True)
+        _preparar(extraccion, {'numero_vuelo': 0.85})
+        extraccion.estado = ExtractionState.APROBADA
+        db.session.commit()
+
+        puede, motivo = extraction_service.puede_aprobarse_sola(extraccion)
+
         assert not puede
+        assert 'ya estaba aprobada' in motivo
+
+    def test_el_motivo_dice_con_que_confianza_entro(self, app, extraccion):
+        """So the log says what was applied, not just that something was."""
+        settings_service.set_value('DOCUMENTOS_AUTO_APROBAR', True)
+        _preparar(extraccion, {'numero_vuelo': 0.85, 'localizador': 0.5})
+
+        _, motivo = extraction_service.puede_aprobarse_sola(extraccion)
+
+        assert '0.50' in motivo
 
 
 @pytest.mark.unit
-class TestElUmbralEsAlcanzable:
-    def test_el_valor_por_defecto_puede_cumplirse(self):
-        """The bug in one assertion: the default demanded more than exists."""
-        from app.services.ai_service import CONFIANZA_LITERAL
-        from app.services.settings_service import DEFAULTS
+class TestLoDudosoLlegaMarcado:
+    """Withheld before, flagged now. The confidence still does something."""
 
-        umbral = DEFAULTS['DOCUMENTOS_UMBRAL_AUTO_APROBAR'][0]
+    def test_un_campo_por_debajo_del_umbral_marca_la_entidad(
+        self, gestor, documento_procesado
+    ):
+        from app.models.enums import DocumentClassification
 
-        assert umbral <= CONFIANZA_LITERAL, (
-            f'Ningún campo supera {CONFIANZA_LITERAL}, así que un umbral de '
-            f'{umbral} no se cumple nunca y el interruptor no hace nada.'
+        documento_procesado.clasificacion = DocumentClassification.VUELO
+        extraccion = documento_procesado.current_extraction
+        extraccion.payload_normalizado = {
+            'servicios': [{
+                'campos': {'numero_vuelo': 'VY7604', 'localizador': 'ODIVYR'},
+                'confianzas': {'numero_vuelo': 0.85, 'localizador': 0.5},
+            }],
+            'avisos': [],
+        }
+        extraccion.payload = extraccion.payload_normalizado
+        db.session.commit()
+
+        resultado = extraction_service.approve(gestor, extraccion)
+
+        entidad = resultado['entities'][0]
+        assert entidad.requiere_revision, (
+            'Si el dato entra sin que nadie lo mire, el itinerario tiene que '
+            'decir cuál mirar.'
         )
 
 
 @pytest.mark.unit
-class TestLoQueNoEstaNoCuenta:
-    """A booking never fills every optional field.
+class TestLaConfianzaMinima:
+    def test_es_la_del_campo_mas_debil(self, extraccion):
+        _preparar(extraccion, {'numero_vuelo': 0.85, 'origen_codigo': 0.5})
 
-    Grounding scores an absent value 0.0 -- honest for display, since nothing
-    was found -- but counting it as the weakest field meant every real document
-    scored zero, and auto-approval stayed unreachable at any threshold.
-    """
+        assert extraction_service.confianza_minima(extraccion) == 0.5
 
-    def test_un_campo_vacio_no_baja_la_minima(self, extraccion):
+    def test_un_campo_vacio_no_cuenta(self, extraccion):
+        """A field the document never mentions is absent, not unreliable."""
         extraccion.payload_normalizado = {
             'servicios': [{
                 'campos': {'numero_vuelo': 'VY7604', 'asiento': None},
@@ -160,14 +142,76 @@ class TestLoQueNoEstaNoCuenta:
 
         assert extraction_service.confianza_minima(extraccion) == 0.85
 
-    def test_un_campo_con_valor_si_la_baja(self, extraccion):
+    def test_sin_confianzas_no_hay_minimo(self, extraccion):
+        _preparar(extraccion, {})
+
+        assert extraction_service.confianza_minima(extraccion) is None
+
+
+@pytest.mark.unit
+class TestCorregirDespuesDeAplicado:
+    """The review screen has to remain useful, or the bargain does not hold.
+
+    Applying without asking is only acceptable while the correction is still
+    possible; ``approve`` refused an already-approved extraction outright,
+    which closed the one door the whole arrangement depends on.
+    """
+
+    def _aprobada(self, gestor, documento_procesado):
+        from app.models.enums import DocumentClassification
+
+        documento_procesado.clasificacion = DocumentClassification.VUELO
+        extraccion = documento_procesado.current_extraction
         extraccion.payload_normalizado = {
             'servicios': [{
-                'campos': {'numero_vuelo': 'VY7604', 'asiento': '14C'},
-                'confianzas': {'numero_vuelo': 0.85, 'asiento': 0.5},
+                'campos': {'numero_vuelo': 'VY7604', 'origen_codigo': 'BCN'},
+                'confianzas': {'numero_vuelo': 0.85},
             }],
             'avisos': [],
         }
+        extraccion.payload = extraccion.payload_normalizado
         db.session.commit()
+        extraction_service.approve(gestor, extraccion)
+        return extraccion
 
-        assert extraction_service.confianza_minima(extraccion) == 0.5
+    def test_una_correccion_posterior_se_aplica(self, gestor, documento_procesado):
+        from app.models.itinerary import TravelSegment
+
+        self._aprobada(gestor, documento_procesado)
+        extraccion = documento_procesado.current_extraction
+
+        extraction_service.approve(
+            gestor, extraccion, correcciones={0: {'numero_vuelo': 'VY9999'}},
+        )
+
+        assert TravelSegment.query.filter_by(numero='VY9999').first() is not None
+
+    def test_volver_a_aplicar_sin_cambios_se_rechaza(
+        self, gestor, documento_procesado
+    ):
+        """Nothing to say is not a correction."""
+        from app.utils.errors import ConflictError
+
+        self._aprobada(gestor, documento_procesado)
+        extraccion = documento_procesado.current_extraction
+
+        with pytest.raises(ConflictError, match='ya se ha aplicado'):
+            extraction_service.approve(gestor, extraccion)
+
+    def test_la_correccion_no_duplica_la_entidad(self, gestor, documento_procesado):
+        from app.models.itinerary import TravelSegment
+
+        self._aprobada(gestor, documento_procesado)
+        extraccion = documento_procesado.current_extraction
+        antes = TravelSegment.query.filter_by(
+            trip_id=documento_procesado.trip_id, is_deleted=False,
+        ).count()
+
+        extraction_service.approve(
+            gestor, extraccion, correcciones={0: {'numero_vuelo': 'VY9999'}},
+        )
+
+        despues = TravelSegment.query.filter_by(
+            trip_id=documento_procesado.trip_id, is_deleted=False,
+        ).count()
+        assert despues == antes, 'Corregir actualiza el tramo, no crea otro.'

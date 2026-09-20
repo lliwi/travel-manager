@@ -77,11 +77,16 @@ def upload(trip_id, trip):
 @require_document_access(Permiso.VER_DOCUMENTO)
 def detail(document_id, document):
     """Document detail with its processing state and extracted data."""
+    from app.services.authorization_service import permissions_for
+
+    actor = current_user._get_current_object()
     return render_template(
         'documents/detail.html',
         document=document,
         trip=document.trip,
         extraction=document.current_extraction,
+        permisos=permissions_for(actor, document.trip),
+        Permiso=Permiso,
     )
 
 
