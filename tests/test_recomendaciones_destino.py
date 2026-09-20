@@ -379,10 +379,12 @@ class TestRegenerarRecomendaciones:
     def _con_fuente(self, monkeypatch, texto='Reino Unido exige una ETA.'):
         from app.services import ai_service, web_research_service
 
-        monkeypatch.setattr(web_research_service, 'search', lambda *a, **k: [{
-            'url': 'https://www.gov.uk/foreign-travel-advice',
-            'contenido': texto, 'es_oficial': True, 'fuente': 'gov.uk',
-        }])
+        monkeypatch.setattr(
+            web_research_service, 'pagina_del_lugar', lambda *a, **k: {
+                'url': 'https://www.gov.uk/foreign-travel-advice',
+                'contenido': texto, 'es_oficial': True, 'fuente': 'gov.uk',
+            },
+        )
         monkeypatch.setattr(ai_service, 'analyze_risks', lambda *a, **k: {
             'riesgos': [{
                 'titulo': 'Autorización electrónica de viaje',
@@ -475,7 +477,9 @@ class TestRegenerarRecomendaciones:
         from app.services import advisory_service, web_research_service
 
         self._viaje_listo(gestor, trip)
-        monkeypatch.setattr(web_research_service, 'search', lambda *a, **k: [])
+        monkeypatch.setattr(
+            web_research_service, 'pagina_del_lugar', lambda *a, **k: None,
+        )
 
         creadas = advisory_service.generate_for_trip(gestor, trip)
 
@@ -517,3 +521,64 @@ class TestRegenerarRecomendaciones:
 
         assert creada.estado_validacion is AdvisoryValidationState.RECHAZADA
         assert creada.comentario_validacion == 'No aplica a este viaje.'
+
+
+@pytest.mark.unit
+class TestSeguirElEnlaceDelPais:
+    """An index of every country says nothing about where the traveller goes.
+
+    The official source answers with an alphabetical list and a link to each
+    country's own page; the first six thousand characters of that list are the
+    top of the alphabet, which is how a trip to London produced an advisory
+    about Afghanistan. The link is followed instead -- discovered on the page,
+    never composed, because a URL we invent rots the first time the site
+    changes its shape.
+    """
+
+    #: How the real source publishes them: inside a JSON payload, not anchors.
+    INDICE = '''
+        <html><body><script>var paises = [
+          {"Title":"Afganistán","url":"/es/ServiciosAlCiudadano/Paginas/Detalle-recomendaciones-de-viaje.aspx?trc=Afganist%c3%a1n"},
+          {"Title":"Alemania","url":"/es/ServiciosAlCiudadano/Paginas/Detalle-recomendaciones-de-viaje.aspx?trc=Alemania"},
+          {"Title":"Reino Unido","url":"/es/ServiciosAlCiudadano/Paginas/Detalle-recomendaciones-de-viaje.aspx?trc=Reino+Unido"}
+        ];</script></body></html>
+    '''
+
+    def _enlace(self, nombres, seeded):
+        from app.services.web_research_service import enlace_al_lugar
+
+        return enlace_al_lugar(
+            self.INDICE,
+            'https://www.exteriores.gob.es/es/ServiciosAlCiudadano/Paginas/'
+            'Recomendaciones-de-viaje.aspx',
+            nombres,
+        )
+
+    def test_encuentra_la_pagina_del_pais(self, app, seeded):
+        enlace = self._enlace(['Londres', 'Reino Unido', 'GB'], seeded)
+
+        assert enlace is not None
+        assert 'trc=Reino+Unido' in enlace
+        assert enlace.startswith('https://www.exteriores.gob.es/')
+
+    def test_no_confunde_un_pais_con_otro(self, app, seeded):
+        enlace = self._enlace(['Berlín', 'Alemania', 'DE'], seeded)
+
+        assert 'trc=Alemania' in enlace
+
+    def test_ignora_un_codigo_de_dos_letras(self, app, seeded):
+        """«GB» appears inside half the paths on any site."""
+        assert self._enlace(['GB'], seeded) is None
+
+    def test_un_pais_que_no_figura_no_da_enlace(self, app, seeded):
+        assert self._enlace(['Kiribati'], seeded) is None
+
+    def test_no_sigue_un_enlace_fuera_de_la_lista_blanca(self, app, seeded):
+        """Following a link is still a fetch, and the allow-list still rules."""
+        from app.services.web_research_service import enlace_al_lugar
+
+        html = '<a href="https://ejemplo-no-autorizado.test/Reino-Unido">x</a>'
+
+        assert enlace_al_lugar(
+            html, 'https://www.exteriores.gob.es/', ['Reino Unido'],
+        ) is None

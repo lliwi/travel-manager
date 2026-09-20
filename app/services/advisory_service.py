@@ -76,17 +76,14 @@ def generate_for_trip(actor, trip, categorias=None):
             'destino y de las fechas.'
         )
 
-    from app.services import ai_service, web_research_service
+    from app.services import ai_service
 
     retiradas = _retirar_anteriores(actor, trip)
 
     created = []
     for destino in destinos:
-        consulta = _query_for(destino, trip)
         try:
-            fuentes = web_research_service.search(
-                consulta, trip=trip, actor=actor, limit=3
-            )
+            fuentes = _consultar_fuentes(destino, trip, actor)
         except Exception as exc:
             logger.warning('No se pudieron consultar fuentes para %s: %s', destino, exc)
             fuentes = []
@@ -213,6 +210,30 @@ def _retirar_anteriores(actor, trip):
     return len(anteriores)
 
 
+def _consultar_fuentes(destino, trip, actor):
+    """The sources for one destination, each on its own page where it has one.
+
+    An official source answers with an index of every country and links to each
+    one's page. Summarising the index says nothing about where the traveller is
+    going, so the link is followed: what reaches the model is the destination's
+    own text, which is what a manager expects to see quoted back.
+    """
+    from app.models.advisory import WebSource
+    from app.services import web_research_service
+
+    nombres = _nombres_de(destino)
+    fuentes = []
+    for source in WebSource.query.filter_by(activa=True).order_by(
+        WebSource.es_oficial.desc(), WebSource.prioridad.asc()
+    ).limit(3).all():
+        if not source.url_base:
+            continue
+        resultado = web_research_service.pagina_del_lugar(source, nombres, actor=actor)
+        if resultado:
+            fuentes.append(resultado)
+    return fuentes
+
+
 def _fuentes_sobre(fuentes, destino):
     """Only the sources that actually mention this destination."""
     from app.services.web_research_service import fragmento_sobre
@@ -225,8 +246,13 @@ def _fuentes_sobre(fuentes, destino):
 
 
 def _nombres_de(destino):
-    """Every way this destination might be named in a public source."""
-    return [n for n in (destino.ciudad, destino.pais_nombre, destino.pais_codigo) if n]
+    """Every way this destination might be named in a public source.
+
+    Country first: an official source files travel advice by country, while
+    the capital also names an embassy, a consulate and a trade office. Asking
+    for «Londres» first found the embassy.
+    """
+    return [n for n in (destino.pais_nombre, destino.ciudad, destino.pais_codigo) if n]
 
 
 def _pais_ajeno(riesgo, destino):

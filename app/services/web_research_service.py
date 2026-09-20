@@ -141,7 +141,7 @@ def fetch(url, source=None, use_cache=True, actor=None):
     )
 
     try:
-        content, title, status, content_type, size = _do_fetch(url)
+        content, title, status, content_type, size, html = _do_fetch(url)
         record.titulo = title
         record.contenido = content
         record.status_code = status
@@ -166,7 +166,11 @@ def fetch(url, source=None, use_cache=True, actor=None):
         actor=actor,
         metadatos={'url': url[:300], 'fuente': source.nombre, 'status': status},
     )
-    return _as_result(record)
+    resultado = _as_result(record)
+    # Kept for the caller that wants to follow a link out of this page; it is
+    # not stored, because the text is what a model ever reads.
+    resultado['_html'] = html
+    return resultado
 
 
 def _do_fetch(url):
@@ -220,7 +224,8 @@ def _do_fetch(url):
             text = raw.decode(response.encoding or 'utf-8', errors='replace')
             title = _extract_title(text)
             return (
-                _to_text(text), title, response.status_code, content_type, len(raw)
+                _to_text(text), title, response.status_code, content_type,
+                len(raw), text,
             )
 
         raise WebResearchError('Demasiadas redirecciones.')
@@ -384,3 +389,110 @@ def fragmento_sobre(texto, lugares, maximo=FRAGMENTO_MAX):
 
     inicio = max(0, min(posiciones) - 400)
     return texto[inicio:inicio + maximo]
+
+
+#: Anything shorter is not a place name worth matching a URL against: «GB» or
+#: «ES» appear inside half the paths on a site.
+_LONGITUD_MINIMA_LUGAR = 4
+
+_URLS_RE = re.compile(r'["\'](\/[^"\'<>\s]{4,300}|https?:\/\/[^"\'<>\s]{4,300})["\']')
+
+
+def _normalizar(texto):
+    """Lowercase, unaccented, with «+» and «%20» read as spaces."""
+    import unicodedata
+    from urllib.parse import unquote
+
+    plano = unquote(str(texto or '')).replace('+', ' ')
+    descompuesto = unicodedata.normalize('NFKD', plano)
+    return ''.join(c for c in descompuesto if not unicodedata.combining(c)).lower()
+
+
+def enlace_al_lugar(html, base_url, nombres):
+    """The link on this page that leads to a given place's own page.
+
+    An official source answers with an index of every country and a link to
+    each one's page; summarising the index tells a traveller about the
+    alphabet, not about where they are going. Following the link is what puts
+    the destination's own text in front of the model.
+
+    The link is *discovered*, never composed: guessing that a site files the
+    United Kingdom under some invented path would be a URL we made up, and it
+    would rot the first time the site changed. Here the page is read for a URL
+    that names the place, whatever shape that site gives it -- these ones live
+    inside a JSON payload rather than in an anchor, so the whole document is
+    searched rather than its links.
+
+    Returns an absolute URL within an allow-listed source, or None.
+    """
+    candidatos = [n for n in (nombres or [])
+                  if n and len(str(n)) >= _LONGITUD_MINIMA_LUGAR]
+    if not html or not candidatos:
+        return None
+
+    # The front page's own directory. A site has many pages naming a place --
+    # «Reino Unido» is also an embassy, a consulate and a trade office -- and
+    # the one we came for is the sibling of the page we were sent to, not the
+    # shortest URL that happens to mention it.
+    seccion = base_url.rsplit('/', 1)[0] + '/'
+
+    encontradas = [
+        urljoin(base_url, u) for u in dict.fromkeys(_URLS_RE.findall(html))
+    ]
+    encontradas = [
+        u for u in encontradas
+        if u != base_url and allowed_source(u) is not None
+    ]
+
+    # Names in the order the caller gave them: a country names the page about
+    # a country, while its capital also names an embassy.
+    for nombre in candidatos:
+        aguja = _normalizar(nombre)
+        coinciden = [u for u in encontradas if aguja in _normalizar(u)]
+        if not coinciden:
+            continue
+        return min(
+            coinciden,
+            key=lambda u: (not u.startswith(seccion), len(u)),
+        )
+
+    return None
+
+
+def pagina_del_lugar(source, nombres, actor=None):
+    """Fetch a source's page for a given place, falling back to its front page.
+
+    Returns the fetch result, or None when the source cannot be consulted.
+    """
+    try:
+        portada = fetch(source.url_base, source=source, actor=actor)
+    except (SSRFBlocked, WebResearchError) as exc:
+        logger.warning('No se pudo consultar %s: %s', source.dominio, exc)
+        return None
+
+    html = portada.pop('_html', None)
+    if html is None:
+        # The cache stores the text a model reads, not the markup the links
+        # live in, so a cache hit leaves nothing to follow. Fetching the front
+        # page again for that one purpose costs a request next to a model call,
+        # and keeps the text cache doing its job.
+        try:
+            html = _do_fetch(source.url_base)[5]
+        except (SSRFBlocked, WebResearchError) as exc:
+            logger.info('No se pudo releer %s para buscar enlaces: %s',
+                        source.dominio, exc)
+            return portada
+
+    enlace = enlace_al_lugar(html, source.url_base, nombres)
+    if not enlace:
+        return portada
+
+    try:
+        propia = fetch(enlace, actor=actor)
+    except (SSRFBlocked, WebResearchError) as exc:
+        logger.info('No se pudo seguir el enlace a %s: %s', enlace, exc)
+        return portada
+
+    propia.pop('_html', None)
+    logger.info('Consultada la página de %s en %s.', nombres[0], source.dominio)
+    return propia
