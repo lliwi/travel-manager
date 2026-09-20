@@ -203,6 +203,31 @@ def _pedir(actor, motor, parametros, timeout=TIMEOUT):
 # ======================================================================
 # Flights
 # ======================================================================
+#: Currency codes worth a symbol. Anything else is shown as its code, which
+#: is ugly but never wrong -- inventing a symbol for a currency we do not know
+#: is how a price ends up looking like a different amount.
+_SIMBOLOS = {'EUR': '€', 'USD': '$', 'GBP': '£', 'CHF': 'CHF', 'JPY': '¥'}
+
+
+def _precio(valor):
+    """Format a bare number as a price in the configured currency.
+
+    The flights engine returns ``63`` and the hotels engine returns ``«€66»``:
+    one hands over a number, the other a string Google already formatted. Only
+    the first needs this, and it needs it here rather than in the template
+    because this is where the currency is known.
+    """
+    if valor in (None, ''):
+        return None
+    if isinstance(valor, str):
+        return valor
+
+    codigo = (settings_service.get('BUSQUEDA_VIAJES_MONEDA', 'EUR') or 'EUR').upper()
+    simbolo = _SIMBOLOS.get(codigo, codigo)
+    # Spanish convention: the amount, a space, then the symbol.
+    return f'{valor:,.0f}'.replace(',', '.') + f' {simbolo}'
+
+
 def _minutos_a_texto(minutos):
     if not minutos:
         return None
@@ -242,7 +267,7 @@ def _opcion_de_vuelo(bruto):
         'tramos': [_tramo(t) for t in (bruto.get('flights') or [])],
         'escalas': escalas,
         'duracion_total': _minutos_a_texto(bruto.get('total_duration')),
-        'precio': bruto.get('price'),
+        'precio': _precio(bruto.get('price')),
         'tipo': bruto.get('type'),
         'emisiones_kg': ((bruto.get('carbon_emissions') or {}).get('this_flight') or 0) // 1000
         or None,
@@ -316,7 +341,7 @@ def opciones_de_compra(actor, token, busqueda):
         salidas.append({
             'vendedor': oferta.get('book_with'),
             'operado_por': oferta.get('marketed_as'),
-            'precio': oferta.get('price'),
+            'precio': _precio(oferta.get('price')),
             'url': peticion.get('url'),
             # Parsed here rather than in the template: the body arrives
             # url-encoded, and a template splitting it on «&» would send the

@@ -131,7 +131,7 @@ class TestLoQueDevuelve:
 
         assert len(encontrado['opciones']) == 1
         vuelo = encontrado['opciones'][0]
-        assert vuelo['precio'] == 187
+        assert vuelo['precio'] == '187 €'
         assert vuelo['duracion_total'] == '2 h 35 min'
         assert vuelo['tramos'][0]['numero'] == 'BA 477'
         assert vuelo['tramos'][0]['origen'] == 'BCN'
@@ -641,3 +641,62 @@ class TestElFormularioDeCompraLlegaAGoogle:
                                     data={'token': 'X'})
 
         assert respuesta.status_code == 403
+
+
+@pytest.mark.unit
+class TestElPrecioSeVeConSuMoneda:
+    """The flights engine returns 63 and the hotels engine returns «€66».
+
+    One hands over a number, the other a string Google already formatted. The
+    bare number reached the screen as «63», which reads as a quantity of
+    something rather than a price.
+    """
+
+    def test_un_numero_se_formatea(self, app, seeded):
+        settings_service.set_value('BUSQUEDA_VIAJES_MONEDA', 'EUR')
+
+        assert travel_search_service._precio(63) == '63 €'
+
+    def test_se_respeta_la_moneda_configurada(self, app, seeded):
+        settings_service.set_value('BUSQUEDA_VIAJES_MONEDA', 'GBP')
+
+        assert travel_search_service._precio(1234) == '1.234 £'
+
+    def test_una_moneda_desconocida_se_muestra_por_su_codigo(self, app, seeded):
+        """Ugly, never wrong. Inventing a symbol is how a price ends up
+        looking like a different amount."""
+        settings_service.set_value('BUSQUEDA_VIAJES_MONEDA', 'SEK')
+
+        assert travel_search_service._precio(900) == '900 SEK'
+
+    def test_lo_que_ya_viene_formateado_no_se_toca(self, app, seeded):
+        """Hotels arrive as «€66»; reformatting would double the symbol."""
+        assert travel_search_service._precio('€66') == '€66'
+
+    def test_sin_precio_no_se_inventa_uno(self, app, seeded):
+        assert travel_search_service._precio(None) is None
+
+    def test_se_ve_en_la_pantalla(self, as_user, gestor, seeded, monkeypatch):
+        _configurar()
+        settings_service.set_value('BUSQUEDA_VIAJES_MONEDA', 'EUR')
+        monkeypatch.setattr(httpx, 'Client', _cliente_que_responde(RESPUESTA_VUELOS))
+
+        with as_user(gestor) as client:
+            html = client.post('/trips/planificar', data={
+                'origen': 'BCN', 'destino': 'LHR',
+                'ida': '2026-10-01T07:00', 'viajeros': 1,
+            }).get_data(as_text=True)
+
+        assert '187 €' in html
+
+    def test_tambien_en_los_vendedores(self, as_user, gestor, seeded, monkeypatch):
+        _configurar()
+        settings_service.set_value('BUSQUEDA_VIAJES_MONEDA', 'EUR')
+        monkeypatch.setattr(httpx, 'Client', _cliente_que_responde(RESPUESTA_COMPRA))
+
+        with as_user(gestor) as client:
+            html = client.post('/trips/planificar/comprar', data={
+                'token': 'UN-TOKEN', 'departure_id': 'BCN',
+            }).get_data(as_text=True)
+
+        assert '63 €' in html
