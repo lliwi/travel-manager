@@ -158,6 +158,44 @@ Tres límites del conector que conviene saber antes de prometer nada:
   ferroviario el asistente orienta como antes y lo dice; una lista vacía no
   significa que no haya tren.
 
+## Segundo factor (MFA)
+
+Un código de seis dígitos de una aplicación de autenticación, además de la
+contraseña. Cualquiera puede activarlo desde **Mi perfil**; en **Ajustes →
+Seguridad de las cuentas** se decide a quién se le exige:
+
+| `MFA_OBLIGATORIO` | A quién |
+| --- | --- |
+| `ninguno` | A nadie. Sigue siendo opcional (valor por defecto). |
+| `administradores` | Solo a los administradores. |
+| `gestion` | Gestores y administradores. |
+| `todos` | A todo el mundo. |
+
+Quien deba tenerlo y no lo tenga es llevado a configurarlo al entrar, y también
+si ya tenía la sesión abierta cuando se cambió la política. Cerrar sesión sigue
+siendo posible: nadie se queda atrapado en una sesión que no puede terminar.
+
+Vale igual para las cuentas del directorio. El directorio comprueba la
+contraseña; el segundo factor es nuestro y va encima.
+
+### Cuando alguien pierde el teléfono
+
+Al activarlo se entregan **diez códigos de recuperación**, de un solo uso, que
+se muestran una única vez porque se guardan con hash. Sirven en el mismo campo
+que los seis dígitos.
+
+Si se han perdido también:
+
+```bash
+# Desde Usuarios, un administrador puede retirar el segundo factor de una
+# cuenta. Y si quien está fuera es el único administrador:
+$COMPOSE exec web flask mfa-reset <usuario|correo>
+```
+
+Las dos vías cierran las sesiones abiertas de esa cuenta y quedan auditadas con
+quién lo hizo. Asegúrese de con quién habla antes de hacerlo: después, esa
+cuenta vuelve a tener un solo factor.
+
 ## Directorio corporativo (AD / LDAP)
 
 Se activa en **Ajustes → Directorio corporativo**. Hacen falta cuatro cosas: el

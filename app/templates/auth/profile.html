@@ -64,6 +64,52 @@
                     <dt>Último acceso</dt>
                     <dd>{{ user.last_login_at | local_dt('UTC') if user.last_login_at else '—' }}</dd>
                 </dl>
+                {# El segundo factor es nuestro, venga la contraseña de donde
+                   venga: el directorio comprueba la primera, esto la segunda. #}
+                <div class="mb-3">
+                    <dl class="detail-list mb-2">
+                        <dt>Segundo factor</dt>
+                        <dd>
+                            {% if user.mfa_activo %}
+                            <span class="badge text-bg-success">Activo</span>
+                            <span class="text-muted small ms-1">
+                                {{ user.mfa_codigos_disponibles }} códigos de
+                                recuperación sin usar</span>
+                            {% else %}
+                            <span class="badge text-bg-secondary">Sin activar</span>
+                            {% endif %}
+                        </dd>
+                    </dl>
+                    {% if user.mfa_activo %}
+                    <div class="d-flex gap-2 flex-wrap">
+                        <form method="post" action="{{ url_for('auth.mfa_regenerate') }}" class="mb-0">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-outline-secondary btn-sm">
+                                Nuevos códigos de recuperación
+                            </button>
+                        </form>
+                        {% if not mfa_obligatorio %}
+                        <form method="post" action="{{ url_for('auth.mfa_disable') }}" class="mb-0">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-outline-danger btn-sm">
+                                Desactivar
+                            </button>
+                        </form>
+                        {% endif %}
+                    </div>
+                    {% if mfa_obligatorio %}
+                    <p class="text-muted small mb-0 mt-1">
+                        Su organización lo exige para su perfil, así que no
+                        puede desactivarlo.
+                    </p>
+                    {% endif %}
+                    {% else %}
+                    <a href="{{ url_for('auth.mfa_setup') }}" class="btn btn-primary btn-sm">
+                        <i class="bi bi-shield-lock me-1"></i>Activar segundo factor
+                    </a>
+                    {% endif %}
+                </div>
+
                 {% if user.es_local %}
                 <a href="{{ url_for('auth.change_password') }}" class="btn btn-outline-secondary btn-sm">
                     <i class="bi bi-key me-1"></i>Cambiar contraseña

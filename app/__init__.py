@@ -60,6 +60,7 @@ def create_app(config_name=None):
     initialize_extensions(app)
     register_metrics(app)
     register_blueprints(app)
+    register_mfa_enforcement(app)
     register_error_handlers(app)
     register_template_helpers(app)
     register_cli_commands(app)
@@ -319,6 +320,57 @@ def _scrape_autorizado(app):
         return False
 
     return direccion.is_loopback or direccion.is_private
+
+
+#: Endpoints reachable without having configured a required second factor.
+#: Signing out has to stay reachable above all: somebody who cannot finish the
+#: setup must not be trapped in a session they cannot end.
+_MFA_EXENTOS = frozenset({
+    'static', 'healthz', 'readyz', 'metrics',
+    'auth.login', 'auth.logout', 'auth.mfa_verify',
+    'auth.mfa_setup', 'auth.mfa_regenerate',
+})
+
+
+def register_mfa_enforcement(app):
+    """Send people who owe a second factor to set one up.
+
+    Checked on every request and not only at sign-in, because the policy is
+    changed by an administrator while everybody else is already logged in --
+    enforcing it only at the door would mean it took effect whenever people
+    happened to sign in next, which for a long-lived session is never.
+    """
+
+    @app.before_request
+    def _exigir_segundo_factor():
+        from flask_login import current_user
+
+        if not current_user.is_authenticated:
+            return None
+        if request.endpoint in _MFA_EXENTOS or request.endpoint is None:
+            return None
+
+        from app.services import mfa_service
+
+        if not mfa_service.debe_configurarlo(current_user):
+            return None
+
+        # An API client has nowhere to be redirected to, and following a
+        # redirect to an HTML form would look like a successful response.
+        if request.path.startswith('/api/'):
+            return jsonify({'error': {
+                'codigo': 'mfa_requerido',
+                'mensaje': 'Su cuenta debe configurar el segundo factor.',
+            }}), 403
+
+        from flask import flash, redirect, url_for
+
+        flash(
+            'Su organización exige un segundo factor para su perfil. '
+            'Configúrelo para continuar.',
+            'warning',
+        )
+        return redirect(url_for('auth.mfa_setup'))
 
 
 def register_error_handlers(app):

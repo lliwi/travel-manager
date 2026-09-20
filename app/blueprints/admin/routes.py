@@ -183,6 +183,42 @@ def edit_user(user_id):
     return render_template('admin/user_form.html', form=form, user=user)
 
 
+@admin_bp.route('/usuarios/<user_id>/mfa/quitar', methods=['POST'])
+@login_required
+@require_admin
+def reset_user_mfa(user_id):
+    """Clear somebody's second factor, for when the phone is gone.
+
+    The one action here that removes a protection from an account that is not
+    the actor's own, so it is audited with who did it. Whoever does this must
+    be as sure of who they are talking to as they would be before resetting a
+    password: from here on, that account is back to one factor.
+    """
+    import uuid
+
+    from app.services import mfa_service
+    from app.utils.errors import ResourceNotFound
+
+    user = db.session.get(User, uuid.UUID(str(user_id)))
+    if user is None or user.is_deleted:
+        raise ResourceNotFound('El usuario indicado no existe.')
+
+    mfa_service.desactivar(
+        user, actor=current_user._get_current_object(), motivo='administrador',
+    )
+    # Their live sessions go too: whoever holds one got in with the factor we
+    # have just removed, and that is the case worth cutting short.
+    user.bump_session_epoch()
+    db.session.commit()
+
+    flash(
+        f'Segundo factor retirado de {user.nombre_completo}. Tendrá que '
+        'volver a configurarlo.',
+        'info',
+    )
+    return redirect(url_for('admin.edit_user', user_id=user.id))
+
+
 @admin_bp.route('/usuarios/<user_id>/eliminar', methods=['POST'])
 @login_required
 @require_admin

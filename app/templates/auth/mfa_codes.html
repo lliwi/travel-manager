@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Códigos de recuperación — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('auth.profile') }}">Mi perfil</a></li>
+<li class="breadcrumb-item active">Códigos de recuperación</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Guarde estos códigos</h1>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-7">
+        <div class="alert alert-warning">
+            <i class="bi bi-exclamation-triangle me-1"></i>
+            <strong>Esta pantalla no se puede volver a ver.</strong> Los códigos
+            se guardan cifrados, así que ni nosotros podemos recuperarlos: si los
+            pierde y se queda sin teléfono, hará falta que un administrador le
+            quite el segundo factor.
+        </div>
+
+        <div class="card mb-3">
+            <div class="card-body">
+                <div class="mfa-codes">
+                    {% for codigo in codigos %}
+                    <code class="user-select-all">{{ codigo }}</code>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="card-footer text-muted small">
+                Cada uno vale una sola vez. Guárdelos donde guardaría una llave:
+                no en la misma aplicación que genera los códigos.
+            </div>
+        </div>
+
+        <a href="{{ url_for('auth.profile') }}" class="btn btn-primary">
+            Ya los he guardado
+        </a>
+    </div>
+</div>
+{% endblock %}

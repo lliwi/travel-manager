@@ -18,13 +18,19 @@ from flask import (
 from flask_login import current_user, login_required, login_user, logout_user
 
 from app.blueprints.auth import auth_bp
-from app.blueprints.auth.forms import ChangePasswordForm, LoginForm, ProfileForm
+from app.blueprints.auth.forms import (
+    ChangePasswordForm,
+    LoginForm,
+    MFAForm,
+    ProfileForm,
+)
 from app.extensions import db, limiter
-from app.models.enums import AuditResourceType
+from app.models.enums import AuditResourceType, AuditResult
 from app.services import audit_service
 from app.services.identity import authenticate, get_provider
 from app.utils.decorators import public_endpoint
 from app.utils.errors import AccountLocked, AppError, AuthenticationFailed
+from app.utils.timeutil import utcnow
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +83,19 @@ def login():
             flash('No ha sido posible completar el inicio de sesión.', 'danger')
             return render_template('auth/login.html', form=form), 500
 
+        # The second factor happens before the session exists. Logging the
+        # person in and then asking would mean a valid session for somebody who
+        # has only proved half of what we ask, and every «are you logged in»
+        # check in the application would already say yes.
+        if user.mfa_activo:
+            session['mfa_pendiente'] = {
+                'user_id': str(user.id),
+                'desde': utcnow().timestamp(),
+                'remember': bool(form.remember_me.data),
+                'next': _safe_next(request.args.get('next')),
+            }
+            return redirect(url_for('auth.mfa_verify'))
+
         login_user(user, remember=form.remember_me.data)
         session.permanent = bool(form.remember_me.data)
 
@@ -89,6 +108,98 @@ def login():
         return redirect(destination or url_for('dashboard.index'))
 
     return render_template('auth/login.html', form=form)
+
+
+#: How long the half-finished sign-in stays valid. Long enough to open an
+#: authenticator and type six digits, short enough that walking away from an
+#: unlocked machine does not leave the second factor pending all afternoon.
+MFA_PENDIENTE_SEGUNDOS = 300
+
+
+def _pendiente():
+    """The half-finished sign-in, or None when there is none or it expired."""
+    datos = session.get('mfa_pendiente')
+    if not datos:
+        return None
+    if utcnow().timestamp() - float(datos.get('desde', 0)) > MFA_PENDIENTE_SEGUNDOS:
+        session.pop('mfa_pendiente', None)
+        return None
+    return datos
+
+
+@auth_bp.route('/mfa', methods=['GET', 'POST'])
+@public_endpoint
+@limiter.limit('10 per minute; 30 per hour', methods=['POST'])
+def mfa_verify():
+    """The second step of signing in.
+
+    Rate limited harder than the password form, and for a different reason:
+    six digits is a million possibilities, which is a lot for a person and not
+    much for a script left running overnight.
+    """
+    import uuid
+
+    from app.models.user import User
+    from app.services import mfa_service
+
+    datos = _pendiente()
+    if not datos:
+        flash('Vuelva a iniciar sesión.', 'info')
+        return redirect(url_for('auth.login'))
+
+    user = db.session.get(User, uuid.UUID(datos['user_id']))
+    if user is None or user.is_deleted:
+        session.pop('mfa_pendiente', None)
+        return redirect(url_for('auth.login'))
+
+    form = MFAForm()
+    if form.validate_on_submit():
+        codigo = (form.codigo.data or '').strip()
+        # Either factor proves the same thing; a recovery code additionally
+        # says the authenticator is gone, which is worth recording.
+        por_recuperacion = False
+        valido = mfa_service.verificar_codigo(user, codigo)
+        if not valido:
+            valido = mfa_service.consumir_codigo_de_recuperacion(user, codigo)
+            por_recuperacion = valido
+
+        if not valido:
+            audit_service.record(
+                'auth.mfa_failed',
+                recurso_tipo=AuditResourceType.SESION,
+                recurso_id=str(user.id),
+                actor=None,
+                resultado=AuditResult.DENEGADO,
+            )
+            flash('El código no es correcto.', 'danger')
+            return render_template('auth/mfa.html', form=form), 401
+
+        session.pop('mfa_pendiente', None)
+        login_user(user, remember=datos.get('remember'))
+        session.permanent = bool(datos.get('remember'))
+
+        audit_service.record(
+            'auth.mfa_ok',
+            recurso_tipo=AuditResourceType.SESION,
+            recurso_id=str(user.id),
+            actor=user,
+            metadatos={'por_recuperacion': por_recuperacion},
+        )
+        if por_recuperacion:
+            flash(
+                'Ha entrado con un código de recuperación; ya no se puede usar '
+                f'otra vez. Le quedan {user.mfa_codigos_disponibles}.',
+                'warning',
+            )
+
+        if user.must_change_password:
+            return redirect(url_for('auth.change_password'))
+
+        destination = _safe_next(datos.get('next'))
+        flash(f'Bienvenido/a, {user.nombre_completo}.', 'success')
+        return redirect(destination or url_for('dashboard.index'))
+
+    return render_template('auth/mfa.html', form=form)
 
 
 @auth_bp.route('/logout', methods=['POST'])
@@ -120,9 +231,16 @@ def profile():
     appear to work and then quietly revert -- and the person would have no way
     of knowing which of the two versions the application believed.
     """
+    from app.services import mfa_service
+
     user = current_user._get_current_object()
+    obligatorio = mfa_service.es_obligatorio(user)
+
     if not user.es_local:
-        return render_template('auth/profile.html', form=None, user=user)
+        return render_template(
+            'auth/profile.html', form=None, user=user,
+            mfa_obligatorio=obligatorio,
+        )
 
     form = ProfileForm(obj=user)
 
@@ -144,7 +262,82 @@ def profile():
             flash('Perfil actualizado.', 'success')
             return redirect(url_for('auth.profile'))
 
-    return render_template('auth/profile.html', form=form, user=user)
+    return render_template(
+        'auth/profile.html', form=form, user=user, mfa_obligatorio=obligatorio,
+    )
+
+
+@auth_bp.route('/mfa/activar', methods=['GET', 'POST'])
+@login_required
+def mfa_setup():
+    """Enrol an authenticator, and only turn it on once it has been proved.
+
+    The secret is stored unconfirmed while this runs. Turning it on at the
+    moment the QR is shown would lock somebody out of their own account the
+    first time a scan went wrong -- and the only person who could tell them why
+    would be looking at the same blank screen.
+    """
+    from app.services import mfa_service
+
+    user = current_user._get_current_object()
+    if user.mfa_activo:
+        flash('Su cuenta ya tiene segundo factor.', 'info')
+        return redirect(url_for('auth.profile'))
+
+    form = MFAForm()
+    form.submit.label.text = 'Activar'
+
+    if form.validate_on_submit():
+        try:
+            codigos = mfa_service.confirmar_alta(user, form.codigo.data)
+        except AppError as error:
+            flash(error.mensaje, 'danger')
+        else:
+            # Shown once and never again: they are stored hashed, so this is
+            # the only moment anybody can write them down.
+            return render_template('auth/mfa_codes.html', codigos=codigos)
+
+    alta = mfa_service.iniciar_alta(user)
+    return render_template('auth/mfa_setup.html', form=form, alta=alta)
+
+
+@auth_bp.route('/mfa/desactivar', methods=['POST'])
+@login_required
+def mfa_disable():
+    """Turn one's own second factor off, unless policy requires it."""
+    from app.services import mfa_service
+
+    user = current_user._get_current_object()
+    if mfa_service.es_obligatorio(user):
+        flash(
+            'Su organización exige segundo factor para su perfil, así que no '
+            'puede desactivarlo.',
+            'warning',
+        )
+        return redirect(url_for('auth.profile'))
+
+    mfa_service.desactivar(user, actor=user, motivo='propio')
+    flash('Segundo factor desactivado.', 'info')
+    return redirect(url_for('auth.profile'))
+
+
+@auth_bp.route('/mfa/codigos', methods=['POST'])
+@login_required
+def mfa_regenerate():
+    """Issue a fresh set of recovery codes, invalidating the old ones."""
+    from app.services import mfa_service
+
+    user = current_user._get_current_object()
+    if not user.mfa_activo:
+        return redirect(url_for('auth.profile'))
+
+    codigos = mfa_service.emitir_codigos(user)
+    audit_service.record(
+        'user.mfa_codes_reissued',
+        recurso_tipo=AuditResourceType.USUARIO,
+        recurso_id=str(user.id),
+    )
+    return render_template('auth/mfa_codes.html', codigos=codigos)
 
 
 @auth_bp.route('/cambiar-contrasena', methods=['GET', 'POST'])

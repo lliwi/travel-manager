@@ -55,5 +55,32 @@
             </div>
         </form>
     </div></div>
+
+    {% if user %}
+    <div class="card mt-3"><div class="card-body">
+        <h2 class="h6">Segundo factor</h2>
+        {% if user.mfa_activo %}
+        <p class="text-muted small">
+            Activo desde {{ user.mfa_activado_en | local_dt('UTC') }}.
+            Le quedan {{ user.mfa_codigos_disponibles }} códigos de recuperación.
+        </p>
+        {# Fuera del formulario de arriba: retirar una protección de la cuenta
+           de otra persona no es un campo más que se guarda de paso. #}
+        <form method="post" action="{{ url_for('admin.reset_user_mfa', user_id=user.id) }}"
+              onsubmit="return confirm('¿Retirar el segundo factor de esta cuenta? Volverá a tener un solo factor.');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-outline-danger btn-sm">
+                Retirar el segundo factor
+            </button>
+        </form>
+        <p class="text-muted small mb-0 mt-2">
+            Para cuando alguien pierde el teléfono y sus códigos. Asegúrese de
+            con quién habla: después, esa cuenta queda con un solo factor.
+        </p>
+        {% else %}
+        <p class="text-muted small mb-0">Esta cuenta no tiene segundo factor.</p>
+        {% endif %}
+    </div></div>
+    {% endif %}
 </div></div>
 {% endblock %}

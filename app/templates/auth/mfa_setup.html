@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import render_field %}
+{% block title %}Activar segundo factor — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('auth.profile') }}">Mi perfil</a></li>
+<li class="breadcrumb-item active">Segundo factor</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Activar el segundo factor</h1>
+    <p class="text-muted mb-0">
+        Un código de seis dígitos que cambia cada treinta segundos, además de
+        su contraseña.
+    </p>
+</div>
+
+<div class="row g-4">
+    <div class="col-lg-7">
+        <div class="card">
+            <div class="card-body">
+                <ol class="mb-4">
+                    <li class="mb-2">Abra su aplicación de autenticación
+                        (Google Authenticator, Microsoft Authenticator, Aegis,
+                        1Password… cualquiera vale).</li>
+                    <li class="mb-2">Escanee este código.</li>
+                    <li>Escriba abajo los seis dígitos que le muestre.</li>
+                </ol>
+
+                <div class="mfa-qr mb-3">{{ alta.qr | safe }}</div>
+
+                <details class="mb-4">
+                    <summary class="small text-muted">
+                        No puedo escanear el código
+                    </summary>
+                    <p class="small mt-2 mb-1">
+                        Escriba esta clave a mano en la aplicación:
+                    </p>
+                    <code class="user-select-all">{{ alta.secreto }}</code>
+                </details>
+
+                <form method="post" novalidate>
+                    {{ form.hidden_tag() }}
+                    {{ render_field(form.codigo, placeholder='000000') }}
+                    <div class="d-flex gap-2">
+                        {{ form.submit }}
+                        <a href="{{ url_for('auth.profile') }}"
+                           class="btn btn-outline-secondary">Cancelar</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-5">
+        <div class="card">
+            <div class="card-header">Antes de seguir</div>
+            <div class="card-body small text-muted">
+                <p>No queda activado hasta que escriba un código correcto. Si
+                   el escaneo sale mal, no pasa nada: vuelva a empezar.</p>
+                <p class="mb-0">Al activarlo le daremos <strong>diez códigos de
+                   recuperación</strong>. Son la forma de entrar si pierde el
+                   teléfono, y se muestran una sola vez.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

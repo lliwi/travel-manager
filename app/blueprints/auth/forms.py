@@ -48,6 +48,25 @@ class ChangePasswordForm(FlaskForm):
     submit = SubmitField('Cambiar contraseña')
 
 
+class MFAForm(FlaskForm):
+    """The six digits, or a recovery code.
+
+    One field for both because they are the same question -- «prove it is
+    you» -- and asking somebody to first classify what they are holding is a
+    step that only exists for our convenience.
+    """
+
+    codigo = StringField(
+        'Código',
+        validators=[DataRequired(message='Escriba el código.'), Length(max=32)],
+        description='Los seis dígitos de su aplicación, o uno de sus códigos '
+                    'de recuperación.',
+        render_kw={'autocomplete': 'one-time-code', 'autofocus': True,
+                   'inputmode': 'text'},
+    )
+    submit = SubmitField('Entrar')
+
+
 class ProfileForm(FlaskForm):
     """Editable profile fields."""
 

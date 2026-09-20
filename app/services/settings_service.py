@@ -33,6 +33,8 @@ GRUPOS = (
     ('politica', 'Política corporativa',
      'Límites que un viaje debe respetar, y por encima de los cuales hace '
      'falta una aprobación.'),
+    ('seguridad', 'Seguridad de las cuentas',
+     'Qué hace falta para entrar, además de la contraseña.'),
     ('directorio', 'Directorio corporativo (AD / LDAP)',
      'Permite iniciar sesión con las credenciales del directorio. No sustituye '
      'a las cuentas locales: conviven, y cada cuenta sabe de dónde viene.'),
@@ -119,6 +121,17 @@ DEFAULTS = {
     'BUSQUEDA_VIAJES_MONEDA': (
         'EUR', 'string', 'busqueda_viajes', 'Moneda',
         'En la que se piden los precios. Código ISO de tres letras.',
+        False,
+    ),
+
+    # --- Second factor ------------------------------------------------
+    'MFA_OBLIGATORIO': (
+        'ninguno', 'string', 'seguridad', 'Exigir segundo factor',
+        'Quién está obligado a configurar un código de un solo uso: «ninguno», '
+        '«administradores», «gestion» (gestores y administradores) o «todos». '
+        'Quien no lo tenga configurado será llevado a configurarlo al entrar. '
+        'Por debajo de esa exigencia, cualquiera puede activarlo por su cuenta '
+        'desde su perfil.',
         False,
     ),
 

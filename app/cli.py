@@ -25,6 +25,7 @@ def register_commands(app):
     app.cli.add_command(openapi)
     app.cli.add_command(evaluar)
     app.cli.add_command(ai_stats)
+    app.cli.add_command(mfa_reset)
 
 
 @click.command('init-db')
@@ -423,6 +424,43 @@ def _create(username, email, nombre, apellidos, password, rol, overwrite=False):
         f'Usuario «{username}» creado con el rol «{rol}».', fg='green'
     ))
     return user
+
+
+@click.command('mfa-reset')
+@click.argument('usuario')
+@with_appcontext
+def mfa_reset(usuario):
+    """Quitar el segundo factor de una cuenta, sin pasar por el navegador.
+
+    La salida de emergencia. La ruta normal es que un administrador lo retire
+    desde Usuarios; esto es para el día en que quien está fuera es el único
+    administrador, que es precisamente cuando nadie puede entrar a arreglarlo.
+    """
+    from app.extensions import db
+    from app.models.user import User
+    from app.services import mfa_service
+
+    texto = str(usuario).strip()
+    user = User.query.filter(
+        db.or_(User.username == texto, User.email == texto.lower()),
+        User.is_deleted.is_(False),
+    ).first()
+
+    if user is None:
+        click.echo(f'No existe ninguna cuenta «{texto}».', err=True)
+        raise SystemExit(1)
+
+    if not user.mfa_activo:
+        click.echo(f'{user.username} no tiene segundo factor configurado.')
+        return
+
+    mfa_service.desactivar(user, actor=None, motivo='cli')
+    user.bump_session_epoch()
+    db.session.commit()
+    click.echo(
+        f'Segundo factor retirado de {user.username}. '
+        'Sus sesiones abiertas se han cerrado.'
+    )
 
 
 @click.command('verify-audit')

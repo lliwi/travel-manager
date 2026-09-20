@@ -27,14 +27,14 @@ Two things remain, deliberately last:
   nothing, its prices are Google's and therefore indicative, and it has no
   train engine at all -- for rail the assistant orients as before and says so,
   because an empty list must never read as «there is no way to get there».
-- **Group sync and MFA/SSO.** AD/LDAP sign-in itself is done:
+- **Group sync and SSO.** AD/LDAP sign-in itself is done:
   `identity/ldap.py` authenticates against a directory, and the two kinds of
   account coexist -- turning the directory on disables no local account, which
   is what keeps an administrator from being locked out when the directory is
   unreachable. What remains is populating `role_group_mappings` so directory
   groups drive roles automatically; today a provisioned account gets `usuario`
   and anything above that is granted by hand, which is the safe default and
-  never taken back by a later login.
+  never taken back by a later login. MFA is done too, as TOTP -- see below.
 
 ## Architecture
 
@@ -135,6 +135,22 @@ Each is a considered decision, not an oversight:
 - Records are soft-deleted. Retention-driven erasure is a separate, explicit,
   audited operation.
 
+## The second factor happens before the session
+
+`mfa_service` is TOTP. Three things it exists to guarantee, each of which fails
+silently if broken: a code works exactly once (`mfa_ultimo_paso` -- TOTP alone
+accepts the same digits for a whole window), nothing readable is stored (the
+secret encrypted, the recovery codes hashed), and losing a phone is not losing
+the account (recovery codes, an admin reset, `flask mfa-reset`).
+
+The verification happens *before* `login_user`, through a short-lived
+`session['mfa_pendiente']`. Logging somebody in and then asking would give a
+valid session to somebody who has proved half of what we ask, and every
+authorisation check in the application would already say yes.
+
+The requirement is enforced in a `before_request`, not only at sign-in: an
+administrator changes the policy while everybody else is already logged in.
+
 ## Directory accounts are read-only
 
 A directory-backed account authenticates and nothing else. Its personal fields
@@ -189,6 +205,7 @@ $COMPOSE exec web flask db upgrade
 $COMPOSE exec web flask seed
 $COMPOSE exec web flask ai-health
 $COMPOSE exec web flask verify-audit
+$COMPOSE exec web flask mfa-reset <usuario>       # si alguien pierde el móvil
 $COMPOSE exec web flask apply-retention      # simula; --execute borra
 $COMPOSE logs -f worker
 

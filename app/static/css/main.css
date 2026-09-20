@@ -450,3 +450,24 @@ a.chip:hover { background: #e2e8f0; }
     color: var(--bs-secondary-color, #6c757d);
     white-space: nowrap;
 }
+
+/* ---------- Segundo factor ---------- */
+/* El QR sale como SVG en línea, sin tamaño propio: sin esto ocupa lo que le
+   dé la gana y en un móvil se sale de la pantalla. */
+.mfa-qr svg { width: 220px; height: 220px; display: block; }
+
+.mfa-codes {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+    gap: .5rem;
+}
+
+.mfa-codes code {
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: .5rem .75rem;
+    text-align: center;
+    font-size: 1rem;
+    letter-spacing: .05em;
+}

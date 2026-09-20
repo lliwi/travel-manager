@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import render_field %}
+{% block title %}Verificación — {{ app_name }}{% endblock %}
+
+{% block content_anon %}
+<div class="auth-card">
+    <h1 class="h4 mb-1">Un paso más</h1>
+    <p class="text-muted small">
+        Escriba el código de su aplicación de autenticación.
+    </p>
+
+    {% include 'partials/flashes.html' %}
+
+    <form method="post" novalidate>
+        {{ form.hidden_tag() }}
+        {{ render_field(form.codigo, placeholder='000000') }}
+        {{ form.submit }}
+    </form>
+
+    <p class="text-muted small mt-3 mb-0">
+        ¿Sin el teléfono? Use uno de sus códigos de recuperación en el mismo
+        campo. Cada uno vale una sola vez.
+    </p>
+</div>
+{% endblock %}
