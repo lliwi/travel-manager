@@ -126,6 +126,22 @@ Each is a considered decision, not an oversight:
 - Records are soft-deleted. Retention-driven erasure is a separate, explicit,
   audited operation.
 
+## Observability
+
+`/healthz` and `/readyz` say whether the system is alive; `/metrics` says how
+it is doing. Business figures are **queried from the database at scrape time**,
+never accumulated in memory: four Gunicorn workers mean four sets of counters,
+and the one that answers reports a quarter of the truth. That choice is also
+what makes the Celery worker observable without a port -- its outcomes land in
+those tables. Only request latency is counted in-process, which is why
+`docker/flask/gunicorn.conf.py` exists.
+
+`/metrics` is not public and cannot be made public by forgetting something: the
+`METRICS_TOKEN` bearer or a private source address, with Nginx denying it at
+the edge as well. It is exempt from the session barrier in
+`tests/test_authorization.py` because a scraper cannot log in; its real
+controls are tested in `tests/test_metricas.py`.
+
 ## Common commands
 
 ```bash

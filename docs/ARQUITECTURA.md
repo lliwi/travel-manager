@@ -143,10 +143,16 @@ voluntad del modelo:
 Como red adicional, las referencias internas que devuelve el modelo se validan
 contra el conjunto autorizado: una que no estaba en el contexto se descarta.
 
-**Política de salida.** `ai/guard.py` se niega a enviar documentos o datos
-personales a un proveedor externo salvo habilitación administrativa expresa, y
-registra la negativa como una ejecución bloqueada en lugar de degradarla en
-silencio.
+**Política de salida.** `ai/guard.py` ya no rechaza nada: la decisión es a qué
+proveedor está vinculada cada tarea, y esa se toma en Administración →
+Proveedores de IA, a conciencia y dejando registro. Un segundo interruptor que
+confirme que se quería lo que ya se eligió acaba permanentemente encendido, que
+es un control solo de nombre.
+
+Lo que queda en su lugar es la traza: cada llamada escribe un `ai_runs` con el
+proveedor, el modelo, la finalidad y el viaje, de modo que «qué salió fuera y
+cuándo» sigue teniendo respuesta. El `guard` conserva su punto de enganche para
+que una regla tenga un sitio al que ir si una organización la necesita.
 
 ## 9. La auditoría es una cadena
 
@@ -173,3 +179,39 @@ apuntan al UUID inmutable y nunca al nombre de inicio de sesión.
 
 La autorización sigue siendo nuestra aunque autentique el directorio, tal como
 pide el §3.3.
+
+## 11. Las métricas se consultan, no se acumulan
+
+La aplicación corre en cuatro workers de gunicorn. Un contador en memoria vive
+en uno de ellos, así que un scrape atendido por cualquier otro informa de la
+cuarta parte del tráfico: un número equivocado con forma de número correcto,
+que se lee como un día tranquilo y no como una avería.
+
+Por eso las cifras del negocio —documentos por estado, alertas abiertas,
+ejecuciones de IA— se consultan a la base de datos en el momento del scrape, a
+través de un colector propio, en lugar de mantenerse como *gauges* que alguien
+tenga que acordarse de actualizar. Una consulta da la misma respuesta desde
+cualquier worker, sobrevive a un reinicio y no puede desincronizarse. Es el
+mismo criterio que el aislamiento entre viajeros: preferir lo que no puede
+salir mal a lo que hay que recordar hacer bien.
+
+Tiene un segundo efecto, y es el que resuelve «métricas de workers» del §8: el
+worker de Celery queda observable sin exponer ningún puerto ni levantar un
+servidor HTTP dentro, porque lo que hace acaba en esas mismas tablas. Medir las
+tablas es medir al worker.
+
+Lo único que sí se cuenta en proceso es la latencia de las peticiones, porque
+no existe en ningún otro sitio. Para eso `docker/flask/gunicorn.conf.py` vacía
+el directorio compartido al arrancar y recoge los ficheros de cada worker que
+muere; sin esas dos cosas los totales arrastran ejecuciones anteriores o el
+directorio crece sin límite.
+
+### Quién puede leerlas
+
+Un recolector no inicia sesión, así que `/metrics` no puede exigirla y los
+decoradores habituales no sirven. Se defiende por dos vías y no hay una
+tercera: el token configurado en `METRICS_TOKEN`, o venir de dentro de la red.
+Nginx lo niega además en el borde. No existe una configuración en la que las
+cifras de viajes, usuarios y documentos se lean desde internet, y el caso de
+«sin token» no abre nada: cae en la comprobación de red, que es de lo que
+depende un despliegue en una sola máquina.
