@@ -344,7 +344,7 @@ def _coerce_param(current, raw):
 # ======================================================================
 # AI providers
 # ======================================================================
-@admin_bp.route('/ia/proveedores')
+@admin_bp.route('/ajustes/proveedores')
 @login_required
 @require_admin
 def ai_providers():
@@ -359,7 +359,7 @@ def ai_providers():
     )
 
 
-@admin_bp.route('/ia/proveedores/nuevo', methods=['GET', 'POST'])
+@admin_bp.route('/ajustes/proveedores/nuevo', methods=['GET', 'POST'])
 @login_required
 @require_admin
 def create_ai_provider():
@@ -397,7 +397,7 @@ def create_ai_provider():
                            sugerencias=ai_provider_service.SUGERENCIAS)
 
 
-@admin_bp.route('/ia/proveedores/<provider_id>/editar', methods=['GET', 'POST'])
+@admin_bp.route('/ajustes/proveedores/<provider_id>/editar', methods=['GET', 'POST'])
 @login_required
 @require_admin
 def edit_ai_provider(provider_id):
@@ -442,7 +442,7 @@ def edit_ai_provider(provider_id):
                            sugerencias=ai_provider_service.SUGERENCIAS)
 
 
-@admin_bp.route('/ia/proveedores/<provider_id>/eliminar', methods=['POST'])
+@admin_bp.route('/ajustes/proveedores/<provider_id>/eliminar', methods=['POST'])
 @login_required
 @require_admin
 def delete_ai_provider(provider_id):
@@ -458,7 +458,7 @@ def delete_ai_provider(provider_id):
     return redirect(url_for('admin.ai_providers'))
 
 
-@admin_bp.route('/ia/proveedores/<provider_id>/predeterminado', methods=['POST'])
+@admin_bp.route('/ajustes/proveedores/<provider_id>/predeterminado', methods=['POST'])
 @login_required
 @require_admin
 def set_default_ai_provider(provider_id):
@@ -474,7 +474,7 @@ def set_default_ai_provider(provider_id):
     return redirect(url_for('admin.ai_providers'))
 
 
-@admin_bp.route('/ia/proveedores/<provider_id>/probar', methods=['POST'])
+@admin_bp.route('/ajustes/proveedores/<provider_id>/probar', methods=['POST'])
 @login_required
 @require_admin
 def test_ai_provider(provider_id):
@@ -488,7 +488,7 @@ def test_ai_provider(provider_id):
     return redirect(url_for('admin.ai_providers'))
 
 
-@admin_bp.route('/ia/proveedores/<provider_id>/modelos')
+@admin_bp.route('/ajustes/proveedores/<provider_id>/modelos')
 @login_required
 @require_admin
 def ai_provider_models(provider_id):
@@ -509,7 +509,7 @@ def ai_provider_models(provider_id):
     })
 
 
-@admin_bp.route('/ia/tareas', methods=['POST'])
+@admin_bp.route('/ajustes/proveedores/tareas', methods=['POST'])
 @login_required
 @require_admin
 def set_ai_binding():

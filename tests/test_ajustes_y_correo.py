@@ -181,3 +181,41 @@ class TestLaPantallaEstaOrganizada:
             html = client.get('/admin/ajustes').get_data(as_text=True)
 
         assert 'Proveedores de inteligencia artificial' in html
+
+
+@pytest.mark.integration
+class TestLosProveedoresVivenEnAjustes:
+    """Moved rather than linked: one place to configure how the system thinks.
+
+    They keep their own screens because they are rows with a life of their own
+    -- encrypted keys, connection tests, a task bound to each -- but the way in
+    is Ajustes, and the address says so too.
+    """
+
+    def test_la_url_cuelga_de_ajustes(self, as_user, admin, seeded):
+        with as_user(admin) as client:
+            assert client.get('/admin/ajustes/proveedores').status_code == 200
+
+    def test_la_url_anterior_ya_no_existe(self, as_user, admin, seeded):
+        with as_user(admin) as client:
+            assert client.get('/admin/ia/proveedores').status_code == 404
+
+    def test_se_llega_desde_ajustes(self, as_user, admin, seeded):
+        with as_user(admin) as client:
+            html = client.get('/admin/ajustes').get_data(as_text=True)
+
+        assert 'Proveedores de inteligencia artificial' in html
+        assert '/admin/ajustes/proveedores' in html
+
+    def test_ya_no_esta_en_el_menu(self, as_user, admin, seeded):
+        """Two doors to one thing is two places to look when it is wrong."""
+        with as_user(admin) as client:
+            html = client.get('/dashboard/').get_data(as_text=True)
+
+        assert 'Proveedores de IA' not in html
+
+    def test_las_migas_pasan_por_ajustes(self, as_user, admin, seeded):
+        with as_user(admin) as client:
+            html = client.get('/admin/ajustes/proveedores').get_data(as_text=True)
+
+        assert '/admin/ajustes"' in html

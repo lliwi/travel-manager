@@ -3,6 +3,7 @@
 {% block title %}{{ 'Editar proveedor' if provider else 'Nuevo proveedor de IA' }} — {{ app_name }}{% endblock %}
 {% block breadcrumb_items %}
 <li class="breadcrumb-item"><a href="{{ url_for('admin.index') }}">Administración</a></li>
+<li class="breadcrumb-item"><a href="{{ url_for('admin.settings') }}">Ajustes</a></li>
 <li class="breadcrumb-item"><a href="{{ url_for('admin.ai_providers') }}">Proveedores de IA</a></li>
 <li class="breadcrumb-item active">{{ provider.nombre if provider else 'Nuevo' }}</li>
 {% endblock %}
