@@ -11,9 +11,21 @@ create trips, attach booking documents, assign travellers, and the system
 extracts structured data, consolidates an itinerary, detects logistical problems
 and produces destination security advisories.
 
-Phase 1 of the specification is implemented. Phases 2 and 3 (AD/LDAP,
-official-source connectors, notifications, travel-provider integrations) are
-designed for but not built.
+Phase 1 of the specification is implemented, and most of phases 2 and 3:
+advanced OCR and every document type, official-source connectors with change
+monitoring, notifications and reports, corporate policy with costs, and
+continuous model evaluation.
+
+Two things remain, deliberately last:
+
+- **Travel-provider integrations** (Amadeus, Renfe, a corporate agency). Not
+  started, and not startable without a provider to integrate with: an API, a
+  contract and credentials. What exists instead is the planning assistant,
+  which suggests *how* to travel and never claims a booking exists.
+- **AD/LDAP, group sync and MFA/SSO.** The seam is in place --
+  `IdentityProvider`, `users.identity_provider`, `users.external_id`,
+  `role_group_mappings` -- so this is writing an implementation, not reopening
+  the model.
 
 ## Architecture
 

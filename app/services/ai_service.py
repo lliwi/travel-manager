@@ -1062,3 +1062,134 @@ def build_ai_context(actor, trip):
         'ids_autorizados': ids_autorizados,
         'fecha_datos': utcnow().isoformat(),
     }
+
+
+# ======================================================================
+# 8. plan_trip
+# ======================================================================
+def plan_trip(actor, origen, destino, ida=None, vuelta=None, viajeros=1,
+              preferencias=None):
+    """Suggest how to make a journey, never that a particular service exists.
+
+    The distinction is the whole design. This application has no availability
+    or pricing connector, so a model asked for «el mejor vuelo» would answer
+    with a flight number and a price that came from nowhere -- and somebody
+    would act on it. What it can do honestly is say which modes make sense
+    between two places, how long that kind of journey takes, where to stay
+    given where you land, and what the trip will run into: a border, a change
+    of clock, a transfer that needs more margin than people expect.
+
+    What it is *told* is reference data we hold and know to be true: the
+    airports and stations in the catalogue, the countries and their zones,
+    whether Schengen applies, and the organisation's own thresholds. The rest
+    is the model's general knowledge, and the prompt says which is which.
+    """
+    contexto = _contexto_de_planificacion(origen, destino, ida, vuelta, viajeros)
+    esquema = SCHEMAS['plan_trip']
+
+    partes = [f'Origen: {origen}', f'Destino: {destino}']
+    if ida:
+        partes.append(f'Ida: {ida}')
+    if vuelta:
+        partes.append(f'Vuelta: {vuelta}')
+    partes.append(f'Personas: {viajeros}')
+    if preferencias:
+        partes.append(f'Preferencias de quien viaja: {preferencias}')
+
+    request = AIRequest(
+        tarea=AITask.PLAN_TRIP.value,
+        sistema=PROMPTS['plan_trip'],
+        instruccion=(
+            'Propón cómo hacer este viaje. Recuerda: ningún número de vuelo, '
+            'ningún horario concreto, ningún precio.\n\n' + '\n'.join(partes)
+        ),
+        bloques=[UntrustedBlock(
+            contenido=json.dumps(contexto, ensure_ascii=False, indent=2),
+            referencia='catalogo',
+            tipo='datos_de_referencia',
+        )],
+        esquema=esquema,
+        # Nothing here is about a person: a place, two dates and a headcount.
+        contiene_documentos=False,
+        contiene_pii=False,
+        temperatura=0.3,
+    )
+
+    response, run = _run(
+        AITask.PLAN_TRIP,
+        request,
+        actor=actor,
+        finalidad=f'Planificación de {origen} a {destino}',
+    )
+
+    datos = _parse(response, 'plan_trip', esquema)
+    return {
+        'opciones': datos.get('opciones', []),
+        'alojamiento': datos.get('alojamiento') or {},
+        'consideraciones': datos.get('consideraciones', []),
+        'avisos': datos.get('avisos', []),
+        'referencia': contexto,
+        'run_id': str(run.id),
+        'modelo': run.modelo,
+    }
+
+
+def _contexto_de_planificacion(origen, destino, ida, vuelta, viajeros):
+    """The reference data the suggestion should be built on.
+
+    Resolved from the catalogue rather than left to the model: whether two
+    cities are both in Schengen decides whether a border is crossed, and that
+    is not something to take on trust from a model when we hold the answer.
+    """
+    from app.models.catalog import Country, Location
+    from app.services import settings_service
+
+    def _lugar(nombre):
+        if not nombre:
+            return None
+        texto = str(nombre).strip()
+        fila = (
+            Location.query.filter(
+                Location.activo.is_(True), Location.codigo == texto.upper()
+            ).first()
+            or Location.query.filter(
+                Location.activo.is_(True), Location.ciudad.ilike(texto)
+            ).first()
+            or Location.query.filter(
+                Location.activo.is_(True), Location.nombre.ilike(f'%{texto}%')
+            ).first()
+        )
+        if fila is None:
+            return {'nombre': texto, 'en_catalogo': False}
+
+        pais = Country.query.filter_by(codigo=fila.pais_codigo).first()
+        return {
+            'nombre': texto,
+            'en_catalogo': True,
+            'codigo': fila.codigo,
+            'ciudad': fila.ciudad,
+            'pais': fila.pais_codigo,
+            'pais_nombre': pais.nombre if pais else None,
+            'zona_horaria': fila.zona_horaria,
+            'schengen': bool(pais.es_schengen) if pais else None,
+            'union_europea': bool(pais.es_ue) if pais else None,
+        }
+
+    return {
+        'origen': _lugar(origen),
+        'destino': _lugar(destino),
+        'ida': ida,
+        'vuelta': vuelta,
+        'personas': viajeros,
+        'politica': {
+            'coste_maximo_viaje': settings_service.get_int(
+                'POLITICA_COSTE_MAXIMO_VIAJE', 0) or None,
+            'coste_maximo_noche': settings_service.get_int(
+                'POLITICA_COSTE_MAXIMO_NOCHE', 0) or None,
+            'moneda': settings_service.get('POLITICA_MONEDA', 'EUR'),
+        },
+        'margenes_de_conexion_min': {
+            'schengen': 90,
+            'internacional': 150,
+        },
+    }

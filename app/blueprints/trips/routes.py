@@ -21,6 +21,7 @@ from app.blueprints.trips.forms import (
     ITINERARY_FORMS,
     AssistantForm,
     DestinationForm,
+    PlanningForm,
     TravelerForm,
     TripFilterForm,
     TripForm,
@@ -317,6 +318,50 @@ def remove_traveler(trip_id, user_id, trip):
 # ======================================================================
 # Destinations
 # ======================================================================
+# ======================================================================
+# Planning assistant
+# ======================================================================
+@trips_bp.route('/planificar', methods=['GET', 'POST'])
+@login_required
+@require_permiso(Permiso.CREAR_VIAJE)
+@rate_limited('10 per minute; 60 per hour')
+def plan():
+    """Suggest how to make a journey, before there is a trip to attach it to.
+
+    Deliberately not a search: this application has no availability or pricing
+    connector, so what comes back says which modes make sense and what the
+    journey will run into -- never that a particular service exists on a
+    particular day at a particular price.
+    """
+    from app.services import ai_service
+
+    form = PlanningForm()
+    plan = None
+
+    if form.validate_on_submit():
+        try:
+            plan = ai_service.plan_trip(
+                actor=current_user._get_current_object(),
+                origen=form.origen.data.strip(),
+                destino=form.destino.data.strip(),
+                ida=form.ida.data.isoformat() if form.ida.data else None,
+                vuelta=form.vuelta.data.isoformat() if form.vuelta.data else None,
+                viajeros=form.viajeros.data or 1,
+                preferencias=(form.preferencias.data or '').strip() or None,
+            )
+        except AppError as error:
+            flash(error.mensaje, 'danger')
+        except Exception:
+            logger.exception('Falló la planificación de viaje')
+            flash(
+                'El asistente no está disponible en este momento. '
+                'Inténtelo de nuevo en unos minutos.',
+                'danger',
+            )
+
+    return render_template('trips/plan.html', form=form, plan=plan)
+
+
 # ======================================================================
 # Assistant
 # ======================================================================

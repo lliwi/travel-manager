@@ -424,7 +424,48 @@ GENERATE_ADVISORY = {
     'required': ['recomendaciones'],
 }
 
+PLAN_TRIP = {
+    'type': 'object',
+    'properties': {
+        'opciones': {
+            'type': 'array',
+            'description': (
+                'Formas de hacer el trayecto, de más a menos recomendable.'
+            ),
+            'items': {
+                'type': 'object',
+                'properties': {
+                    'modo': {'type': 'string',
+                             'enum': ['avion', 'tren', 'autobus', 'coche', 'combinado']},
+                    'titulo': {'type': 'string'},
+                    'descripcion': {'type': 'string'},
+                    'duracion_estimada_min': {'type': ['integer', 'null'],
+                                              'description': 'Tiempo de trayecto típico, no de un servicio concreto.'},
+                    'ventajas': {'type': 'array', 'items': {'type': 'string'}},
+                    'inconvenientes': {'type': 'array', 'items': {'type': 'string'}},
+                },
+                'required': ['modo', 'titulo', 'descripcion'],
+            },
+        },
+        'alojamiento': {
+            'type': 'object',
+            'properties': {
+                'zonas': {'type': 'array', 'items': {'type': 'string'}},
+                'motivo': {'type': 'string'},
+            },
+        },
+        'consideraciones': {
+            'type': 'array',
+            'description': 'Lo que hay que tener en cuenta: fronteras, husos, márgenes.',
+            'items': {'type': 'string'},
+        },
+        'avisos': _AVISOS,
+    },
+    'required': ['opciones'],
+}
+
 SCHEMAS = {
+    'plan_trip': PLAN_TRIP,
     'extract_vuelo': EXTRACT_VUELO,
     'extract_tren': EXTRACT_TREN,
     'extract_hotel': EXTRACT_HOTEL,

@@ -136,6 +136,35 @@ EXPLAIN_ALERT = _BASE + (
     '- No propongas acciones que requieran datos que no tienes.'
 )
 
+PLAN_TRIP = _BASE + (
+    '\nTu tarea es proponer CÓMO hacer un viaje: qué medios de transporte '
+    'tienen sentido entre dos sitios y en qué zona conviene alojarse.\n\n'
+    'LO QUE NO DEBES HACER NUNCA, y es lo más importante de estas '
+    'instrucciones:\n'
+    '- No inventes números de vuelo, de tren ni códigos de reserva. No los '
+    'tienes.\n'
+    '- No des horarios de salida o llegada concretos. No sabes qué servicios '
+    'existen en esas fechas.\n'
+    '- No des precios, ni siquiera aproximados, ni digas si algo está '
+    'disponible.\n'
+    'Quien lea esto puede actuar sobre ello, y un dato inventado con aspecto '
+    'de reserva es peor que no decir nada. Si te falta información para '
+    'responder algo, dilo en «avisos».\n\n'
+    'Lo que SÍ debes dar:\n'
+    '- Qué medios son razonables entre origen y destino, ordenados de más a '
+    'menos recomendable, con por qué.\n'
+    '- Duraciones de trayecto TÍPICAS del medio, no de un servicio concreto, '
+    'y solo si las conoces con seguridad.\n'
+    '- En qué zona del destino conviene alojarse según a dónde se llega y qué '
+    'se va a hacer allí.\n'
+    '- Qué hay que tener en cuenta: cruces de frontera, cambios de huso, '
+    'márgenes de conexión, desplazamientos entre aeropuerto y centro.\n\n'
+    'Los datos de referencia que se te aportan —aeropuertos, países, zonas '
+    'horarias, umbrales de la organización— son ciertos y puedes usarlos sin '
+    'reservas. El resto es conocimiento general tuyo: úsalo para orientar, no '
+    'para afirmar disponibilidad.'
+)
+
 GENERATE_ADVISORY = _BASE + (
     '\nTu tarea es redactar recomendaciones de seguridad para un destino y unas '
     'fechas concretas, a partir de fuentes públicas aportadas.\n\n'
@@ -156,6 +185,7 @@ PROMPTS = {
     'analyze_risks': ANALYZE_RISKS,
     'research_public_info': RESEARCH_PUBLIC_INFO,
     'explain_alert': EXPLAIN_ALERT,
+    'plan_trip': PLAN_TRIP,
     'generate_advisory': GENERATE_ADVISORY,
 }
 

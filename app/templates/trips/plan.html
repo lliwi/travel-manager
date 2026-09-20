@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import render_field %}
+{% block title %}Planificar un viaje — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('trips.index') }}">Viajes</a></li>
+<li class="breadcrumb-item active">Planificar</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Planificar un viaje</h1>
+    <p class="text-muted mb-0">
+        Cómo hacer el trayecto y dónde alojarse, antes de que haya reservas.
+    </p>
+</div>
+
+<div class="row">
+    <div class="col-lg-5">
+        <div class="card mb-3">
+            <div class="card-body">
+                <form method="post" novalidate>
+                    {{ form.hidden_tag() }}
+                    {{ render_field(form.origen, placeholder='Barcelona o BCN') }}
+                    {{ render_field(form.destino, placeholder='Londres o LGW') }}
+                    <div class="row">
+                        <div class="col-md-6">{{ render_field(form.ida) }}</div>
+                        <div class="col-md-6">{{ render_field(form.vuelta) }}</div>
+                    </div>
+                    {{ render_field(form.viajeros) }}
+                    {{ render_field(form.preferencias, rows=3,
+                                    placeholder='Evitar escalas; llegar la víspera…') }}
+                    {{ form.submit }}
+                </form>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">Qué es y qué no</div>
+            <div class="card-body small text-muted">
+                <p><strong>No es un buscador.</strong> Esta aplicación no está
+                   conectada a ningún sistema de disponibilidad ni de precios,
+                   así que el asistente no le dirá qué vuelo sale ni cuánto
+                   cuesta: no lo sabe, y un dato inventado con aspecto de
+                   reserva es peor que no decir nada.</p>
+                <p class="mb-0"><strong>Sí orienta.</strong> Qué medios tienen
+                   sentido entre esos dos sitios, cuánto se tarda normalmente,
+                   en qué zona conviene alojarse y con qué hay que contar:
+                   fronteras, cambios de hora, márgenes de conexión. Los
+                   aeropuertos, países y husos salen del catálogo y son
+                   ciertos; el resto es orientación.</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-7">
+        {% if plan %}
+        {% if plan.avisos %}
+        <div class="alert alert-warning">
+            <strong><i class="bi bi-exclamation-triangle me-1"></i>Lo que no ha podido responder</strong>
+            <ul class="mb-0 mt-1">
+                {% for aviso in plan.avisos %}<li>{{ aviso }}</li>{% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        {% for opcion in plan.opciones %}
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>
+                    <i class="bi bi-{{ {'avion': 'airplane', 'tren': 'train-front',
+                                        'autobus': 'bus-front', 'coche': 'car-front'}
+                                       .get(opcion.modo, 'signpost-split') }} me-2"></i>
+                    {{ opcion.titulo }}
+                </span>
+                {% if opcion.duracion_estimada_min %}
+                <span class="badge bg-secondary">
+                    ~{{ opcion.duracion_estimada_min | duration }}</span>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                <p>{{ opcion.descripcion }}</p>
+                <div class="row small">
+                    {% if opcion.ventajas %}
+                    <div class="col-md-6">
+                        <div class="text-success fw-semibold mb-1">A favor</div>
+                        <ul class="mb-0">
+                            {% for v in opcion.ventajas %}<li>{{ v }}</li>{% endfor %}
+                        </ul>
+                    </div>
+                    {% endif %}
+                    {% if opcion.inconvenientes %}
+                    <div class="col-md-6">
+                        <div class="text-warning fw-semibold mb-1">En contra</div>
+                        <ul class="mb-0">
+                            {% for i in opcion.inconvenientes %}<li>{{ i }}</li>{% endfor %}
+                        </ul>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+
+        {% if plan.alojamiento and plan.alojamiento.zonas %}
+        <div class="card mb-3">
+            <div class="card-header"><i class="bi bi-building me-2"></i>Dónde alojarse</div>
+            <div class="card-body">
+                <div class="timeline-meta mb-2">
+                    {% for zona in plan.alojamiento.zonas %}
+                    <span class="chip"><i class="bi bi-geo-alt"></i>{{ zona }}</span>
+                    {% endfor %}
+                </div>
+                {% if plan.alojamiento.motivo %}
+                <p class="mb-0 text-muted small">{{ plan.alojamiento.motivo }}</p>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% if plan.consideraciones %}
+        <div class="card mb-3">
+            <div class="card-header"><i class="bi bi-list-check me-2"></i>Con qué hay que contar</div>
+            <ul class="list-group list-group-flush">
+                {% for c in plan.consideraciones %}
+                <li class="list-group-item">{{ c }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        <div class="d-flex justify-content-between align-items-center">
+            <p class="text-muted small mb-0">
+                Orientación generada con {{ plan.modelo }}. No es una reserva ni
+                una comprobación de disponibilidad.
+            </p>
+            <a href="{{ url_for('trips.create') }}" class="btn btn-primary">
+                <i class="bi bi-plus-lg me-1"></i>Crear el viaje
+            </a>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <i class="bi bi-signpost-2"></i>
+            <p>Diga desde dónde y hasta dónde, y el asistente propondrá cómo
+               hacerlo.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

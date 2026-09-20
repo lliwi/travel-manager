@@ -340,3 +340,34 @@ class AssistantForm(FlaskForm):
         description='Una pregunta concreta sobre este viaje.',
     )
     submit = SubmitField('Preguntar')
+
+
+class PlanningForm(FlaskForm):
+    """Ask the assistant how to make a journey.
+
+    Not a booking form and not shaped like one: no times, no carriers, no
+    budget field. Asking for those would promise an answer the application
+    cannot support, and the fastest way to make somebody expect flight numbers
+    is to leave a box where one would go.
+    """
+
+    origen = StringField(
+        'Desde',
+        validators=[DataRequired(message='Indique desde dónde se viaja.'),
+                    Length(max=120)],
+        description='Ciudad o código de aeropuerto o estación.',
+    )
+    destino = StringField(
+        'Hasta',
+        validators=[DataRequired(message='Indique el destino.'), Length(max=120)],
+    )
+    ida = DateTimeLocalField('Ida', format=DATETIME_FORMAT, validators=[Optional()])
+    vuelta = DateTimeLocalField('Vuelta', format=DATETIME_FORMAT, validators=[Optional()])
+    viajeros = IntegerField(
+        'Personas', validators=[Optional(), NumberRange(min=1, max=50)], default=1,
+    )
+    preferencias = TextAreaField(
+        'Preferencias', validators=[Optional(), Length(max=500)],
+        description='Por ejemplo: evitar escalas, llegar la víspera, tren si es viable.',
+    )
+    submit = SubmitField('Proponer opciones')
