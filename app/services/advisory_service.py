@@ -210,6 +210,111 @@ def _retirar_anteriores(actor, trip):
     return len(anteriores)
 
 
+def huella_de(contenido):
+    """A digest of a page's text, for telling «changed» from «same».
+
+    Of the text rather than the markup: a site that reorders its own scripts or
+    stamps a session id into every page would otherwise look like it changed
+    its travel advice every single day, and a warning that cries every day is a
+    warning nobody reads.
+    """
+    from app.utils.hashing import sha256_text
+
+    limpio = ' '.join((contenido or '').split())
+    return sha256_text(limpio) if limpio else None
+
+
+def vigilar_fuentes(actor=None, regenerar=None):
+    """Re-read the sources behind live advisories and act if they moved.
+
+    An advisory is written once and then describes a moment. Countries raise
+    and lower their warnings between one trip and the next, so an advisory
+    nobody revisits is a description of the day it was generated, presented as
+    if it were current.
+
+    Only trips that have not finished are checked: re-reading the sources for a
+    journey that already happened spends model calls on advice nobody can act
+    on any more.
+
+    Returns ``{'revisados': n, 'cambiados': n, 'regenerados': n}``.
+    """
+    from app.models.enums import TRIP_CLOSED_STATES
+    from app.models.trip import Trip
+    from app.services import settings_service, web_research_service
+
+    if regenerar is None:
+        regenerar = settings_service.get_bool(
+            'RECOMENDACIONES_REGENERAR_AL_CAMBIAR', True
+        )
+
+    resumen = {'revisados': 0, 'cambiados': 0, 'regenerados': 0}
+
+    viajes = Trip.query.filter(
+        Trip.is_deleted.is_(False),
+        Trip.estado.notin_([str(e) for e in TRIP_CLOSED_STATES]),
+    ).all()
+
+    for trip in viajes:
+        vivas = [a for a in trip.advisories if not a.is_deleted and a.fuentes]
+        if not vivas:
+            continue
+
+        resumen['revisados'] += 1
+        cambiadas = []
+
+        # One reading per URL, however many advisories cite it.
+        leidas = {}
+        for advisory in vivas:
+            for fuente in advisory.fuentes or []:
+                url, huella = fuente.get('url'), fuente.get('huella')
+                if not url or not huella:
+                    continue
+
+                if url not in leidas:
+                    try:
+                        leida = web_research_service.fetch(
+                            url, use_cache=False, actor=actor,
+                        )
+                        leidas[url] = huella_de(leida.get('contenido'))
+                    except Exception as exc:
+                        logger.info('No se pudo revisar %s: %s', url, exc)
+                        leidas[url] = None
+
+                actual = leidas[url]
+                if actual is not None and actual != huella:
+                    cambiadas.append((advisory, url))
+                    break
+
+        if not cambiadas:
+            continue
+
+        resumen['cambiados'] += 1
+        urls = sorted({url for _, url in cambiadas})
+        logger.info(
+            'Las fuentes del viaje %s han cambiado: %s', trip.id, ', '.join(urls),
+        )
+        audit_service.record(
+            'advisory.source_changed',
+            recurso_tipo=AuditResourceType.RECOMENDACION,
+            recurso_id=str(trip.id),
+            actor=actor,
+            metadatos={'trip_id': str(trip.id), 'fuentes': urls},
+        )
+
+        if not regenerar:
+            continue
+
+        try:
+            generate_for_trip(actor or trip.gestor, trip)
+            resumen['regenerados'] += 1
+        except Exception:
+            logger.exception(
+                'No se pudieron regenerar las recomendaciones del viaje %s', trip.id,
+            )
+
+    return resumen
+
+
 def _consultar_fuentes(destino, trip, actor):
     """The sources for one destination, each on its own page where it has one.
 
@@ -330,6 +435,10 @@ def _build_advisory(actor, trip, destino, riesgo, fuentes, run_id):
                 'fuente': f.get('fuente'),
                 'es_oficial': f.get('es_oficial', False),
                 'consultado_en': f.get('consultado_en'),
+                # The exact state of the page this advice was written from.
+                # Without it «¿sigue diciendo lo mismo?» has no answer, and an
+                # advisory quietly becomes a description of last month.
+                'huella': huella_de(f.get('contenido')),
             }
             for f in fuentes
         ],

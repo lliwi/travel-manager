@@ -88,6 +88,12 @@ def make_celery():
                 'task': 'app.tasks.alerts.recalculate_active_trips',
                 'schedule': crontab(hour=3, minute=0),
             },
+            # Una vez al día basta: un país no cambia su nivel de aviso cada
+            # hora, y releer sus fichas cuesta una descarga por viaje vivo.
+            'vigilar-fuentes-de-recomendaciones': {
+                'task': 'app.tasks.maintenance.watch_advisory_sources',
+                'schedule': crontab(hour=6, minute=0),
+            },
             'caducar-recomendaciones': {
                 'task': 'app.tasks.maintenance.expire_advisories',
                 'schedule': crontab(hour=3, minute=30),

@@ -23,6 +23,13 @@ DEFAULTS = {
         True,
     ),
 
+    'RECOMENDACIONES_REGENERAR_AL_CAMBIAR': (
+        True, 'bool', 'recomendaciones', 'Regenerar si la fuente cambia',
+        'Cuando una fuente oficial cambie lo que dice de un destino, volver a '
+        'redactar las recomendaciones del viaje. Desactívelo si prefiere que '
+        'el cambio solo quede anotado y decidir usted.',
+        True,
+    ),
     'RECOMENDACIONES_VALIDAR_AL_GENERAR': (
         True, 'bool', 'recomendaciones', 'Validar al generar',
         'Las recomendaciones nacen validadas y el gestor rechaza las que no '

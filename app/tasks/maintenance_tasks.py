@@ -88,6 +88,20 @@ def advance_trip_states(self):
     return aplicados
 
 
+@celery.task(name='app.tasks.maintenance.watch_advisory_sources', bind=True)
+def watch_advisory_sources(self):
+    """Re-read the sources behind live advisories and act if they moved."""
+    from app.services import advisory_service
+
+    resumen = advisory_service.vigilar_fuentes()
+    if resumen['cambiados']:
+        logger.info(
+            'Fuentes cambiadas en %s viajes; %s regenerados.',
+            resumen['cambiados'], resumen['regenerados'],
+        )
+    return resumen
+
+
 @celery.task(name='app.tasks.maintenance.purge_web_cache', bind=True)
 def purge_web_cache(self, keep_days=90):
     """Drop expired web research cache entries."""
