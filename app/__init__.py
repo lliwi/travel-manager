@@ -114,7 +114,11 @@ def initialize_extensions(app):
             'connect-src': "'self'",
             'frame-ancestors': "'none'",
             'base-uri': "'self'",
-            'form-action': "'self'",
+            # Buying a flight is a form POST to Google's redirector: the
+            # booking link is a URL plus a body, and an anchor would drop the
+            # body and land on a page that has lost the flight. Only that host,
+            # and only because the alternative is no purchase link at all.
+            'form-action': ["'self'", 'https://www.google.com'],
             'object-src': "'none'",
         }
         talisman.init_app(

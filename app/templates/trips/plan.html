@@ -124,18 +124,41 @@
                                 {% endif %}
                             </div>
                         </div>
-                        {% if vuelo.precio %}
                         <div class="text-end text-nowrap">
-                            <strong>{{ vuelo.precio }}</strong>
+                            {% if vuelo.precio %}<strong>{{ vuelo.precio }}</strong>{% endif %}
+                            {% if vuelo.token %}
+                            {# Bajo demanda: preguntar dónde se compra es otra
+                               búsqueda facturada, y hacerlo para los ocho
+                               resultados de cada planificación gastaría el
+                               presupuesto de un día en seis planificaciones. #}
+                            <form method="post" action="{{ url_for('trips.purchase_options') }}"
+                                  class="mt-1 mb-0">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <input type="hidden" name="token" value="{{ vuelo.token }}">
+                                {% for clave, valor in vuelo.busqueda.items() %}
+                                <input type="hidden" name="{{ clave }}" value="{{ valor }}">
+                                {% endfor %}
+                                <input type="hidden" name="resumen"
+                                       value="{{ vuelo.tramos[0].origen }} → {{ vuelo.tramos[-1].destino }}, {{ vuelo.tramos[0].salida }}">
+                                <button type="submit" class="btn btn-sm btn-outline-primary">
+                                    Dónde comprarlo
+                                </button>
+                            </form>
+                            {% endif %}
                         </div>
-                        {% endif %}
                     </div>
                 </li>
                 {% endfor %}
             </ul>
-            <div class="card-footer text-muted small">
-                Precios orientativos de Google Flights en el momento de la
-                consulta. No es una reserva ni garantiza disponibilidad.
+            <div class="card-footer text-muted small d-flex justify-content-between align-items-center gap-3">
+                <span>Precios orientativos de Google Flights en el momento de la
+                      consulta. No es una reserva ni garantiza disponibilidad.</span>
+                {% if opciones.enlace_vuelos %}
+                <a href="{{ opciones.enlace_vuelos }}" target="_blank"
+                   rel="noopener noreferrer" class="text-nowrap">
+                    Ver la búsqueda <i class="bi bi-box-arrow-up-right"></i>
+                </a>
+                {% endif %}
             </div>
         </div>
         {% endif %}

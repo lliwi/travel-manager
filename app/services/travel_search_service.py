@@ -25,6 +25,7 @@ Ajustes, which is the explicit decision the project asks for.
 
 import logging
 from datetime import date, timedelta
+from urllib.parse import parse_qsl
 
 import httpx
 
@@ -39,6 +40,12 @@ ENDPOINT = 'https://serpapi.com/search'
 #: Long enough for a deep search, short enough that a hung connector does not
 #: hold a request open until Gunicorn's own timeout kills it.
 TIMEOUT = 25.0
+
+#: Asking where a flight can be bought is a different animal: the connector
+#: goes out to sixteen sellers for live prices, and an uncached call took more
+#: than the 25 seconds above -- which showed up as «el buscador no responde»
+#: for a request that was working fine. Still well inside Gunicorn's 120.
+TIMEOUT_COMPRA = 60.0
 
 #: Audit action every search is recorded under. It is also what the daily
 #: budget is counted from, so the two can never disagree.
@@ -135,7 +142,7 @@ def _registrar(actor, motor, parametros, resultados, error=None):
     )
 
 
-def _pedir(actor, motor, parametros):
+def _pedir(actor, motor, parametros, timeout=TIMEOUT):
     """One call to SerpApi, with the budget and the failures handled here."""
     if not esta_configurada():
         raise BusquedaNoDisponible(
@@ -163,7 +170,7 @@ def _pedir(actor, motor, parametros):
         consulta.setdefault('hl', 'es')
 
     try:
-        with httpx.Client(timeout=TIMEOUT) as client:
+        with httpx.Client(timeout=timeout) as client:
             respuesta = client.get(ENDPOINT, params=consulta)
     except httpx.HTTPError as exc:
         # The key must never reach a log line, and httpx puts the full URL --
@@ -266,8 +273,60 @@ def buscar_vuelos(actor, origen, destino, ida, vuelta=None, viajeros=1,
 
     brutas = (datos.get('best_flights') or []) + (datos.get('other_flights') or [])
     opciones = [_opcion_de_vuelo(o) for o in brutas[:8]]
+
+    # The parameters travel back with each option because asking where a
+    # flight can be bought means repeating the whole search with its token
+    # attached; SerpApi will not take the token on its own.
+    for opcion, bruta in zip(opciones, brutas, strict=False):
+        opcion['token'] = bruta.get('booking_token')
+        opcion['busqueda'] = parametros
+
     _registrar(actor, 'google_flights', parametros, len(opciones))
-    return opciones
+    return {
+        'opciones': opciones,
+        # Free, and already in the response: one link to the same search on
+        # Google Flights. Per-flight purchase links cost another search each,
+        # so this is what every result gets without spending anything.
+        'enlace': (datos.get('search_metadata') or {}).get('google_flights_url'),
+    }
+
+
+def opciones_de_compra(actor, token, busqueda):
+    """Where one flight can actually be bought, and for how much.
+
+    Deliberately on demand. Each call is a second billed search, so doing it
+    for the eight results of every planning would spend a day's budget in six
+    plannings -- and nobody looks at eight.
+
+    What comes back is not a link but a form submission: Google hands over a
+    URL plus a body, so the template posts it. An anchor would silently drop
+    the body and land on a page that has lost the flight.
+    """
+    datos = _pedir(
+        actor, 'google_flights', {**(busqueda or {}), 'booking_token': token},
+        timeout=TIMEOUT_COMPRA,
+    )
+
+    salidas = []
+    for bruta in (datos.get('booking_options') or [])[:12]:
+        oferta = bruta.get('together') or bruta
+        peticion = oferta.get('booking_request') or {}
+        if not peticion.get('url'):
+            continue
+        salidas.append({
+            'vendedor': oferta.get('book_with'),
+            'operado_por': oferta.get('marketed_as'),
+            'precio': oferta.get('price'),
+            'url': peticion.get('url'),
+            # Parsed here rather than in the template: the body arrives
+            # url-encoded, and a template splitting it on «&» would send the
+            # escapes through literally and lose the flight.
+            'campos': dict(parse_qsl(peticion.get('post_data') or '')),
+        })
+
+    _registrar(actor, 'google_flights_compra', {'ruta': (busqueda or {}).get('departure_id')},
+               len(salidas))
+    return salidas
 
 
 # ======================================================================
@@ -369,7 +428,8 @@ def buscar_para(actor, origen, destino, ida, vuelta=None, viajeros=1):
     no flights, and without an explicit note that trains are not covered, an
     empty list reads as «there is no way to get there».
     """
-    resultado = {'vuelos': [], 'alojamiento': [], 'avisos': [], 'consultado': False}
+    resultado = {'vuelos': [], 'alojamiento': [], 'avisos': [],
+                 'enlace_vuelos': None, 'consultado': False}
 
     if not esta_configurada() or not ida:
         return resultado
@@ -379,9 +439,11 @@ def buscar_para(actor, origen, destino, ida, vuelta=None, viajeros=1):
 
     if codigo_origen and codigo_destino and codigo_origen != codigo_destino:
         try:
-            resultado['vuelos'] = buscar_vuelos(
+            encontrado = buscar_vuelos(
                 actor, codigo_origen, codigo_destino, ida, vuelta, viajeros,
             )
+            resultado['vuelos'] = encontrado['opciones']
+            resultado['enlace_vuelos'] = encontrado['enlace']
             resultado['consultado'] = True
         except BusquedaNoDisponible as error:
             resultado['avisos'].append(error.mensaje)

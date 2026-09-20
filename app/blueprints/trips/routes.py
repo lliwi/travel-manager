@@ -478,6 +478,49 @@ def summary(trip_id, trip):
     return render_template('trips/summary.html', trip=trip, resumen=resumen)
 
 
+@trips_bp.route('/planificar/comprar', methods=['POST'])
+@login_required
+@require_permiso(Permiso.CREAR_VIAJE)
+@rate_limited('10 per minute; 40 per hour')
+def purchase_options():
+    """Where one proposed flight can actually be bought.
+
+    On demand and on its own page: each call is a second billed search, so
+    doing it for the eight results of every planning would spend a day's
+    budget in six plannings, and nobody looks at eight.
+    """
+    from app.services import travel_search_service
+
+    token = request.form.get('token')
+    if not token:
+        flash('No se ha indicado qué vuelo consultar.', 'warning')
+        return redirect(url_for('trips.plan'))
+
+    busqueda = {
+        clave: request.form.get(clave)
+        for clave in ('departure_id', 'arrival_id', 'outbound_date',
+                      'return_date', 'type', 'adults')
+        if request.form.get(clave)
+    }
+
+    ofertas = []
+    try:
+        ofertas = travel_search_service.opciones_de_compra(
+            current_user._get_current_object(), token, busqueda,
+        )
+    except AppError as error:
+        flash(error.mensaje, 'warning')
+    except Exception:
+        logger.exception('Falló la consulta de opciones de compra')
+        flash('No se ha podido consultar dónde comprar este vuelo.', 'danger')
+
+    return render_template(
+        'trips/purchase.html',
+        ofertas=ofertas,
+        resumen=request.form.get('resumen') or 'el vuelo seleccionado',
+    )
+
+
 # ======================================================================
 # Itinerary
 # ======================================================================

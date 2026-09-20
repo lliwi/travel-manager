@@ -125,12 +125,12 @@ class TestLoQueDevuelve:
         _configurar()
         monkeypatch.setattr(httpx, 'Client', _cliente_que_responde(RESPUESTA_VUELOS))
 
-        opciones = travel_search_service.buscar_vuelos(
+        encontrado = travel_search_service.buscar_vuelos(
             gestor, 'BCN', 'LHR', '2026-10-01', viajeros=2,
         )
 
-        assert len(opciones) == 1
-        vuelo = opciones[0]
+        assert len(encontrado['opciones']) == 1
+        vuelo = encontrado['opciones'][0]
         assert vuelo['precio'] == 187
         assert vuelo['duracion_total'] == '2 h 35 min'
         assert vuelo['tramos'][0]['numero'] == 'BA 477'
@@ -157,7 +157,7 @@ class TestLoQueDevuelve:
         )
 
         assert travel_search_service.buscar_vuelos(
-            gestor, 'BCN', 'LHR', '2026-10-01') == []
+            gestor, 'BCN', 'LHR', '2026-10-01')['opciones'] == []
 
 
 @pytest.mark.integration
@@ -487,3 +487,157 @@ class TestElIdiomaNoTumbaLaBusqueda:
         travel_search_service.buscar_vuelos(gestor, 'BCN', 'CDG', '2026-10-15')
 
         assert registro[0]['params']['hl'] == 'es'
+
+
+#: A booking option, shaped like SerpApi shapes them. The link is a URL plus a
+#: body, not an address -- which is what makes it a form and not an anchor.
+RESPUESTA_COMPRA = {
+    'booking_options': [
+        {'together': {
+            'book_with': 'Vueling',
+            'marketed_as': ['VY 8246'],
+            'price': 63,
+            'booking_request': {
+                'url': 'https://www.google.com/travel/clk/f',
+                'post_data': 'u=ADowPOK00khXtvt5&gwp=1%2F2',
+            },
+        }},
+        {'together': {
+            'book_with': 'Booking.com',
+            'price': 59,
+            'booking_request': {'url': 'https://www.google.com/travel/clk/f',
+                                'post_data': 'u=OTRO'},
+        }},
+    ],
+}
+
+
+@pytest.mark.integration
+class TestLosEnlacesAlVuelo:
+    def test_la_lista_trae_el_enlace_a_la_busqueda(
+        self, app, seeded, gestor, monkeypatch,
+    ):
+        """Free: it is already in the response, so every result gets it
+        without a second billed search."""
+        _configurar()
+        monkeypatch.setattr(httpx, 'Client', _cliente_que_responde({
+            **RESPUESTA_VUELOS,
+            'search_metadata': {'google_flights_url': 'https://example.test/vuelos'},
+        }))
+
+        encontrado = travel_search_service.buscar_vuelos(
+            gestor, 'BCN', 'CDG', '2026-10-15')
+
+        assert encontrado['enlace'] == 'https://example.test/vuelos'
+
+    def test_cada_vuelo_lleva_con_que_preguntar_donde_comprarlo(
+        self, app, seeded, gestor, monkeypatch,
+    ):
+        """SerpApi will not take the token alone: the whole search goes back
+        with it, so the parameters travel with each option."""
+        _configurar()
+        monkeypatch.setattr(httpx, 'Client', _cliente_que_responde({
+            **RESPUESTA_VUELOS,
+            'best_flights': [{**RESPUESTA_VUELOS['best_flights'][0],
+                              'booking_token': 'UN-TOKEN'}],
+        }))
+
+        vuelo = travel_search_service.buscar_vuelos(
+            gestor, 'BCN', 'CDG', '2026-10-15')['opciones'][0]
+
+        assert vuelo['token'] == 'UN-TOKEN'
+        assert vuelo['busqueda']['departure_id'] == 'BCN'
+
+    def test_el_cuerpo_del_formulario_se_descodifica(
+        self, app, seeded, gestor, monkeypatch,
+    ):
+        """A template splitting the raw body on «&» would send the escapes
+        through literally and land on a page that lost the flight."""
+        _configurar()
+        monkeypatch.setattr(httpx, 'Client', _cliente_que_responde(RESPUESTA_COMPRA))
+
+        ofertas = travel_search_service.opciones_de_compra(
+            gestor, 'UN-TOKEN', {'departure_id': 'BCN'})
+
+        assert ofertas[0]['vendedor'] == 'Vueling'
+        assert ofertas[0]['campos']['u'] == 'ADowPOK00khXtvt5'
+        assert ofertas[0]['campos']['gwp'] == '1/2'
+
+    def test_preguntar_donde_comprar_cuesta_una_busqueda(
+        self, app, seeded, gestor, monkeypatch,
+    ):
+        """On demand precisely because of this: doing it for all eight results
+        of every planning would spend a day's budget in six plannings."""
+        _configurar()
+        monkeypatch.setattr(httpx, 'Client', _cliente_que_responde(RESPUESTA_COMPRA))
+
+        antes = travel_search_service.presupuesto_restante()
+        travel_search_service.opciones_de_compra(gestor, 'UN-TOKEN', {})
+
+        assert travel_search_service.presupuesto_restante() == antes - 1
+
+    def test_la_pantalla_ofrece_donde_comprarlo(
+        self, as_user, gestor, seeded, monkeypatch,
+    ):
+        _configurar()
+        monkeypatch.setattr(httpx, 'Client', _cliente_que_responde({
+            **RESPUESTA_VUELOS,
+            'best_flights': [{**RESPUESTA_VUELOS['best_flights'][0],
+                              'booking_token': 'UN-TOKEN'}],
+        }))
+
+        with as_user(gestor) as client:
+            html = client.post('/trips/planificar', data={
+                'origen': 'BCN', 'destino': 'LHR',
+                'ida': '2026-10-01T07:00', 'viajeros': 1,
+            }).get_data(as_text=True)
+
+        assert 'Dónde comprarlo' in html
+        assert 'UN-TOKEN' in html
+
+    def test_se_listan_los_vendedores(
+        self, as_user, gestor, seeded, monkeypatch,
+    ):
+        _configurar()
+        monkeypatch.setattr(httpx, 'Client', _cliente_que_responde(RESPUESTA_COMPRA))
+
+        with as_user(gestor) as client:
+            html = client.post('/trips/planificar/comprar', data={
+                'token': 'UN-TOKEN', 'departure_id': 'BCN',
+                'arrival_id': 'CDG', 'outbound_date': '2026-10-15',
+            }).get_data(as_text=True)
+
+        assert 'Vueling' in html
+        assert 'Booking.com' in html
+        # Un POST, no un <a>: el enlace es una URL más un cuerpo.
+        assert 'method="post" action="https://www.google.com/travel/clk/f"' in html
+
+    def test_sin_token_no_se_gasta_una_busqueda(self, as_user, gestor, seeded):
+        _configurar()
+
+        with as_user(gestor) as client:
+            respuesta = client.post('/trips/planificar/comprar', data={})
+
+        assert respuesta.status_code == 302
+
+
+@pytest.mark.security
+class TestElFormularioDeCompraLlegaAGoogle:
+    def test_la_csp_lo_permite(self):
+        """`form-action 'self'` would block the POST silently, and the button
+        would do nothing with no error anywhere."""
+        from pathlib import Path
+
+        fuente = (Path(__file__).resolve().parent.parent
+                  / 'app' / '__init__.py').read_text()
+
+        assert "'form-action': [\"'self'\", 'https://www.google.com']" in fuente
+
+    def test_solo_quien_puede_crear_viajes_consulta_precios(
+        self, as_user, viajero, seeded,
+    ):
+        with as_user(viajero) as client:
+            respuesta = client.post('/trips/planificar/comprar',
+                                    data={'token': 'X'})
+
+        assert respuesta.status_code == 403

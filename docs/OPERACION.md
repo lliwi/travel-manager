@@ -135,7 +135,10 @@ clave que se obtiene en serpapi.com. Sin ella, el asistente sigue funcionando:
 orienta sobre cómo viajar en lugar de decir qué hay.
 
 **Cada consulta se cobra.** Una planificación gasta hasta dos búsquedas —una de
-vuelos y otra de alojamiento—. El ajuste «Búsquedas máximas al día» es el freno:
+vuelos y otra de alojamiento—, y cada vez que alguien pulsa «Dónde comprarlo»
+en un vuelo se gasta otra. Ese botón va aparte y bajo demanda precisamente por
+eso: resolverlo para los ocho resultados de cada planificación gastaría el
+presupuesto de un día en seis planificaciones, y nadie mira ocho. El ajuste «Búsquedas máximas al día» es el freno:
 alcanzado el límite el asistente sigue respondiendo sin opciones concretas, en
 lugar de generar una factura que nadie esperaba. El consumo se cuenta desde la
 propia auditoría, así que se puede revisar:

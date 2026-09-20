@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Dónde comprarlo — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('trips.plan') }}">Planificar</a></li>
+<li class="breadcrumb-item active">Dónde comprarlo</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Dónde comprar</h1>
+    <p class="text-muted mb-0">{{ resumen }}</p>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        {% if ofertas %}
+        <div class="card mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Vendedores</span>
+                <span class="badge bg-light text-muted border">Datos del buscador</span>
+            </div>
+            <ul class="list-group list-group-flush">
+                {% for oferta in ofertas %}
+                <li class="list-group-item d-flex justify-content-between align-items-center gap-3">
+                    <div>
+                        <strong>{{ oferta.vendedor }}</strong>
+                        {% if oferta.operado_por and oferta.operado_por != oferta.vendedor %}
+                        <div class="text-muted small">Vuelo de {{ oferta.operado_por }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="d-flex align-items-center gap-3 text-nowrap">
+                        {% if oferta.precio %}<strong>{{ oferta.precio }}</strong>{% endif %}
+                        {# Un POST, no un enlace: Google entrega una URL y un
+                           cuerpo, y un <a> perdería el cuerpo y aterrizaría en
+                           una página que ya no sabe de qué vuelo se hablaba. #}
+                        <form method="post" action="{{ oferta.url }}"
+                              target="_blank" rel="noopener noreferrer" class="mb-0">
+                            {% for nombre, valor in oferta.campos.items() %}
+                            <input type="hidden" name="{{ nombre }}" value="{{ valor }}">
+                            {% endfor %}
+                            <button type="submit" class="btn btn-sm btn-primary">
+                                Comprar <i class="bi bi-box-arrow-up-right ms-1"></i>
+                            </button>
+                        </form>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+            <div class="card-footer text-muted small">
+                Precios del momento de la consulta. Al pulsar «Comprar» se sale
+                de esta aplicación: la compra se hace en la web del vendedor y
+                no queda registrada aquí.
+            </div>
+        </div>
+        {% else %}
+        <div class="card"><div class="card-body empty-state">
+            <i class="bi bi-cart-x"></i>
+            <p>No se han encontrado vendedores para este vuelo.</p>
+        </div></div>
+        {% endif %}
+
+        <a href="{{ url_for('trips.plan') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left me-1"></i>Volver a planificar
+        </a>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header">Qué es esto</div>
+            <div class="card-body small text-muted">
+                <p>La lista de quién vende este vuelo y a qué precio, tal y como
+                   la devuelve el buscador.</p>
+                <p class="mb-0">Esta aplicación no compra nada ni guarda la
+                   compra. Cuando tenga la reserva, súbala como documento al
+                   viaje y el sistema extraerá los datos.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
