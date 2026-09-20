@@ -197,3 +197,46 @@ class TestFiltrosConCadenas:
         from app.utils.timeutil import format_local
 
         assert format_local('la semana que viene') == '—'
+
+
+@pytest.mark.unit
+class TestComparablesEntreMotores:
+    """PostgreSQL returns these aware and SQLite naive.
+
+    The same two columns then compare fine in production and raise in the
+    tests, or the other way round -- which is how a policy rule that worked on
+    the developer's machine blew up on the first real trip.
+    """
+
+    def test_una_marca_sin_zona_se_lee_como_utc(self):
+        from datetime import UTC, datetime
+
+        from app.utils.timeutil import as_aware_utc
+
+        sin_zona = datetime(2026, 6, 1, 10, 0)
+
+        assert as_aware_utc(sin_zona) == datetime(2026, 6, 1, 10, 0, tzinfo=UTC)
+
+    def test_una_marca_con_zona_no_se_toca(self):
+        from datetime import UTC, datetime
+
+        from app.utils.timeutil import as_aware_utc
+
+        con_zona = datetime(2026, 6, 1, 10, 0, tzinfo=UTC)
+
+        assert as_aware_utc(con_zona) is con_zona
+
+    def test_se_pueden_restar_entre_si(self):
+        from datetime import UTC, datetime
+
+        from app.utils.timeutil import as_aware_utc
+
+        naive = as_aware_utc(datetime(2026, 6, 1, 10, 0))
+        aware = as_aware_utc(datetime(2026, 6, 2, 10, 0, tzinfo=UTC))
+
+        assert (aware - naive).days == 1
+
+    def test_none_sigue_siendo_none(self):
+        from app.utils.timeutil import as_aware_utc
+
+        assert as_aware_utc(None) is None

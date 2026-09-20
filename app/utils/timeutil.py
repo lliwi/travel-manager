@@ -132,6 +132,19 @@ def get_instant(entity, prefix):
     )
 
 
+def as_aware_utc(value):
+    """A datetime that can be compared, whatever the driver returned.
+
+    PostgreSQL hands back an aware datetime and SQLite a naive one, so the same
+    two columns compare fine in production and raise in the tests -- or worse,
+    the other way round. A value with no zone is read as UTC, which is what
+    every stored ``_utc`` column already is.
+    """
+    if value is None:
+        return None
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value
+
+
 def minutes_between(earlier_utc, later_utc):
     """Whole minutes from ``earlier_utc`` to ``later_utc``.
 

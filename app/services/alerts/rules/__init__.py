@@ -14,6 +14,11 @@ from app.services.alerts.rules.lodging import (
     UncoveredNightRule,
 )
 from app.services.alerts.rules.overlaps import OverlappingSegmentsRule
+from app.services.alerts.rules.policy import (
+    LodgingCostOverPolicyRule,
+    ShortNoticeBookingRule,
+    TripCostOverPolicyRule,
+)
 from app.services.alerts.rules.timezones import TimezoneShiftRule
 
 __all__ = [
@@ -25,4 +30,7 @@ __all__ = [
     'MissingSupportingDocumentRule',
     'TimezoneShiftRule',
     'TravelDocumentExpiryRule',
+    'TripCostOverPolicyRule',
+    'LodgingCostOverPolicyRule',
+    'ShortNoticeBookingRule',
 ]

@@ -26,6 +26,9 @@ GRUPOS = (
      'Generación, validación y vigilancia de las fuentes.'),
     ('investigacion', 'Investigación pública',
      'Consulta de fuentes oficiales en internet.'),
+    ('politica', 'Política corporativa',
+     'Límites que un viaje debe respetar, y por encima de los cuales hace '
+     'falta una aprobación.'),
     ('funcionalidad', 'Funcionalidad opcional',
      'Partes del sistema que su organización puede no necesitar.'),
     ('retencion', 'Retención', 'Cuánto tiempo se conserva cada cosa.'),
@@ -156,6 +159,40 @@ DEFAULTS = {
         False,
     ),
     # --- Features -----------------------------------------------------
+    'INVESTIGACION_WEB_HABILITADA': (
+        True, 'bool', 'funcionalidad', 'Investigación en internet',
+        'Permite consultar las fuentes públicas autorizadas para redactar '
+        'recomendaciones de seguridad.',
+        False,
+    ),
+
+    # --- Política corporativa -----------------------------------------
+    'POLITICA_MONEDA': (
+        'EUR', 'string', 'politica', 'Moneda de la política',
+        'Los límites de abajo se expresan en esta moneda. Un importe en otra '
+        'no se compara: convertirlo exigiría un tipo de cambio que esta '
+        'aplicación no tiene y que cambiaría el resultado sin avisar.',
+        True,
+    ),
+    'POLITICA_COSTE_MAXIMO_VIAJE': (
+        0, 'int', 'politica', 'Coste máximo por viaje',
+        'Por encima de este importe el viaje necesita aprobación. Cero lo '
+        'desactiva.',
+        True,
+    ),
+    'POLITICA_COSTE_MAXIMO_NOCHE': (
+        0, 'int', 'politica', 'Coste máximo por noche de alojamiento',
+        'Por encima de este importe por noche, el alojamiento necesita '
+        'aprobación. Cero lo desactiva.',
+        True,
+    ),
+    'POLITICA_ANTELACION_MINIMA_DIAS': (
+        0, 'int', 'politica', 'Antelación mínima (días)',
+        'Reservar con menos antelación que esta se señala: suele costar más y '
+        'la organización puede querer saberlo. Cero lo desactiva.',
+        True,
+    ),
+
     'COSTES_HABILITADOS': (
         False, 'bool', 'funcionalidad', 'Tratamiento de costes',
         'Habilita los importes en viajes y servicios (sección 2.2 del requerimiento).',

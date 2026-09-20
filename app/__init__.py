@@ -327,13 +327,39 @@ def register_template_helpers(app):
             'app_version': __version__,
             'enums': enums,
             'label': enums.label,
-            'feature_flags': {
+            'feature_flags': _flags(),
+            'notificaciones_sin_leer': _sin_leer(),
+        }
+
+    def _flags():
+        """What the interface shows, decided in the panel.
+
+        These were read from the environment while the switches that turn them
+        on lived in Ajustes, so turning costs on there did nothing to the
+        screens. The environment is the bootstrap value until the row exists,
+        as everywhere else.
+        """
+        try:
+            from app.services import settings_service
+
+            return {
+                'costs': settings_service.get_bool(
+                    'COSTES_HABILITADOS', app.config['COSTS_ENABLED'],
+                ),
+                'traveler_documents': settings_service.get_bool(
+                    'DOCUMENTOS_VIAJERO_HABILITADOS',
+                    app.config['TRAVELER_DOCUMENTS_ENABLED'],
+                ),
+                'web_research': settings_service.get_bool(
+                    'INVESTIGACION_WEB_HABILITADA', app.config['WEB_RESEARCH_ENABLED'],
+                ),
+            }
+        except Exception:
+            return {
                 'costs': app.config['COSTS_ENABLED'],
                 'traveler_documents': app.config['TRAVELER_DOCUMENTS_ENABLED'],
                 'web_research': app.config['WEB_RESEARCH_ENABLED'],
-            },
-            'notificaciones_sin_leer': _sin_leer(),
-        }
+            }
 
     def _sin_leer():
         """The badge on the bell, on every page.
