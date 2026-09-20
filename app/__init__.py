@@ -318,7 +318,9 @@ def register_error_handlers(app):
 def register_template_helpers(app):
     """Expose enum labels, feature flags and formatting helpers to Jinja."""
     from app.models import enums
-    from app.utils import timeutil
+    from app.utils import assets, timeutil
+
+    assets.register(app)
 
     @app.context_processor
     def _inject_globals():

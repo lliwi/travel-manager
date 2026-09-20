@@ -129,3 +129,102 @@ class TestLoQueTraeLaMejora:
               / 'app' / 'static' / 'js' / 'main.js').read_text()
 
         assert "typeof DataTransfer === 'undefined'" in js
+
+
+@pytest.mark.unit
+class TestSoltarFueraDeLaZona:
+    """A near miss must be harmless.
+
+    Dropping a file anywhere a page does not handle makes the browser navigate
+    to it, abandoning the form and everything typed into it. The zone is a
+    modest target inside a long form, so missing it is the common case, not the
+    exotic one.
+    """
+
+    def _js(self):
+        from pathlib import Path
+
+        return (Path(__file__).resolve().parent.parent
+                / 'app' / 'static' / 'js' / 'main.js').read_text()
+
+    def test_el_documento_no_abre_al_fallar_el_blanco(self):
+        js = self._js()
+
+        assert "document.addEventListener(evento, function (e) {" in js
+        assert "closest('.js-dropzone')" in js
+
+    def test_se_ve_adonde_apuntar_antes_de_soltar(self):
+        from pathlib import Path
+
+        js = self._js()
+        css = (Path(__file__).resolve().parent.parent
+               / 'app' / 'static' / 'css' / 'main.css').read_text()
+
+        assert 'hay-arrastre' in js
+        assert '.hay-arrastre .dropzone' in css
+
+
+@pytest.mark.integration
+class TestElNavegadorRecibeElScriptNuevo:
+    """The bug this guards against had no visible symptom in the code.
+
+    The drop zone was correct and still opened the document, because browsers
+    were running the ``main.js`` they had cached from before it existed. Nginx
+    serves /static/ with ``immutable`` and a seven day expiry, so without a
+    token in the URL a change to a script reaches nobody who visited recently.
+    """
+
+    def test_el_js_lleva_version_en_la_url(self, as_user, gestor, trip):
+        with as_user(gestor) as client:
+            html = client.get(
+                f'/documents/viaje/{trip.id}/subir'
+            ).get_data(as_text=True)
+
+        assert 'js/main.js?v=' in html
+
+    def test_el_css_tambien(self, as_user, gestor, trip):
+        with as_user(gestor) as client:
+            html = client.get(
+                f'/documents/viaje/{trip.id}/subir'
+            ).get_data(as_text=True)
+
+        assert 'css/main.css?v=' in html
+
+    def test_la_version_cambia_cuando_cambia_el_fichero(self, app, tmp_path):
+        """Otherwise the token is decoration and the stale copy stays."""
+        import os
+
+        from app.utils import assets
+
+        fichero = tmp_path / 'probe.js'
+        fichero.write_text('uno')
+
+        original = app.static_folder
+        app.static_folder = str(tmp_path)
+        try:
+            assets._versions.clear()
+            antes = assets.version_for(app, 'probe.js')
+
+            fichero.write_text('dos')
+            os.utime(fichero, (0, 0))
+            assets._versions.clear()
+            despues = assets.version_for(app, 'probe.js')
+        finally:
+            app.static_folder = original
+            assets._versions.clear()
+
+        assert antes and despues
+        assert antes != despues
+
+    def test_un_estatico_inexistente_no_rompe_la_pagina(self, app):
+        """A missing file must 404 like any other, not raise while rendering."""
+        from flask import url_for
+
+        from app.utils import assets
+
+        assets._versions.clear()
+        with app.test_request_context():
+            url = url_for('static', filename='no/existe.js')
+
+        assert 'no/existe.js' in url
+        assert '?v=' not in url

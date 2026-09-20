@@ -176,5 +176,36 @@
         pintarLista(zona, input);
     }
 
+    /* Un fichero soltado fuera de la zona lo abre el navegador, que abandona
+       la página y se lleva por delante lo que hubiera escrito en el formulario.
+       Al apuntar cerca pero fallar, el precio de errar no puede ser perder el
+       trabajo: fuera de la zona, soltar no hace nada. */
+    ['dragover', 'drop'].forEach(function (evento) {
+        document.addEventListener(evento, function (e) {
+            if (!e.target.closest || !e.target.closest('.js-dropzone')) {
+                e.preventDefault();
+            }
+        });
+    });
+
+    /* Mientras se arrastra algo por la ventana, las zonas se marcan solas: el
+       blanco al que hay que apuntar se ve antes de soltar, no después. */
+    var profundidad = 0;
+    document.addEventListener('dragenter', function (e) {
+        if (!e.dataTransfer || !contieneArchivos(e.dataTransfer)) { return; }
+        profundidad += 1;
+        document.body.classList.add('hay-arrastre');
+    });
+    ['dragleave', 'drop'].forEach(function (evento) {
+        document.addEventListener(evento, function () {
+            profundidad = evento === 'drop' ? 0 : Math.max(0, profundidad - 1);
+            if (profundidad === 0) { document.body.classList.remove('hay-arrastre'); }
+        });
+    });
+
+    function contieneArchivos(dt) {
+        return Array.prototype.indexOf.call(dt.types || [], 'Files') !== -1;
+    }
+
     document.querySelectorAll('.js-dropzone').forEach(conectar);
 })();

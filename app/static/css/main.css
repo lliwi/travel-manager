@@ -392,6 +392,12 @@ a.chip:hover { background: #e2e8f0; }
     cursor: pointer;
 }
 
+/* Mientras haya un fichero sobrevolando la ventana, la zona se distingue del
+   resto del formulario: se ve adónde apuntar antes de soltar. */
+.hay-arrastre .dropzone {
+    border-color: var(--bs-primary, #0d6efd);
+}
+
 .dropzone.is-dragging {
     border-color: var(--bs-primary, #0d6efd);
     background-color: rgba(13, 110, 253, .06);
