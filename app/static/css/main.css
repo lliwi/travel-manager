@@ -270,13 +270,29 @@ a.chip:hover { background: #e2e8f0; }
 .alert-card-danger { border-left-color: #dc3545; }
 .alert-card-dark { border-left-color: #212529; }
 
-/* Lo que sigue abierto, sombreado. En «Todas» conviven las abiertas con las
-   resueltas y las descartadas, y todas se leen igual: hay que ir mirando la
-   etiqueta de estado de cada una para saber cuáles quedan pendientes. El
-   relleno las separa sin leerlas, y no estorba al color de severidad, que
-   vive en el borde izquierdo. */
-.alert-card-abierta {
-    background-color: #eafaf1;
+/* El estado, en el relleno. En «Todas» conviven los cuatro y todos se leen
+   igual: hay que ir mirando la etiqueta de cada uno para saber qué queda
+   pendiente. El color los separa sin leerlos.
+
+   Va en el relleno y no en el borde izquierdo porque ahí vive la severidad.
+   Son dos señales distintas —qué de grave es, y qué se decidió— y fundirlas
+   en una perdería la que sirve para priorizar.
+
+   «Abierta» no lleva color a propósito: es el estado al que todavía no le ha
+   pasado nada, y hace de fondo neutro contra el que destacan los otros tres.
+   Sombrear los cuatro dejaría la lista sin nada contra lo que leerlos. */
+.alert-estado-aceptada   { background-color: #fdf4e3; }
+.alert-estado-resuelta   { background-color: #eafaf1; }
+.alert-estado-descartada { background-color: #fdeceb; }
+
+/* El azul de enlace por defecto da 4.5:1 justos sobre blanco, así que
+   cualquier tinte lo baja del mínimo de AA. Se oscurece un paso -- el propio
+   azul-600 de Bootstrap -- solo en las tarjetas que sí llevan tinte: el
+   problema lo introduce el fondo, y ahí es donde se arregla. */
+.alert-estado-aceptada .card-body a,
+.alert-estado-resuelta .card-body a,
+.alert-estado-descartada .card-body a {
+    color: #0b5ed7;
 }
 
 .filter-pills { display: flex; flex-wrap: wrap; gap: .35rem; }

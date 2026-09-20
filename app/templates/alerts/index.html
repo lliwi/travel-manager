@@ -33,7 +33,7 @@
 <div class="alert-list">
     {% for alerta in alerts %}
     <div class="card mb-2 alert-card alert-card-{{ alerta.severidad.css_class }}
-                {{ 'alert-card-abierta' if alerta.is_open }}">
+                {{ 'alert-estado-' ~ alerta.estado.css_class if alerta.estado.css_class }}">
         <div class="card-body">
             <div class="d-flex justify-content-between align-items-start gap-3">
                 <div>

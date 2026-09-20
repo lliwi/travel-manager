@@ -582,41 +582,63 @@ class TestElFiltroPorDefecto:
         assert 'No hay alertas abiertas' in html
         assert 'Ver todas' in html
 
-    def test_en_todas_las_abiertas_van_sombreadas(self, as_user, gestor, trip):
-        """In «Todas» the open ones sit among the resolved and the dismissed
-        and read identically; without the fill you have to check every state
-        badge to see what is still pending."""
+    def test_cada_estado_tiene_su_color(self):
+        from app.models.enums import AlertState
+
+        assert AlertState.ABIERTA.css_class is None
+        assert AlertState.ACEPTADA.css_class == 'aceptada'
+        assert AlertState.RESUELTA.css_class == 'resuelta'
+        assert AlertState.DESCARTADA.css_class == 'descartada'
+
+    def test_una_abierta_no_lleva_relleno(self, as_user, gestor, trip):
+        """It is the state nothing has happened to yet, and the neutral
+        ground the other three are read against."""
+        from app.models.enums import AlertState
+
+        self._alerta(trip, AlertState.ABIERTA, 'Sigue abierta', 'j' * 16)
+
+        with as_user(gestor) as client:
+            html = client.get(self._url(trip)).get_data(as_text=True)
+
+        assert 'Sigue abierta' in html
+        assert 'alert-estado-' not in html
+
+    def test_en_todas_se_distinguen_los_estados(self, as_user, gestor, trip):
+        """In «Todas» the four states sit together and read identically;
+        without the fill you have to check every badge to tell them apart."""
         from app.models.enums import AlertState
 
         self._alerta(trip, AlertState.ABIERTA, 'Sigue abierta', 'g' * 16)
         self._alerta(trip, AlertState.RESUELTA, 'Ya resuelta', 'h' * 16)
+        self._alerta(trip, AlertState.DESCARTADA, 'Descartada', 'i' * 16)
 
         with as_user(gestor) as client:
             html = client.get(f'{self._url(trip)}?estado=todas').get_data(as_text=True)
 
-        assert html.count('alert-card-abierta') == 1
+        assert 'alert-estado-resuelta' in html
+        assert 'alert-estado-descartada' in html
+        # La abierta sigue sin relleno: es el fondo contra el que se leen.
+        assert html.count('alert-estado-') == 2
 
-    def test_una_cerrada_no_se_sombrea(self, as_user, gestor, trip):
-        from app.models.enums import AlertState
-
-        self._alerta(trip, AlertState.DESCARTADA, 'Descartada', 'i' * 16)
-
-        with as_user(gestor) as client:
-            html = client.get(
-                f'{self._url(trip)}?estado=descartada'
-            ).get_data(as_text=True)
-
-        assert 'Descartada' in html
-        assert 'alert-card-abierta' not in html
-
-    def test_el_sombreado_no_tapa_la_severidad(self):
-        """The severity colour lives on the left border, the state on the
-        fill: two signals that must not be made into one."""
+    def test_el_color_de_estado_no_tapa_la_severidad(self):
+        """Two separate signals -- how bad it is, and what was decided about
+        it. Severity lives on the left border, state on the fill; merging them
+        would lose the one a manager prioritises by."""
         from pathlib import Path
 
         css = (Path(__file__).resolve().parent.parent
                / 'app' / 'static' / 'css' / 'main.css').read_text()
 
-        assert '.alert-card-abierta' in css
-        assert 'background-color' in css.split('.alert-card-abierta')[1][:80]
+        assert '.alert-estado-resuelta   { background-color' in css
         assert '.alert-card-danger { border-left-color' in css
+
+    def test_el_texto_sigue_legible_sobre_el_relleno(self):
+        """Bootstrap's link blue is exactly 4.5:1 on white, so any tint drops
+        it below AA. The tinted cards darken it a step."""
+        from pathlib import Path
+
+        css = (Path(__file__).resolve().parent.parent
+               / 'app' / 'static' / 'css' / 'main.css').read_text()
+
+        assert '.alert-estado-descartada .card-body a' in css
+        assert '#0b5ed7' in css
