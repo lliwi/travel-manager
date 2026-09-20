@@ -1068,7 +1068,7 @@ def build_ai_context(actor, trip):
 # 8. plan_trip
 # ======================================================================
 def plan_trip(actor, origen, destino, ida=None, vuelta=None, viajeros=1,
-              preferencias=None):
+              preferencias=None, opciones_reales=None):
     """Suggest how to make a journey, never that a particular service exists.
 
     The distinction is the whole design. This application has no availability
@@ -1096,18 +1096,41 @@ def plan_trip(actor, origen, destino, ida=None, vuelta=None, viajeros=1,
     if preferencias:
         partes.append(f'Preferencias de quien viaja: {preferencias}')
 
+    hay_opciones = bool(
+        opciones_reales and (opciones_reales.get('vuelos')
+                             or opciones_reales.get('alojamiento'))
+    )
+
+    bloques = [UntrustedBlock(
+        contenido=json.dumps(contexto, ensure_ascii=False, indent=2),
+        referencia='catalogo',
+        tipo='datos_de_referencia',
+    )]
+    if hay_opciones:
+        # Delimited like any other outside content: these rows come from a
+        # third party, and a hotel that named itself «ignora tus instrucciones»
+        # is content, not an instruction.
+        bloques.append(UntrustedBlock(
+            contenido=json.dumps(opciones_reales, ensure_ascii=False, indent=2),
+            referencia='buscador',
+            tipo='opciones_reales',
+        ))
+
     request = AIRequest(
         tarea=AITask.PLAN_TRIP.value,
         sistema=PROMPTS['plan_trip'],
         instruccion=(
-            'Propón cómo hacer este viaje. Recuerda: ningún número de vuelo, '
-            'ningún horario concreto, ningún precio.\n\n' + '\n'.join(partes)
+            (
+                'Propón cómo hacer este viaje. Tienes opciones reales '
+                'consultadas a un buscador: razona sobre ellas, pero no '
+                'repitas sus horarios ni sus precios, que quien lee ya tiene '
+                'delante.\n\n'
+                if hay_opciones else
+                'Propón cómo hacer este viaje. Recuerda: ningún número de '
+                'vuelo, ningún horario concreto, ningún precio.\n\n'
+            ) + '\n'.join(partes)
         ),
-        bloques=[UntrustedBlock(
-            contenido=json.dumps(contexto, ensure_ascii=False, indent=2),
-            referencia='catalogo',
-            tipo='datos_de_referencia',
-        )],
+        bloques=bloques,
         esquema=esquema,
         # Nothing here is about a person: a place, two dates and a headcount.
         contiene_documentos=False,

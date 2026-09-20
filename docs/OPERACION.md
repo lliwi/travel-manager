@@ -127,6 +127,34 @@ Lo que se borra es el contenido del documento. La fila de metadatos, su hash y
 la traza de auditoría permanecen: se borra el original, no la prueba de que
 existió.
 
+## Búsqueda de vuelos y alojamiento
+
+El asistente de planificación puede consultar opciones reales a través de
+SerpApi. Se activa en **Ajustes → Búsqueda de vuelos y alojamiento**, con la
+clave que se obtiene en serpapi.com. Sin ella, el asistente sigue funcionando:
+orienta sobre cómo viajar en lugar de decir qué hay.
+
+**Cada consulta se cobra.** Una planificación gasta hasta dos búsquedas —una de
+vuelos y otra de alojamiento—. El ajuste «Búsquedas máximas al día» es el freno:
+alcanzado el límite el asistente sigue respondiendo sin opciones concretas, en
+lugar de generar una factura que nadie esperaba. El consumo se cuenta desde la
+propia auditoría, así que se puede revisar:
+
+```bash
+$COMPOSE exec web flask shell -c "
+from app.models.audit import AuditEvent
+print(AuditEvent.query.filter_by(accion='busqueda_viajes.consulta').count())"
+```
+
+Tres límites del conector que conviene saber antes de prometer nada:
+
+- **No reserva.** Devuelve opciones y un enlace; la compra se hace fuera.
+- **Los precios son los de Google** en el momento de la consulta: orientativos,
+  y pueden haber cambiado cuando alguien vaya a comprar.
+- **No cubre trenes.** Renfe, SNCF y demás quedan fuera. Para un trayecto
+  ferroviario el asistente orienta como antes y lo dice; una lista vacía no
+  significa que no haya tren.
+
 ## Correo
 
 El servidor de salida se configura en Administración → Ajustes → Correo: host,

@@ -18,10 +18,15 @@ continuous model evaluation.
 
 Two things remain, deliberately last:
 
-- **Travel-provider integrations** (Amadeus, Renfe, a corporate agency). Not
-  started, and not startable without a provider to integrate with: an API, a
-  contract and credentials. What exists instead is the planning assistant,
-  which suggests *how* to travel and never claims a booking exists.
+- **Travel-provider integrations** (Amadeus, Renfe, a corporate agency) --
+  meaning *booking*. Still not startable without a contract and credentials.
+  What exists now is one step short of it: `travel_search_service` reads real
+  flights and lodging through SerpApi's Google Travel engines, so the planning
+  assistant shows what exists instead of only how to get there. Three limits
+  that are properties of the connector, not gaps to close later: it books
+  nothing, its prices are Google's and therefore indicative, and it has no
+  train engine at all -- for rail the assistant orients as before and says so,
+  because an empty list must never read as «there is no way to get there».
 - **AD/LDAP, group sync and MFA/SSO.** The seam is in place --
   `IdentityProvider`, `users.identity_provider`, `users.external_id`,
   `role_group_mappings` -- so this is writing an implementation, not reopening
@@ -125,6 +130,16 @@ Each is a considered decision, not an oversight:
   does, rewrite the line.
 - Records are soft-deleted. Retention-driven erasure is a separate, explicit,
   audited operation.
+
+## What the AI is allowed to restate
+
+The planning assistant receives real flight and hotel rows and may reason about
+them -- which option is better, which connection is tight -- but must not repeat
+their times or prices. The screen renders those from the connector's own data.
+A model that restates a price and drops a digit leaves two figures on the page
+and no way to tell which one is real, so the numbers have exactly one source.
+The rows themselves arrive as an `UntrustedBlock` like any other outside
+content: a hotel named «ignora tus instrucciones» is content, not an order.
 
 ## Observability
 

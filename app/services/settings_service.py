@@ -26,6 +26,10 @@ GRUPOS = (
      'Generación, validación y vigilancia de las fuentes.'),
     ('investigacion', 'Investigación pública',
      'Consulta de fuentes oficiales en internet.'),
+    ('busqueda_viajes', 'Búsqueda de vuelos y alojamiento',
+     'Conector externo que devuelve opciones reales de viaje. Sin él, el '
+     'asistente de planificación sigue funcionando, pero orienta sobre cómo '
+     'viajar en lugar de decir qué hay.'),
     ('politica', 'Política corporativa',
      'Límites que un viaje debe respetar, y por encima de los cuales hace '
      'falta una aprobación.'),
@@ -88,6 +92,32 @@ DEFAULTS = {
         False,
     ),
 
+
+    # --- Flight and hotel search --------------------------------------
+    'BUSQUEDA_VIAJES_HABILITADA': (
+        False, 'bool', 'busqueda_viajes', 'Buscar opciones reales',
+        'Mientras esté desactivado, el asistente de planificación orienta '
+        'sobre cómo viajar pero no consulta vuelos ni hoteles concretos.',
+        False,
+    ),
+    'BUSQUEDA_VIAJES_API_KEY': (
+        '', 'secreto', 'busqueda_viajes', 'Clave de SerpApi',
+        'Se guarda cifrada y no vuelve a mostrarse. Deje el campo en blanco '
+        'para conservar la que ya hay. Se obtiene en serpapi.com.',
+        False,
+    ),
+    'BUSQUEDA_VIAJES_MAXIMAS_DIARIAS': (
+        50, 'int', 'busqueda_viajes', 'Búsquedas máximas al día',
+        'Cada consulta al conector se cobra. Alcanzado el límite, el '
+        'asistente sigue respondiendo sin opciones reales en lugar de '
+        'generar una factura que nadie esperaba.',
+        False,
+    ),
+    'BUSQUEDA_VIAJES_MONEDA': (
+        'EUR', 'string', 'busqueda_viajes', 'Moneda',
+        'En la que se piden los precios. Código ISO de tres letras.',
+        False,
+    ),
 
     # --- Itinerary ----------------------------------------------------
     'CONEXION_MAX_HORAS': (

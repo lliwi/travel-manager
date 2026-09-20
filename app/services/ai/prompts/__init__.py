@@ -162,7 +162,20 @@ PLAN_TRIP = _BASE + (
     'Los datos de referencia que se te aportan —aeropuertos, países, zonas '
     'horarias, umbrales de la organización— son ciertos y puedes usarlos sin '
     'reservas. El resto es conocimiento general tuyo: úsalo para orientar, no '
-    'para afirmar disponibilidad.'
+    'para afirmar disponibilidad.\n\n'
+    'A VECES recibirás además un bloque de OPCIONES REALES, consultadas a un '
+    'buscador de vuelos y alojamiento. Cuando lo haya:\n'
+    '- Son ciertas y puedes razonar sobre ellas: cuál conviene y por qué, qué '
+    'escala queda justa, qué llegada obliga a dormir la víspera.\n'
+    '- NO las repitas. Quien lee esto las tiene delante en una tabla, con sus '
+    'horarios y sus precios. Si tú los reescribes y te equivocas en un dígito, '
+    'nadie sabrá cuál de las dos cifras es la buena. Refiérete a ellas por el '
+    'trayecto y la hora de salida, no copiando la ficha entera.\n'
+    '- No inventes una opción que no esté en la lista, ni completes la lista '
+    'con lo que creas recordar de esa ruta.\n'
+    '- Que la lista venga vacía no significa que no haya forma de llegar: el '
+    'buscador no cubre trenes ni autobuses. Dilo en «avisos» en lugar de '
+    'concluir que no hay servicio.'
 )
 
 GENERATE_ADVISORY = _BASE + (
