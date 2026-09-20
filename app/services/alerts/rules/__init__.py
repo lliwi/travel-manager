@@ -3,6 +3,7 @@
 Importing this package registers every rule with the registry in
 ``app.services.alerts.base``.
 """
+from app.services.alerts.rules.boarding import BoardingPassRule
 from app.services.alerts.rules.connections import ConnectionMarginRule
 from app.services.alerts.rules.data_quality import (
     IncompleteDataRule,
@@ -22,6 +23,7 @@ from app.services.alerts.rules.policy import (
 from app.services.alerts.rules.timezones import TimezoneShiftRule
 
 __all__ = [
+    'BoardingPassRule',
     'ConnectionMarginRule',
     'OverlappingSegmentsRule',
     'LateArrivalForBookingRule',

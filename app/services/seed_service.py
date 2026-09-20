@@ -128,6 +128,14 @@ ALERT_RULE_DEFINITIONS = {
         AlertSeverity.INFORMATIVA,
         {'umbral_horas': 3},
     ),
+    'sin_tarjeta_de_embarque': (
+        'Sin tarjeta de embarque',
+        'Un vuelo sale pronto y no hay ninguna tarjeta de embarque adjunta, así que '
+        'es posible que nadie haya facturado. Las aerolíneas suelen abrir la '
+        'facturación 48 horas antes.',
+        AlertSeverity.MEDIA,
+        {'horas_antes': 48},
+    ),
     'documento_viajero_por_caducar': (
         'Documento del viajero próximo a caducar',
         'El pasaporte, visado o seguro del viajero caduca cerca de las fechas del '

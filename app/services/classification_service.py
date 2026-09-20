@@ -137,6 +137,46 @@ def classify_by_rules(texto, nombre_archivo=None):
     return best, confidence
 
 
+#: What tells a boarding pass from the booking it came from. The booking exists
+#: from the moment somebody pays; the pass only once somebody checks in, and
+#: only the second one carries a seat, a gate and a sequence number.
+TARJETA_EMBARQUE = (
+    re.compile(r'(?i)\b(tarjeta de embarque|boarding\s*pass|bordkarte|'
+               r'carte d.embarquement)\b'),
+    re.compile(r'(?i)\b(puerta de embarque|boarding\s*gate|gate)\b\s*[:#]?\s*\w+'),
+    re.compile(r'(?i)\b(secuencia|sequence|seq)\b\s*[:#]?\s*\d+'),
+    re.compile(r'(?i)\b(embarque|boarding)\s*(prioritario|priority|zona|zone|group)\b'),
+)
+
+
+def es_tarjeta_de_embarque(texto, nombre_archivo=None):
+    """Whether this document is a boarding pass rather than a booking.
+
+    A separate question from «is this about a flight», and the one the
+    check-in alert turns on: a flight with its booking attached and nobody
+    checked in looks exactly like a flight with everything in order.
+
+    Two signals are required rather than one. «Puerta de embarque» appears in
+    plenty of itineraries as advice, and a booking that mentioned it once would
+    otherwise silence the alert for a flight nobody has checked in for -- which
+    is the failure that matters, because it is the silent one.
+    """
+    haystack = (texto or '')[:12000]
+    nombre = (nombre_archivo or '').lower()
+
+    aciertos = sum(1 for patron in TARJETA_EMBARQUE if patron.search(haystack))
+
+    if any(pista in nombre for pista in
+           ('tarjeta', 'embarque', 'boarding', 'boardingpass', 'bordkarte')):
+        aciertos += 1
+
+    # The explicit phrase is enough on its own: nothing else says it.
+    if TARJETA_EMBARQUE[0].search(haystack):
+        return True
+
+    return aciertos >= 2
+
+
 def needs_ai_classification(confianza, threshold=MIN_CONFIDENCE):
     """True when the rules were not confident enough to decide alone."""
     return confianza < threshold

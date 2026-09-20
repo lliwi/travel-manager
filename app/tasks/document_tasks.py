@@ -411,9 +411,33 @@ def classify_document(self, document_id):
     document.clasificacion = clasificacion
     document.clasificacion_confianza = round(confianza, 2)
     document.clasificacion_origen = origen
+    _marcar_si_es_tarjeta_de_embarque(document, texto)
 
     document_service.transition(document, S.CLASIFICADO, tarea='classify', commit=True)
     return document_id
+
+
+def _marcar_si_es_tarjeta_de_embarque(document, texto):
+    """Refine the declared type when the document is plainly a boarding pass.
+
+    Only over a generic declaration. Whoever uploaded it said what it was for,
+    and overruling a person who chose «factura» because a regex disagreed is
+    the wrong way round -- extraction proposes. But most people upload without
+    changing the default, and a boarding pass filed as «otro» is a boarding
+    pass nobody can be told is missing.
+    """
+    from app.models.enums import DocumentClassification, DocumentType
+    from app.services.classification_service import es_tarjeta_de_embarque
+
+    if document.clasificacion is not DocumentClassification.VUELO:
+        return
+    if document.tipo not in (DocumentType.OTRO, DocumentType.BILLETE):
+        return
+    if not es_tarjeta_de_embarque(texto, document.nombre_original):
+        return
+
+    document.tipo = DocumentType.TARJETA_EMBARQUE
+    logger.info('Documento %s reconocido como tarjeta de embarque.', document.id)
 
 
 def _classification_threshold():

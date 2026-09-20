@@ -95,6 +95,32 @@ Las reglas reciben un `TripContext` ya cargado y **no tocan la base de datos**.
 Eso las hace testeables con factories y permite evaluar ocho reglas con un solo
 conjunto de consultas.
 
+### La tarjeta de embarque es un tipo documental propio
+
+El billete existe desde que se compra; la tarjeta de embarque, solo desde que
+alguien factura. Sin distinguirlos, un vuelo con su reserva adjunta y sin
+facturar se ve exactamente igual que uno con todo en regla.
+
+La regla `sin_tarjeta_de_embarque` avisa cuando un vuelo sale dentro del umbral
+—48 horas, que es cuando las aerolíneas suelen abrir la facturación— y no hay
+ninguna tarjeta adjunta que le corresponda. Es la única regla que describe algo
+que **todavía no ha pasado** en lugar de algo que está mal; se cierra sola al
+adjuntar la tarjeta, porque el motor reconcilia.
+
+**Emparejar la tarjeta con su vuelo es estrecho a propósito.** Una tarjeta que
+no se reconoce produce un aviso para un vuelo ya facturado: una molestia. Una
+tarjeta emparejada con el vuelo equivocado silencia el aviso de uno que nadie
+ha facturado: el fallo que la regla existe para evitar. Por eso solo cuentan
+dos señales: que el segmento se creara a partir de ese documento, o que el
+texto del documento nombre ese número de vuelo. Una tarjeta de ida nunca
+responde por la vuelta.
+
+El reconocimiento automático sigue el mismo criterio: la frase «tarjeta de
+embarque» basta, pero mencionar «puerta de embarque» no, porque los itinerarios
+lo dicen como consejo. Y solo reetiqueta un documento declarado de forma
+genérica: quien lo subió dijo para qué era, y contradecir a una persona porque
+una expresión regular opina distinto es al revés de como debe funcionar.
+
 ## 6. Los umbrales de conexión
 
 El requerimiento da 90 minutos para conexiones Schengen y 150 para
