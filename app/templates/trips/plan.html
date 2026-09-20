@@ -37,11 +37,17 @@
         <div class="card">
             <div class="card-header">Qué es y qué no</div>
             <div class="card-body small text-muted">
-                <p><strong>No es un buscador.</strong> Esta aplicación no está
-                   conectada a ningún sistema de disponibilidad ni de precios,
-                   así que el asistente no le dirá qué vuelo sale ni cuánto
+                {% if buscador == 'activo' %}
+                <p><strong>Busca vuelos y alojamiento de verdad.</strong> Los
+                   horarios y los precios salen del buscador, no del modelo, y
+                   son los que había en el momento de la consulta: orientativos
+                   y sin reserva. No cubre trenes ni autobuses.</p>
+                {% else %}
+                <p><strong>Hoy no es un buscador.</strong> Sin el conector
+                   activo, el asistente no le dirá qué vuelo sale ni cuánto
                    cuesta: no lo sabe, y un dato inventado con aspecto de
                    reserva es peor que no decir nada.</p>
+                {% endif %}
                 <p class="mb-0"><strong>Sí orienta.</strong> Qué medios tienen
                    sentido entre esos dos sitios, cuánto se tarda normalmente,
                    en qué zona conviene alojarse y con qué hay que contar:
@@ -53,6 +59,29 @@
     </div>
 
     <div class="col-lg-7">
+        {# Un conector configurado a medias no se distingue de uno inexistente:
+           el resultado es el mismo, ninguna opción. Quien acaba de pegar la
+           clave merece que se le diga cuál de las dos mitades falta, en vez de
+           quedarse mirando una pantalla que no menciona que exista. #}
+        {% if current_user.is_administrador and buscador != 'activo' %}
+        <div class="alert alert-info d-flex justify-content-between align-items-center gap-3">
+            <div>
+                {% if buscador == 'sin_clave' %}
+                La búsqueda de vuelos y alojamiento no tiene clave configurada,
+                así que lo que sigue es orientación.
+                {% elif buscador == 'desactivado' %}
+                Hay una clave guardada, pero la búsqueda de vuelos y alojamiento
+                está desactivada. Actívela para ver opciones reales.
+                {% else %}
+                Se ha alcanzado el límite de búsquedas de hoy; lo que sigue es
+                orientación.
+                {% endif %}
+            </div>
+            <a href="{{ url_for('admin.settings') }}#busqueda_viajes"
+               class="btn btn-sm btn-outline-primary text-nowrap">Ajustes</a>
+        </div>
+        {% endif %}
+
         {# Lo real primero, y separado de la orientación. Los horarios y los
            precios se pintan desde lo que devolvió el buscador, nunca desde lo
            que escriba el modelo: si el modelo reescribe una cifra y se

@@ -134,14 +134,19 @@ class TestLaPantalla:
 
         assert 'Planificar con el asistente' in html
 
-    def test_dice_que_no_es_un_buscador(self, as_user, gestor, seeded):
+    def test_sin_conector_dice_que_no_es_un_buscador(self, as_user, gestor, seeded):
         """Somebody arriving expecting prices should learn otherwise here,
-        not by trusting an answer that looks like one."""
+        not by trusting an answer that looks like one.
+
+        Conditional since the connector exists: the panel used to state flatly
+        that the application was not connected to any pricing system, which
+        stopped being true the day an administrator connected one.
+        """
         with as_user(gestor) as client:
             html = client.get('/trips/planificar').get_data(as_text=True)
 
-        assert 'No es un buscador' in html
-        assert 'disponibilidad' in html
+        assert 'Hoy no es un buscador' in html
+        assert 'qué vuelo sale' in html
 
     def test_sin_origen_no_se_llama_al_modelo(
         self, as_user, gestor, seeded, monkeypatch

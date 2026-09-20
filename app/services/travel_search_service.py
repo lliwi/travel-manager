@@ -65,6 +65,24 @@ def esta_configurada():
     )
 
 
+def estado():
+    """Why the connector is or is not answering, in one word.
+
+    ``esta_configurada`` answers yes or no, which is all the search path needs.
+    The screen needs the reason: a key that is present but switched off looks
+    exactly like no key at all, and somebody who has just pasted one deserves
+    to be told which of the two halves is missing rather than left with an
+    empty result and no explanation.
+    """
+    if not settings_service.get('BUSQUEDA_VIAJES_API_KEY'):
+        return 'sin_clave'
+    if not settings_service.get_bool('BUSQUEDA_VIAJES_HABILITADA', False):
+        return 'desactivado'
+    if presupuesto_restante() <= 0:
+        return 'sin_presupuesto'
+    return 'activo'
+
+
 def _consumo_de_hoy():
     """Searches already billed today, counted from the audit trail.
 
@@ -135,8 +153,14 @@ def _pedir(actor, motor, parametros):
     consulta['engine'] = motor
     consulta['api_key'] = settings_service.get('BUSQUEDA_VIAJES_API_KEY')
     consulta.setdefault('currency', settings_service.get('BUSQUEDA_VIAJES_MONEDA', 'EUR'))
-    consulta.setdefault('hl', 'es')
     consulta.setdefault('gl', 'es')
+    # Not on hotels. Measured, not assumed: with `hl=es` the hotels engine
+    # answers «Google Hotels hasn't returned any results for this query» for a
+    # search that returns twenty properties without it. The flights engine is
+    # unaffected, and `gl=es` is fine for both. Losing Spanish labels on hotel
+    # amenities is a far smaller price than losing every hotel.
+    if motor != 'google_hotels':
+        consulta.setdefault('hl', 'es')
 
     try:
         with httpx.Client(timeout=TIMEOUT) as client:

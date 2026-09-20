@@ -382,7 +382,7 @@ def plan():
 
     return render_template(
         'trips/plan.html', form=form, plan=plan, opciones=opciones,
-        buscador_activo=travel_search_service.esta_configurada(),
+        buscador=travel_search_service.estado(),
     )
 
 

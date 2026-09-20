@@ -377,3 +377,113 @@ class TestSeAdministraDesdeAjustes:
             html = client.get('/admin/ajustes').get_data(as_text=True)
 
         assert 'clave-secretisima' not in html
+
+
+@pytest.mark.integration
+class TestSeExplicaPorQueNoHayOpciones:
+    """A half-configured connector looks exactly like an absent one.
+
+    The result is the same either way -- no options -- so somebody who has
+    just pasted a key is left staring at a screen that does not mention the
+    connector exists. The state has to say which half is missing.
+    """
+
+    def test_sin_clave(self, app, seeded):
+        settings_service.set_value('BUSQUEDA_VIAJES_API_KEY', '')
+        settings_service.set_value('BUSQUEDA_VIAJES_HABILITADA', True)
+
+        assert travel_search_service.estado() == 'sin_clave'
+
+    def test_con_clave_pero_apagado(self, app, seeded):
+        settings_service.set_value('BUSQUEDA_VIAJES_API_KEY', 'una-clave')
+        settings_service.set_value('BUSQUEDA_VIAJES_HABILITADA', False)
+
+        assert travel_search_service.estado() == 'desactivado'
+
+    def test_sin_presupuesto(self, app, seeded, gestor, monkeypatch):
+        _configurar(limite=1)
+        monkeypatch.setattr(httpx, 'Client', _cliente_que_responde(RESPUESTA_VUELOS))
+        travel_search_service.buscar_vuelos(gestor, 'BCN', 'LHR', '2026-10-01')
+
+        assert travel_search_service.estado() == 'sin_presupuesto'
+
+    def test_activo(self, app, seeded):
+        _configurar()
+
+        assert travel_search_service.estado() == 'activo'
+
+    def test_el_administrador_ve_por_que_y_como_arreglarlo(
+        self, as_user, admin, seeded,
+    ):
+        settings_service.set_value('BUSQUEDA_VIAJES_API_KEY', 'una-clave')
+        settings_service.set_value('BUSQUEDA_VIAJES_HABILITADA', False)
+
+        with as_user(admin) as client:
+            html = client.get('/trips/planificar').get_data(as_text=True)
+
+        assert 'está desactivada' in html
+        assert '/admin/ajustes' in html
+
+    def test_a_un_gestor_no_se_le_cuenta_lo_que_no_puede_tocar(
+        self, as_user, gestor, seeded,
+    ):
+        settings_service.set_value('BUSQUEDA_VIAJES_API_KEY', 'una-clave')
+        settings_service.set_value('BUSQUEDA_VIAJES_HABILITADA', False)
+
+        with as_user(gestor) as client:
+            html = client.get('/trips/planificar').get_data(as_text=True)
+
+        assert 'está desactivada' not in html
+
+    def test_el_panel_lateral_deja_de_negar_el_buscador(
+        self, as_user, gestor, seeded,
+    ):
+        """It said «esta aplicación no está conectada a ningún sistema de
+        precios», which stopped being true the moment somebody enabled one."""
+        _configurar()
+
+        with as_user(gestor) as client:
+            html = client.get('/trips/planificar').get_data(as_text=True)
+
+        assert 'Busca vuelos y alojamiento de verdad' in html
+        assert 'no está conectada a ningún sistema' not in html
+
+
+@pytest.mark.unit
+class TestElIdiomaNoTumbaLaBusqueda:
+    """Measured against the real API, not assumed.
+
+    With ``hl=es`` the hotels engine answers «Google Hotels hasn't returned any
+    results for this query» for a search that returns twenty properties without
+    it. Sending it cost every hotel result and looked like «there are no hotels
+    in Paris», which is the kind of wrong answer nobody questions.
+    """
+
+    def test_a_hoteles_no_se_le_manda_el_idioma(
+        self, app, seeded, gestor, monkeypatch,
+    ):
+        registro = []
+        _configurar()
+        monkeypatch.setattr(
+            httpx, 'Client',
+            _cliente_que_responde(RESPUESTA_HOTELES, registro=registro),
+        )
+
+        travel_search_service.buscar_alojamiento(
+            gestor, 'Paris', '2026-10-15', '2026-10-17')
+
+        assert 'hl' not in registro[0]['params']
+        # gl sí: ese no le afecta, y sigue orientando los precios al mercado.
+        assert registro[0]['params']['gl'] == 'es'
+
+    def test_a_vuelos_si(self, app, seeded, gestor, monkeypatch):
+        registro = []
+        _configurar()
+        monkeypatch.setattr(
+            httpx, 'Client',
+            _cliente_que_responde(RESPUESTA_VUELOS, registro=registro),
+        )
+
+        travel_search_service.buscar_vuelos(gestor, 'BCN', 'CDG', '2026-10-15')
+
+        assert registro[0]['params']['hl'] == 'es'
