@@ -582,12 +582,41 @@ class TestElFiltroPorDefecto:
         assert 'No hay alertas abiertas' in html
         assert 'Ver todas' in html
 
-    def test_el_filtro_aplicado_se_ve(self):
-        """Green fill on the active pill, because the default filter is the
-        one nobody chose and therefore the one nobody expects."""
+    def test_en_todas_las_abiertas_van_sombreadas(self, as_user, gestor, trip):
+        """In «Todas» the open ones sit among the resolved and the dismissed
+        and read identically; without the fill you have to check every state
+        badge to see what is still pending."""
+        from app.models.enums import AlertState
+
+        self._alerta(trip, AlertState.ABIERTA, 'Sigue abierta', 'g' * 16)
+        self._alerta(trip, AlertState.RESUELTA, 'Ya resuelta', 'h' * 16)
+
+        with as_user(gestor) as client:
+            html = client.get(f'{self._url(trip)}?estado=todas').get_data(as_text=True)
+
+        assert html.count('alert-card-abierta') == 1
+
+    def test_una_cerrada_no_se_sombrea(self, as_user, gestor, trip):
+        from app.models.enums import AlertState
+
+        self._alerta(trip, AlertState.DESCARTADA, 'Descartada', 'i' * 16)
+
+        with as_user(gestor) as client:
+            html = client.get(
+                f'{self._url(trip)}?estado=descartada'
+            ).get_data(as_text=True)
+
+        assert 'Descartada' in html
+        assert 'alert-card-abierta' not in html
+
+    def test_el_sombreado_no_tapa_la_severidad(self):
+        """The severity colour lives on the left border, the state on the
+        fill: two signals that must not be made into one."""
         from pathlib import Path
 
         css = (Path(__file__).resolve().parent.parent
                / 'app' / 'static' / 'css' / 'main.css').read_text()
 
-        assert '.filter-pills .btn.active' in css
+        assert '.alert-card-abierta' in css
+        assert 'background-color' in css.split('.alert-card-abierta')[1][:80]
+        assert '.alert-card-danger { border-left-color' in css

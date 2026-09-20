@@ -270,24 +270,17 @@ a.chip:hover { background: #e2e8f0; }
 .alert-card-danger { border-left-color: #dc3545; }
 .alert-card-dark { border-left-color: #212529; }
 
+/* Lo que sigue abierto, sombreado. En «Todas» conviven las abiertas con las
+   resueltas y las descartadas, y todas se leen igual: hay que ir mirando la
+   etiqueta de estado de cada una para saber cuáles quedan pendientes. El
+   relleno las separa sin leerlas, y no estorba al color de severidad, que
+   vive en el borde izquierdo. */
+.alert-card-abierta {
+    background-color: #eafaf1;
+}
+
 .filter-pills { display: flex; flex-wrap: wrap; gap: .35rem; }
 
-/* El filtro aplicado, en verde claro. La lista de alertas abre filtrada por
-   «Abiertas», y un filtro por defecto que no se ve deja una lista incompleta
-   con aspecto de lista completa: lo que falta no se echa en falta. El relleno
-   distingue la pastilla activa del resto de un vistazo, sin leerlas. */
-.filter-pills .btn.active {
-    background-color: #d1f2e0;
-    border-color: #6fcf9a;
-    color: #14603b;
-}
-
-.filter-pills .btn.active:hover,
-.filter-pills .btn.active:focus {
-    background-color: #bfead4;
-    border-color: #4fbf85;
-    color: #0f4b2e;
-}
 
 .evidence-entity {
     background: #f8fafc;
