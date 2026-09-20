@@ -18,8 +18,8 @@ from app.models.enums import (
     TripStatus,
 )
 from app.models.trip import Trip
-from app.services.authorization_service import visible_trips_query
-from app.utils.decorators import authenticated_only
+from app.services.authorization_service import Permiso, visible_trips_query
+from app.utils.decorators import authenticated_only, require_permiso
 from app.utils.timeutil import utcnow
 
 
@@ -150,3 +150,21 @@ def read_all_notifications():
     cuantas = notification_service.marcar_todas_leidas(actor)
     flash(f'{cuantas} notificaciones marcadas como leídas.', 'info')
     return redirect(url_for('dashboard.notifications'))
+
+
+@dashboard_bp.route('/informes')
+@login_required
+@require_permiso(Permiso.VER_VIAJE)
+def reports():
+    """What is happening across the trips this person may see.
+
+    Guarded by the ordinary permission rather than by role: the numbers are
+    already scoped to what the asker may see, so a traveller reading this reads
+    a report about their own trips, which is a fair thing for them to have.
+    """
+    from app.services import report_service
+
+    actor = current_user._get_current_object()
+    return render_template(
+        'dashboard/reports.html', informe=report_service.informe_completo(actor),
+    )

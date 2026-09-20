@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block title %}Informes — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('dashboard.index') }}">Inicio</a></li>
+<li class="breadcrumb-item active">Informes</li>
+{% endblock %}
+
+{# A bar drawn with the numbers beside it. No chart library: the point is the
+   figure, and a dependency that renders it prettily is a dependency to keep
+   working for as long as the report exists. #}
+{% macro barra(total, maximo, css='primary') %}
+<div class="d-flex align-items-center gap-2">
+    <div class="progress flex-grow-1" style="height: .6rem; min-width: 6rem;">
+        <div class="progress-bar bg-{{ css }}" role="progressbar"
+             style="width: {{ (total * 100 / maximo) if maximo else 0 }}%"
+             aria-valuenow="{{ total }}" aria-valuemin="0" aria-valuemax="{{ maximo }}"></div>
+    </div>
+    <span class="text-nowrap fw-semibold" style="min-width: 2.5rem; text-align: right;">
+        {{ total }}</span>
+</div>
+{% endmacro %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Informes</h1>
+    <p class="text-muted mb-0">
+        Sobre los viajes que usted puede ver.
+    </p>
+</div>
+
+<div class="row g-3">
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header"><i class="bi bi-suitcase-lg me-2"></i>Viajes por estado</div>
+            <div class="card-body">
+                {% set maximo = informe.viajes_por_estado | map(attribute='total') | max %}
+                {% for fila in informe.viajes_por_estado %}
+                <div class="mb-2">
+                    <div class="small text-muted">{{ fila.etiqueta }}</div>
+                    {{ barra(fila.total, maximo, fila.css) }}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="bi bi-exclamation-triangle me-2"></i>Alertas abiertas por severidad
+            </div>
+            <div class="card-body">
+                {% set maximo = informe.alertas_por_severidad | map(attribute='total') | max %}
+                {% for fila in informe.alertas_por_severidad %}
+                <div class="mb-2">
+                    <div class="small text-muted">{{ fila.etiqueta }}</div>
+                    {{ barra(fila.total, maximo,
+                             'danger' if fila.clave in ('critica', 'alta') else 'secondary') }}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header"><i class="bi bi-list-check me-2"></i>Qué regla salta más</div>
+            <div class="card-body">
+                {% if informe.alertas_por_regla %}
+                <p class="text-muted small">
+                    Una regla que salta en la mitad de los viajes suele estar
+                    contando algo sobre cómo se preparan, no cincuenta
+                    despistes distintos.
+                </p>
+                {% set maximo = informe.alertas_por_regla | map(attribute='total') | max %}
+                {% for fila in informe.alertas_por_regla %}
+                <div class="mb-2">
+                    <div class="small text-muted">{{ fila.regla }}</div>
+                    {{ barra(fila.total, maximo, 'warning') }}
+                </div>
+                {% endfor %}
+                {% else %}
+                <p class="text-muted mb-0">No hay ninguna alerta abierta.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header"><i class="bi bi-magic me-2"></i>Qué tuvo que revisarse</div>
+            <div class="card-body">
+                <p class="text-muted small">
+                    No cuántos documentos se leyeron, sino cuánto de lo que
+                    produjeron sigue necesitando que alguien lo mire.
+                </p>
+                {% for nombre, datos in informe.calidad.items() %}
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between small">
+                        <span class="text-capitalize">{{ nombre }}</span>
+                        <span class="text-muted">
+                            {{ datos.de_documento }} de documento ·
+                            {{ datos.a_mano }} a mano
+                        </span>
+                    </div>
+                    {{ barra(datos.por_revisar, datos.total or 1,
+                             'warning' if datos.por_revisar else 'success') }}
+                    <div class="small text-muted">
+                        {{ datos.porcentaje_por_revisar }}% pendiente de revisar
+                        de {{ datos.total }}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header"><i class="bi bi-file-earmark-text me-2"></i>Documentos en proceso</div>
+            <div class="card-body">
+                {% if informe.documentos_por_estado %}
+                {% set maximo = informe.documentos_por_estado | map(attribute='total') | max %}
+                {% for fila in informe.documentos_por_estado %}
+                <div class="mb-2">
+                    <div class="small text-muted">{{ fila.etiqueta }}</div>
+                    {{ barra(fila.total, maximo, 'danger' if fila.terminal else 'info') }}
+                </div>
+                {% endfor %}
+                {% else %}
+                <p class="text-muted mb-0">Todavía no hay documentos.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-header">
+                <i class="bi bi-hourglass-split me-2"></i>Atascados
+                <small class="text-muted ms-2">más de {{ informe.dias_atascado }} días</small>
+            </div>
+            {% if informe.documentos_atascados %}
+            <ul class="list-group list-group-flush">
+                {% for d in informe.documentos_atascados %}
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <a href="{{ url_for('documents.detail', document_id=d.id) }}"
+                       class="text-truncate me-2">{{ d.nombre_original }}</a>
+                    <span class="badge bg-{{ d.estado_proceso.css_class }} text-nowrap">
+                        {{ d.estado_proceso.label }}</span>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <div class="card-body">
+                <p class="text-muted mb-0">
+                    Nada lleva parado más de {{ informe.dias_atascado }} días.
+                </p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if informe.viajes_por_mes %}
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-calendar3 me-2"></i>Viajes por mes de inicio</div>
+            <div class="card-body">
+                {% set maximo = informe.viajes_por_mes | map(attribute='total') | max %}
+                <div class="d-flex align-items-end gap-3" style="height: 8rem;">
+                    {% for fila in informe.viajes_por_mes %}
+                    <div class="text-center flex-fill">
+                        <div class="text-muted small">{{ fila.total }}</div>
+                        <div class="bg-primary rounded-top mx-auto"
+                             style="width: 2rem; height: {{ (fila.total * 5 / maximo) if maximo else 0 }}rem;"
+                             role="img" aria-label="{{ fila.total }} viajes en {{ fila.mes }}"></div>
+                        <div class="text-muted small mt-1">{{ fila.mes }}</div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
