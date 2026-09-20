@@ -471,3 +471,101 @@ a.chip:hover { background: #e2e8f0; }
     font-size: 1rem;
     letter-spacing: .05em;
 }
+
+/* ---------- Acciones frente a datos ----------
+   El problema que resuelve: en el itinerario, «ODIVYR», «Vueling», «Requiere
+   revisión», «Documento» y «Editar» eran todos la misma píldora gris. Dos de
+   ellos llevan a otra página y tres son información, y nada lo decía. Quien
+   lee una fila no debería tener que pasar el ratón por encima para averiguar
+   qué es pulsable. */
+.item-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: .75rem;
+}
+
+.item-actions {
+    display: flex;
+    gap: .25rem;
+    flex-shrink: 0;
+}
+
+.item-actions .btn {
+    --bs-btn-padding-y: .2rem;
+    --bs-btn-padding-x: .45rem;
+    --bs-btn-font-size: .8rem;
+    color: var(--text-muted);
+    border-color: transparent;
+}
+
+.item-actions .btn:hover,
+.item-actions .btn:focus-visible {
+    color: var(--primary);
+    background: #eef2ff;
+    border-color: #c7d2fe;
+}
+
+/* En pantalla ancha aparecen al acercarse, para que la fila se lea como datos
+   y no como una barra de herramientas. En táctil no hay «acercarse», así que
+   están siempre: una acción que solo existe al pasar el ratón no existe. */
+@media (hover: hover) and (min-width: 992px) {
+    .item-actions { opacity: 0; transition: opacity .12s ease; }
+    .timeline-item:hover .item-actions,
+    .timeline-item:focus-within .item-actions,
+    .item-row:hover .item-actions,
+    .item-row:focus-within .item-actions { opacity: 1; }
+}
+
+/* ---------- Filas de lista pulsables ----------
+   Solo el título era un enlace: un blanco de doscientos píxeles en una fila de
+   mil cuatrocientos. El resto de la fila parecía pulsable y no lo era. */
+.row-link { position: relative; }
+.row-link:hover { background: #f8fafc; }
+
+.row-link .stretched-link::after { border-radius: inherit; }
+
+/* La referencia iba en el magenta que Bootstrap da a <code>, que se lee como
+   un error o como un enlace. Es un identificador: se mira, no se pulsa. */
+.ref-code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: .8rem;
+    color: var(--text-muted);
+    background: #f1f5f9;
+    border-radius: var(--radius-sm);
+    padding: .1rem .4rem;
+}
+
+/* ---------- Cifras del panel ----------
+   Un cero con el mismo peso que un tres hace que la vista se pare en algo que
+   no pide nada. Y una cifra que resume un listado tiene que llevar a él. */
+.stat-card.is-zero .stat-value { color: var(--text-muted); font-weight: 600; }
+.stat-card.is-zero { opacity: .72; }
+
+/* Sin «display», que .stat-card ya es una columna flex: ponerlo en bloque
+   dejaba la etiqueta y la cifra en la misma línea. */
+a.stat-card { text-decoration: none; color: inherit; }
+a.stat-card:hover {
+    border-color: #c7d2fe;
+    box-shadow: var(--shadow);
+    transform: translateY(-1px);
+}
+a.stat-card { transition: border-color .12s ease, box-shadow .12s ease, transform .12s ease; }
+
+/* El título y el horario compartían una fila. En un móvil eso deja al título
+   media pantalla y «VY7604 BCN → LGW» se parte en tres líneas, con la flecha
+   suelta al final de una de ellas. Debajo de 768 se apilan: el horario es
+   importante, pero saber de qué vuelo se habla lo es antes. */
+.item-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: .5rem;
+}
+
+.item-when { white-space: nowrap; }
+
+@media (max-width: 767.98px) {
+    .item-head { flex-direction: column; gap: .15rem; }
+    .item-when { white-space: normal; }
+}

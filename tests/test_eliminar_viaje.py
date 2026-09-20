@@ -19,10 +19,13 @@ def _url(trip):
 @pytest.mark.integration
 class TestBorradoDesdeLaInterfaz:
     def test_el_boton_aparece_para_quien_puede(self, as_user, gestor, trip):
+        """Dentro del menú de acciones desde el repaso de diseño: tenerlo
+        suelto en su propia fila le daba el sitio más visible de la pantalla a
+        lo único que no tiene vuelta atrás."""
         with as_user(gestor) as client:
             html = client.get(f'/trips/{trip.id}').get_data(as_text=True)
 
-        assert 'Eliminar viaje' in html
+        assert 'Eliminar el viaje' in html
         assert _url(trip) in html
 
     def test_se_elimina(self, as_user, gestor, trip):
@@ -109,10 +112,15 @@ class TestQuienPuedeBorrar:
         assert not trip.is_deleted
 
     def test_al_viajero_no_se_le_ofrece(self, as_user, viajero, trip):
+        """Por la URL y no por la etiqueta: al cambiar el texto del botón,
+        este test siguió pasando sin comprobar nada, porque buscaba unas
+        palabras que ya no existían en ninguna parte. La ruta no cambia con la
+        redacción."""
         with as_user(viajero) as client:
             html = client.get(f'/trips/{trip.id}').get_data(as_text=True)
 
-        assert 'Eliminar viaje' not in html
+        assert _url(trip) not in html
+        assert 'Eliminar el viaje' not in html
 
     def test_un_ajeno_no_sabe_que_existe(self, as_user, ajeno, trip):
         with as_user(ajeno) as client:

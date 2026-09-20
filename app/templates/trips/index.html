@@ -59,11 +59,14 @@
             </thead>
             <tbody>
                 {% for trip in trips %}
-                <tr>
-                    <td><code>{{ trip.referencia }}</code></td>
+                {# La fila entera lleva al viaje. Solo el título era pulsable:
+                   un blanco de doscientos píxeles en una fila de mil cuatrocientos,
+                   y el resto de la fila parecía pulsable sin serlo. #}
+                <tr class="row-link">
+                    <td><span class="ref-code">{{ trip.referencia }}</span></td>
                     <td>
                         <a href="{{ url_for('trips.detail', trip_id=trip.id) }}"
-                           class="fw-semibold">{{ trip.titulo }}</a>
+                           class="fw-semibold stretched-link">{{ trip.titulo }}</a>
                     </td>
                     <td class="text-muted small">{{ trip.resumen_ruta }}</td>
                     <td class="text-nowrap small">

@@ -9,25 +9,31 @@
     <p class="text-muted">Hola, {{ current_user.nombre }}. Esto es lo que requiere su atención.</p>
 </div>
 
+{# Cada cifra lleva al listado del que sale, y un cero se aparta en vez de
+   pedir la misma atención que un tres: la vista se para en lo que hay que
+   mirar. Una cifra que resume algo y no lleva a ello es un callejón sin
+   salida disfrazado de resumen. #}
 <div class="stat-grid">
-    <div class="stat-card">
+    <a class="stat-card {{ 'is-zero' if not resumen.viajes_totales }}"
+       href="{{ url_for('trips.index') }}">
         <span class="stat-label">Viajes visibles</span>
         <span class="stat-value">{{ resumen.viajes_totales }}</span>
-    </div>
-    <div class="stat-card">
+    </a>
+    <a class="stat-card {{ 'is-zero' if not resumen.viajes_en_curso }}"
+       href="{{ url_for('trips.index', estado='en_curso') }}">
         <span class="stat-label">En curso</span>
         <span class="stat-value">{{ resumen.viajes_en_curso }}</span>
-    </div>
-    <div class="stat-card {{ 'stat-warning' if resumen.alertas_abiertas }}">
+    </a>
+    <div class="stat-card {{ 'stat-warning' if resumen.alertas_abiertas else 'is-zero' }}">
         <span class="stat-label">Alertas abiertas</span>
         <span class="stat-value">{{ resumen.alertas_abiertas }}</span>
     </div>
-    <div class="stat-card {{ 'stat-danger' if resumen.alertas_criticas }}">
+    <div class="stat-card {{ 'stat-danger' if resumen.alertas_criticas else 'is-zero' }}">
         <span class="stat-label">Alertas graves</span>
         <span class="stat-value">{{ resumen.alertas_criticas }}</span>
     </div>
     {% if resumen.documentos_pendientes is defined %}
-    <div class="stat-card {{ 'stat-info' if resumen.documentos_pendientes }}">
+    <div class="stat-card {{ 'stat-info' if resumen.documentos_pendientes else 'is-zero' }}">
         <span class="stat-label">Documentos por revisar</span>
         <span class="stat-value">{{ resumen.documentos_pendientes }}</span>
     </div>
