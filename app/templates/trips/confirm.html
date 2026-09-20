@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}Confirmar datos — {{ trip.referencia }} — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('trips.index') }}">Viajes</a></li>
+<li class="breadcrumb-item"><a href="{{ url_for('trips.detail', trip_id=trip.id) }}">{{ trip.referencia }}</a></li>
+<li class="breadcrumb-item active">Confirmar datos</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Confirmar datos</h1>
+    <p class="text-muted mb-0">{{ trip.titulo }} · <span class="ref-code">{{ trip.referencia }}</span></p>
+</div>
+
+{% if not pendientes %}
+<div class="card"><div class="card-body empty-state">
+    <i class="bi bi-check-circle"></i>
+    <p>No queda nada por confirmar en este viaje.</p>
+    <a href="{{ url_for('trips.detail', trip_id=trip.id) }}"
+       class="btn btn-outline-secondary btn-sm">Volver al viaje</a>
+</div></div>
+{% else %}
+
+<div class="row">
+    <div class="col-lg-8">
+        <form method="post" novalidate>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <div class="card mb-3">
+                <div class="card-header d-flex justify-content-between align-items-center gap-3">
+                    <span>
+                        {{ pendientes | length }}
+                        {{ 'elemento' if pendientes | length == 1 else 'elementos' }}
+                        con campos sin confirmar
+                    </span>
+                    {# Marcar todos es un atajo, no el valor por defecto: llegar
+                       a esta pantalla con todo marcado invita a pulsar sin leer,
+                       que es exactamente lo que la marca existe para evitar. #}
+                    <button type="button" class="btn btn-sm btn-outline-secondary"
+                            id="marcarTodos">Marcar todos</button>
+                </div>
+                <ul class="list-group list-group-flush">
+                    {% for p in pendientes %}
+                    {% set clave = p.kind ~ ':' ~ p.item.id %}
+                    <li class="list-group-item">
+                        <div class="form-check">
+                            <input class="form-check-input js-confirmar" type="checkbox"
+                                   name="confirmar" value="{{ clave }}" id="c-{{ p.item.id }}">
+                            <label class="form-check-label w-100" for="c-{{ p.item.id }}">
+                                <strong>{{ p.item.etiqueta }}</strong>
+                                <span class="text-muted small ms-1">{{ p.kind }}</span>
+                            </label>
+                        </div>
+
+                        <dl class="detail-list mt-2 mb-0 ms-4">
+                            {% for campo, fila in p.campos %}
+                            <dt class="text-capitalize">{{ campo.replace('_', ' ') }}</dt>
+                            <dd>
+                                <span class="chip chip-warning">
+                                    {{ (fila.confianza | float * 100) | round | int }}%
+                                </span>
+                                {% if fila.valor_actual %}
+                                {# Recortado: algunos campos guardan una lista
+                                   entera —los pasajeros con su asiento y su
+                                   equipaje— y sin cortarla una fila ocupa media
+                                   pantalla y no se lee ninguna. #}
+                                <strong title="{{ fila.valor_actual }}">{{
+                                    fila.valor_actual | string | truncate(90, True, '…') }}</strong>
+                                {% else %}
+                                <span class="text-muted">sin valor</span>
+                                {% endif %}
+                                {% if fila.pagina %}
+                                <span class="text-muted small">· página {{ fila.pagina }}</span>
+                                {% endif %}
+                            </dd>
+                            {% endfor %}
+                        </dl>
+
+                        <div class="ms-4 mt-2">
+                            <a class="btn btn-sm btn-outline-secondary"
+                               href="{{ url_for('trips.edit_itinerary_item', trip_id=trip.id,
+                                                kind=p.kind, item_id=p.item.id) }}">
+                                <i class="bi bi-pencil me-1"></i>Corregir
+                            </a>
+                            {% if p.item.documento_origen_abrible %}
+                            <a class="btn btn-sm btn-outline-secondary"
+                               href="{{ url_for('documents.detail', document_id=p.item.documento_origen_id) }}">
+                                <i class="bi bi-file-earmark-text me-1"></i>Ver el documento
+                            </a>
+                            {% endif %}
+                        </div>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+
+            <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-check2-circle me-1"></i>Confirmar los marcados
+                </button>
+                <a href="{{ url_for('trips.detail', trip_id=trip.id) }}"
+                   class="btn btn-outline-secondary">Cancelar</a>
+            </div>
+        </form>
+    </div>
+
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header">Qué significa confirmar</div>
+            <div class="card-body small text-muted">
+                <p>Estos campos se extrajeron de un documento con poca
+                   seguridad. Confirmar <strong>no cambia el valor</strong>:
+                   dice que lo ha comprobado y que es correcto.</p>
+                <p>El dato pasa a constar como suyo, con su nombre y la fecha,
+                   y deja de aparecer marcado en el itinerario.</p>
+                <p class="mb-0">Si alguno no es correcto, use
+                   <strong>Corregir</strong>: al guardar, lo que escriba
+                   sustituye a lo extraído y también queda confirmado.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    'use strict';
+    var boton = document.getElementById('marcarTodos');
+    if (!boton) { return; }
+
+    boton.addEventListener('click', function () {
+        var casillas = document.querySelectorAll('.js-confirmar');
+        // Alterna: pulsado dos veces desmarca, que es lo que espera quien se
+        // ha equivocado al marcarlo todo.
+        var marcarlas = Array.prototype.some.call(casillas, function (c) {
+            return !c.checked;
+        });
+        Array.prototype.forEach.call(casillas, function (c) { c.checked = marcarlas; });
+    });
+})();
+</script>
+{% endblock %}

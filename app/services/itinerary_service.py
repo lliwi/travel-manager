@@ -10,7 +10,7 @@ from collections import defaultdict
 from datetime import UTC, datetime
 
 from app.extensions import db
-from app.models.enums import AuditResourceType
+from app.models.enums import AuditResourceType, ProvenanceOrigin
 from app.models.itinerary import (
     Accommodation,
     OtherService,
@@ -362,6 +362,130 @@ def create_item(actor, trip, kind, instants=None, commit=True, **campos):
     return item
 
 
+def pendientes_de_confirmar(actor, trip):
+    """Every item of a trip with fields the extraction was unsure about.
+
+    Scoped through the timeline, so a traveller sees the fields of their own
+    rows and nobody else's -- the same query the itinerary uses, rather than a
+    second one that could disagree with it.
+
+    Returns:
+        ``[{'kind', 'item', 'campos': [(campo, FieldProvenance)]}]``.
+    """
+    from app.services import provenance_service
+
+    umbral = provenance_service.umbral_revision()
+    pendientes = []
+
+    for entrada in build_timeline(actor, trip).entries:
+        if not entrada.item.requiere_revision:
+            continue
+
+        actual = provenance_service.current_for(entrada.item, entrada.kind)
+        campos = sorted(
+            (campo, fila) for campo, fila in actual.items()
+            if fila.confianza is not None and float(fila.confianza) < umbral
+        )
+        if campos:
+            pendientes.append({
+                'kind': entrada.kind, 'item': entrada.item, 'campos': campos,
+            })
+
+    return pendientes
+
+
+def confirm_items(actor, trip, seleccion):
+    """Confirm several items at once.
+
+    ``seleccion`` is ``[(kind, item_id)]``. Committed once at the end rather
+    than per item: confirming twelve rows is one decision a person made, and
+    half of it applied is a worse state than none of it.
+
+    Returns:
+        ``(elementos_confirmados, campos_confirmados)``.
+    """
+    elementos = 0
+    campos = 0
+
+    for kind, item_id in seleccion:
+        confirmados = confirm_item(actor, trip, kind, item_id, commit=False)
+        if confirmados:
+            elementos += 1
+            campos += len(confirmados)
+
+    if elementos:
+        db.session.commit()
+        audit_service.record(
+            'itinerary.confirmed_batch',
+            recurso_tipo=AuditResourceType.VIAJE,
+            recurso_id=str(trip.id),
+            actor=actor,
+            metadatos={'elementos': elementos, 'campos': campos},
+        )
+    return elementos, campos
+
+
+def confirm_item(actor, trip, kind, item_id, commit=True):
+    """Mark an item's doubtful fields as checked by a person.
+
+    The missing half of «requiere revisión». Until now the only way to clear
+    the mark was to *change* a value, so an item the extraction read badly but
+    got right stayed flagged for ever: there was no way to say «I looked, and
+    it is correct».
+
+    What it records is not «ignore this». It writes the same value back with
+    manual provenance and full confidence, naming who confirmed it -- which is
+    what the specification asks for when extracted data becomes real, and what
+    makes «who said this was right» answerable afterwards.
+
+    Returns:
+        The list of field names that were confirmed.
+    """
+    from app.services import provenance_service
+
+    model, _ = _resolve_kind(kind)
+    item = _load_item(model, trip, item_id)
+
+    umbral = provenance_service.umbral_revision()
+    actual = provenance_service.current_for(item, kind)
+    dudosos = [
+        campo for campo, fila in actual.items()
+        if fila.confianza is not None and float(fila.confianza) < umbral
+    ]
+
+    if not dudosos:
+        return []
+
+    # Escrito aquí y no con «record_manual_fields», que se salta los campos
+    # que no son atributos del modelo. La extracción registra procedencia de
+    # cosas que viven dentro de «datos» —los pasajeros, el nombre del
+    # aeropuerto—, así que confirmarlas no hacía nada: el elemento seguía
+    # marcado, sin error y sin explicación. El valor se toma de la propia
+    # fila de procedencia, que es quien lo sabe.
+    for campo in dudosos:
+        provenance_service.record(
+            item, kind, campo,
+            origen=ProvenanceOrigin.MANUAL,
+            valor_actual=actual[campo].valor_actual,
+            confianza=1.0,
+            actor=actor,
+        )
+
+    provenance_service.recalculate_rollup(item, kind, commit=False)
+    trip.touch_itinerary()
+
+    if commit:
+        db.session.commit()
+        audit_service.record(
+            f'itinerary.{kind}_confirmed',
+            recurso_tipo=AuditResourceType.VIAJE,
+            recurso_id=str(trip.id),
+            actor=actor,
+            metadatos={'item_id': str(item.id), 'campos': sorted(dudosos)},
+        )
+    return dudosos
+
+
 def update_item(actor, trip, kind, item_id, instants=None, commit=True, **campos):
     """Edit an itinerary item by hand."""
     model, prefixes = _resolve_kind(kind)
@@ -396,6 +520,13 @@ def update_item(actor, trip, kind, item_id, instants=None, commit=True, **campos
             cambiados.append(prefix)
 
     if cambiados:
+        # Sin esto, corregir el campo dudoso no quitaba la marca: la fila
+        # seguía diciendo «sin confirmar» con todos sus datos ya revisados,
+        # porque «requiere_revision» solo se recalculaba al aplicar una
+        # extracción. Quien lo arreglaba lo veía igual que antes.
+        from app.services import provenance_service
+
+        provenance_service.recalculate_rollup(item, kind, commit=False)
         trip.touch_itinerary()
 
     if commit:

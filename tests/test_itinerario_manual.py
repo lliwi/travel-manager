@@ -387,3 +387,289 @@ class TestQueCampoHayQueConfirmar:
         from app.services import provenance_service
 
         assert provenance_service.umbral_revision() == provenance_service._review_threshold()
+
+
+@pytest.mark.integration
+class TestConfirmarLosDatosDudosos:
+    """Faltaba poder decir «lo he mirado y está bien».
+
+    Cambiar un valor era la única forma de quitar la marca, así que un
+    elemento que la extracción leyó con poca seguridad pero acertó se quedaba
+    señalado para siempre. Y ni siquiera corregirlo la quitaba: nadie
+    recalculaba la confianza al editar.
+    """
+
+    def _dudoso(self, segment_factory, confianza=0.3):
+        from app.extensions import db
+        from app.models.enums import ProvenanceOrigin
+        from app.services import provenance_service
+
+        item = segment_factory(numero='IB7000')
+        provenance_service.record(
+            item, 'segmento', 'numero', origen=ProvenanceOrigin.IA,
+            valor_actual='IB7000', confianza=confianza, commit=True,
+        )
+        provenance_service.recalculate_rollup(item, 'segmento', commit=True)
+        db.session.commit()
+        assert item.requiere_revision is True
+        return item
+
+    def test_confirmar_quita_la_marca(self, app, gestor, trip, segment_factory):
+        from app.services import itinerary_service
+
+        item = self._dudoso(segment_factory)
+
+        campos = itinerary_service.confirm_item(gestor, trip, 'segmento', item.id)
+
+        assert campos == ['numero']
+        assert item.requiere_revision is False
+
+    def test_y_deja_dicho_quien_lo_confirmó(self, app, gestor, trip, segment_factory):
+        """No es «ignorar esto»: es un dato que ahora respalda una persona."""
+        from app.models.enums import ProvenanceOrigin
+        from app.services import itinerary_service, provenance_service
+
+        item = self._dudoso(segment_factory)
+        itinerary_service.confirm_item(gestor, trip, 'segmento', item.id)
+
+        fila = provenance_service.current_for(item, 'segmento')['numero']
+        assert fila.origen is ProvenanceOrigin.MANUAL
+        assert float(fila.confianza) == 1.0
+        assert fila.actor_id == gestor.id
+
+    def test_no_cambia_el_valor(self, app, gestor, trip, segment_factory):
+        from app.services import itinerary_service
+
+        item = self._dudoso(segment_factory)
+        itinerary_service.confirm_item(gestor, trip, 'segmento', item.id)
+
+        assert item.numero == 'IB7000'
+
+    def test_queda_en_la_auditoria(self, app, gestor, trip, segment_factory):
+        from app.models.audit import AuditEvent
+        from app.services import itinerary_service
+
+        item = self._dudoso(segment_factory)
+        itinerary_service.confirm_item(gestor, trip, 'segmento', item.id)
+
+        evento = AuditEvent.query.filter_by(
+            accion='itinerary.segmento_confirmed').first()
+        assert evento is not None
+        assert evento.metadatos['campos'] == ['numero']
+
+    def test_sobre_algo_ya_confirmado_no_hace_nada(
+        self, app, gestor, trip, segment_factory,
+    ):
+        from app.services import itinerary_service
+
+        item = self._dudoso(segment_factory)
+        itinerary_service.confirm_item(gestor, trip, 'segmento', item.id)
+
+        assert itinerary_service.confirm_item(gestor, trip, 'segmento', item.id) == []
+
+    def test_corregirlo_tambien_la_quita(self, app, gestor, trip, segment_factory):
+        """Antes no: «requiere_revision» solo se recalculaba al aplicar una
+        extracción, así que quien arreglaba el campo lo veía igual que antes."""
+        from app.services import itinerary_service
+
+        item = self._dudoso(segment_factory)
+
+        itinerary_service.update_item(
+            gestor, trip, 'segmento', item.id, numero='IB7001',
+        )
+
+        assert item.numero == 'IB7001'
+        assert item.requiere_revision is False
+
+    def test_se_ofrece_en_la_pantalla(self, as_user, gestor, trip, segment_factory):
+        item = self._dudoso(segment_factory)
+
+        with as_user(gestor) as client:
+            html = client.get(
+                f'/trips/{trip.id}/itinerario/segmento/{item.id}/editar'
+            ).get_data(as_text=True)
+
+        assert 'Están bien, confirmar' in html
+        assert f'/itinerario/segmento/{item.id}/confirmar' in html
+
+
+@pytest.mark.security
+class TestQuienPuedeConfirmar:
+    def test_un_viajero_no_confirma_el_itinerario(
+        self, as_user, viajero, trip, segment_factory,
+    ):
+        item = segment_factory(numero='IB7100')
+
+        with as_user(viajero) as client:
+            respuesta = client.post(
+                f'/trips/{trip.id}/itinerario/segmento/{item.id}/confirmar')
+
+        assert respuesta.status_code == 403
+
+
+@pytest.mark.integration
+class TestConfirmarDeGolpe:
+    """Con un elemento se resuelve abriéndolo; con doce, no.
+
+    Pero el botón que confirma todo sin enseñar nada es un sello de goma, y la
+    marca existe justo para que alguien lea. Por eso es una pantalla: los
+    valores están a la vista y la casilla es por elemento.
+    """
+
+    def _con_dudas(self, segment_factory, cuantos=3):
+        from app.extensions import db
+        from app.models.enums import ProvenanceOrigin
+        from app.services import provenance_service
+
+        items = []
+        for i in range(cuantos):
+            item = segment_factory(numero=f'IB80{i}0')
+            provenance_service.record(
+                item, 'segmento', 'numero', origen=ProvenanceOrigin.IA,
+                valor_actual=item.numero, confianza=0.2, commit=True,
+            )
+            provenance_service.recalculate_rollup(item, 'segmento', commit=True)
+            items.append(item)
+        db.session.commit()
+        return items
+
+    def test_se_listan_todos_los_pendientes(
+        self, app, gestor, trip, segment_factory,
+    ):
+        from app.services import itinerary_service
+
+        self._con_dudas(segment_factory)
+
+        pendientes = itinerary_service.pendientes_de_confirmar(gestor, trip)
+
+        assert len(pendientes) == 3
+        assert all(p['campos'] for p in pendientes)
+
+    def test_se_confirman_de_una_vez(self, app, gestor, trip, segment_factory):
+        from app.services import itinerary_service
+
+        items = self._con_dudas(segment_factory)
+        seleccion = [('segmento', i.id) for i in items]
+
+        elementos, campos = itinerary_service.confirm_items(gestor, trip, seleccion)
+
+        assert (elementos, campos) == (3, 3)
+        assert itinerary_service.pendientes_de_confirmar(gestor, trip) == []
+
+    def test_se_puede_confirmar_solo_una_parte(
+        self, app, gestor, trip, segment_factory,
+    ):
+        """La casilla es por elemento: confirmar no es todo o nada."""
+        from app.services import itinerary_service
+
+        items = self._con_dudas(segment_factory)
+
+        itinerary_service.confirm_items(gestor, trip, [('segmento', items[0].id)])
+
+        assert len(itinerary_service.pendientes_de_confirmar(gestor, trip)) == 2
+
+    def test_un_campo_que_no_es_columna_tambien_se_confirma(
+        self, app, gestor, trip, segment_factory,
+    ):
+        """El fallo que esto arregla era silencioso: la extracción registra
+        procedencia de cosas que viven dentro de «datos» —los pasajeros, el
+        nombre del aeropuerto—, y el ayudante que marcaba campos como manuales
+        se saltaba lo que no fuera un atributo del modelo. Confirmarlos no
+        hacía nada y el elemento seguía marcado, sin error y sin explicación.
+        """
+        from app.extensions import db
+        from app.models.enums import ProvenanceOrigin
+        from app.services import itinerary_service, provenance_service
+
+        item = segment_factory(numero='IB8100')
+        provenance_service.record(
+            item, 'segmento', 'pasajeros', origen=ProvenanceOrigin.IA,
+            valor_actual="[{'nombre': 'Ana'}]", confianza=0.4, commit=True,
+        )
+        provenance_service.recalculate_rollup(item, 'segmento', commit=True)
+        db.session.commit()
+        assert item.requiere_revision is True
+        assert not hasattr(item, 'pasajeros')
+
+        itinerary_service.confirm_item(gestor, trip, 'segmento', item.id)
+
+        assert item.requiere_revision is False
+
+    def test_la_pantalla_lo_ofrece(self, as_user, gestor, trip, segment_factory):
+        self._con_dudas(segment_factory)
+
+        with as_user(gestor) as client:
+            html = client.get(f'/trips/{trip.id}/confirmar').get_data(as_text=True)
+
+        assert 'Confirmar los marcados' in html
+        assert html.count('name="confirmar"') == 3
+
+    def test_nada_viene_marcado_de_entrada(
+        self, as_user, gestor, trip, segment_factory,
+    ):
+        """Llegar con todo marcado invita a pulsar sin leer."""
+        self._con_dudas(segment_factory)
+
+        with as_user(gestor) as client:
+            html = client.get(f'/trips/{trip.id}/confirmar').get_data(as_text=True)
+
+        # Sobre las etiquetas, no sobre la página: «checked» también aparece
+        # dentro del JavaScript que las marca, y buscarlo suelto haría que
+        # este test pasara o fallara por el guion y no por las casillas.
+        casillas = [t for t in html.split('<input') if 'name="confirmar"' in t[:200]]
+        assert len(casillas) == 3
+        assert all('checked' not in c.split('>')[0] for c in casillas)
+
+    def test_enviar_sin_marcar_nada_no_confirma(
+        self, as_user, gestor, trip, segment_factory,
+    ):
+        from app.services import itinerary_service
+
+        self._con_dudas(segment_factory)
+
+        with as_user(gestor) as client:
+            client.post(f'/trips/{trip.id}/confirmar', data={})
+
+        assert len(itinerary_service.pendientes_de_confirmar(gestor, trip)) == 3
+
+    def test_el_viaje_enlaza_la_pantalla(
+        self, as_user, gestor, trip, segment_factory,
+    ):
+        self._con_dudas(segment_factory)
+
+        with as_user(gestor) as client:
+            html = client.get(f'/trips/{trip.id}').get_data(as_text=True)
+
+        assert f'/trips/{trip.id}/confirmar' in html
+
+
+@pytest.mark.security
+class TestQuienConfirmaDeGolpe:
+    def test_un_viajero_no_puede(self, as_user, viajero, trip):
+        with as_user(viajero) as client:
+            assert client.get(f'/trips/{trip.id}/confirmar').status_code == 403
+
+    def test_solo_se_listan_los_elementos_propios(
+        self, app, gestor, trip, viajero, otro_viajero, segment_factory,
+    ):
+        """La pantalla se construye con la misma consulta acotada que el
+        itinerario, no con una segunda que podría discrepar."""
+        from app.extensions import db
+        from app.models.enums import ProvenanceOrigin
+        from app.services import itinerary_service, provenance_service, trip_service
+
+        trip_service.add_traveler(gestor, trip, otro_viajero)
+        db.session.refresh(trip)
+        suyo = trip.traveler_for(otro_viajero.id)
+
+        ajeno = segment_factory(numero='JL9999', traveler=suyo)
+        provenance_service.record(
+            ajeno, 'segmento', 'numero', origen=ProvenanceOrigin.IA,
+            valor_actual='JL9999', confianza=0.2, commit=True,
+        )
+        provenance_service.recalculate_rollup(ajeno, 'segmento', commit=True)
+        db.session.commit()
+
+        pendientes = itinerary_service.pendientes_de_confirmar(viajero, trip)
+
+        assert all(p['item'].id != ajeno.id for p in pendientes)

@@ -169,6 +169,18 @@
                     contra el documento; al guardar, lo que escriba queda como
                     dato confirmado por usted.
                 </p>
+                {# La otra mitad de la marca. Corregir un valor era la única
+                   forma de quitarla, así que un elemento que la extracción
+                   leyó mal pero acertó se quedaba marcado para siempre: no
+                   había manera de decir «lo he mirado y está bien». #}
+                <form method="post" class="mb-3"
+                      action="{{ url_for('trips.confirm_itinerary_item', trip_id=trip.id,
+                                         kind=kind, item_id=item.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-sm btn-warning">
+                        <i class="bi bi-check2-circle me-1"></i>Están bien, confirmar
+                    </button>
+                </form>
                 <dl class="detail-list mb-0">
                     {% for campo, fila in dudosos %}
                     <dt class="text-capitalize">{{ campo.replace('_', ' ') }}</dt>
@@ -177,7 +189,8 @@
                             {{ (fila.confianza | float * 100) | round | int }}%
                         </span>
                         {% if fila.valor_actual %}
-                        <span class="text-muted small">{{ fila.valor_actual }}</span>
+                        <span class="text-muted small" title="{{ fila.valor_actual }}">{{
+                            fila.valor_actual | string | truncate(60, True, '…') }}</span>
                         {% endif %}
                         {% if fila.pagina %}
                         <div class="text-muted small">Página {{ fila.pagina }} del documento</div>

@@ -655,6 +655,91 @@ def edit_itinerary_item(trip_id, kind, item_id, trip):
     )
 
 
+@trips_bp.route('/<trip_id>/confirmar', methods=['GET', 'POST'])
+@login_required
+@require_trip_access(Permiso.EDITAR_ITINERARIO)
+def confirm_itinerary(trip_id, trip):
+    """Review and confirm every doubtful field of a trip in one pass.
+
+    A screen and not a button, on purpose. Confirming is somebody saying «I
+    looked and this is right», and a single «confirm everything» control that
+    shows nothing is a rubber stamp -- it would silence the one mechanism that
+    exists to make a person read what the extraction guessed.
+
+    So the values are on screen, with what they came from, and the tick is per
+    item. Confirming all of them is then one click, but it is one click after
+    reading rather than instead of it.
+    """
+    from app.services import itinerary_service
+
+    actor = current_user._get_current_object()
+    pendientes = itinerary_service.pendientes_de_confirmar(actor, trip)
+
+    if request.method == 'POST':
+        marcados = set(request.form.getlist('confirmar'))
+        seleccion = [
+            (p['kind'], p['item'].id) for p in pendientes
+            if f"{p['kind']}:{p['item'].id}" in marcados
+        ]
+
+        if not seleccion:
+            flash('No marcó ningún elemento.', 'info')
+            return redirect(url_for('trips.confirm_itinerary', trip_id=trip.id))
+
+        try:
+            elementos, campos = itinerary_service.confirm_items(
+                actor, trip, seleccion,
+            )
+        except AppError as error:
+            flash(error.mensaje, 'danger')
+            return redirect(url_for('trips.confirm_itinerary', trip_id=trip.id))
+
+        flash(
+            f'{campos} {"campo confirmado" if campos == 1 else "campos confirmados"} '
+            f'en {elementos} {"elemento" if elementos == 1 else "elementos"}. '
+            'Quedan registrados a su nombre.',
+            'success',
+        )
+        return redirect(url_for('trips.detail', trip_id=trip.id))
+
+    return render_template(
+        'trips/confirm.html', trip=trip, pendientes=pendientes,
+    )
+
+
+@trips_bp.route('/<trip_id>/itinerario/<kind>/<item_id>/confirmar', methods=['POST'])
+@login_required
+@require_trip_access(Permiso.EDITAR_ITINERARIO)
+def confirm_itinerary_item(trip_id, kind, item_id, trip):
+    """Say that the doubtful fields of an item are right as they are.
+
+    Correcting a value was the only way to clear the mark, so an item the
+    extraction read badly but got right stayed flagged for ever. Confirming is
+    a decision like any other here: it is recorded with the name of whoever
+    made it.
+    """
+    from app.services import itinerary_service
+
+    try:
+        campos = itinerary_service.confirm_item(
+            current_user._get_current_object(), trip, kind, item_id,
+        )
+    except AppError as error:
+        flash(error.mensaje, 'danger')
+    else:
+        if campos:
+            flash(
+                f'{len(campos)} '
+                f'{"campo confirmado" if len(campos) == 1 else "campos confirmados"}. '
+                'Quedan registrados a su nombre.',
+                'success',
+            )
+        else:
+            flash('No quedaba nada por confirmar en este elemento.', 'info')
+
+    return redirect(url_for('trips.detail', trip_id=trip.id))
+
+
 @trips_bp.route('/<trip_id>/itinerario/<kind>/<item_id>/eliminar', methods=['POST'])
 @login_required
 @require_trip_access(Permiso.EDITAR_ITINERARIO)
