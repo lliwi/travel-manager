@@ -201,6 +201,19 @@ def settings():
             if field not in request.form and setting.tipo != 'bool':
                 continue
             raw = request.form.get(field)
+
+            if setting.tipo == 'secreto':
+                # Blank means «leave it», not «clear it»: the field arrives
+                # empty on every load, so treating that as a change would wipe
+                # the password every time anybody saved the page.
+                if not (raw or '').strip():
+                    continue
+                settings_service.set_value(
+                    setting.clave, raw.strip(), actor=actor, commit=False,
+                )
+                cambiados.append(setting.clave)
+                continue
+
             valor = _coerce_setting(setting.tipo, raw, field in request.form)
             if valor != settings_service.get(setting.clave):
                 settings_service.set_value(setting.clave, valor, actor=actor, commit=False)
@@ -218,13 +231,45 @@ def settings():
         return redirect(url_for('admin.settings'))
 
     settings_service.seed_defaults()
-    grouped = {}
+
+    por_grupo = {}
     for setting in settings_service.all_settings():
-        grouped.setdefault(setting.grupo or 'general', []).append(setting)
+        por_grupo.setdefault(setting.grupo or 'general', []).append(setting)
+
+    # In the declared order, with the names a person reads. A group with no
+    # entry in the taxonomy still shows, at the end: a setting nobody can find
+    # is a setting nobody administers.
+    bloques = [
+        (clave, nombre, ayuda, por_grupo.pop(clave))
+        for clave, nombre, ayuda in settings_service.GRUPOS
+        if por_grupo.get(clave)
+    ]
+    bloques.extend(
+        (clave, clave.capitalize(), None, ajustes)
+        for clave, ajustes in sorted(por_grupo.items())
+    )
+
+    from app.services import ai_provider_service
 
     return render_template(
-        'admin/settings.html', grouped=grouped, get=settings_service.get
+        'admin/settings.html',
+        bloques=bloques,
+        get=_valor_para_pantalla,
+        proveedores=ai_provider_service.list_providers(),
+        bindings=ai_provider_service.list_bindings(),
     )
+
+
+def _valor_para_pantalla(clave):
+    """What the settings screen shows for a setting.
+
+    A secret is never rendered back, not even to the administrator who typed
+    it: the screen says one exists, and the field stays empty so that saving
+    the form without touching it keeps it.
+    """
+    if settings_service.es_secreto(clave):
+        return '' if settings_service.get(clave) in (None, '') else '__GUARDADO__'
+    return settings_service.get(clave)
 
 
 def _coerce_setting(tipo, raw, present):

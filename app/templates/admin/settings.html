@@ -14,9 +14,12 @@
 <form method="post">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-    {% for grupo, ajustes in grouped.items() %}
+    {% for clave, nombre, ayuda, ajustes in bloques %}
     <div class="card mb-3">
-        <div class="card-header text-capitalize">{{ grupo }}</div>
+        <div class="card-header">
+            {{ nombre }}
+            {% if ayuda %}<small class="text-muted ms-2">{{ ayuda }}</small>{% endif %}
+        </div>
         <div class="card-body">
             {% for ajuste in ajustes %}
             {% set valor = get(ajuste.clave) %}
@@ -35,6 +38,13 @@
                                id="ajuste__{{ ajuste.clave }}" name="ajuste__{{ ajuste.clave }}"
                                value="true" {{ 'checked' if valor }}>
                     </div>
+                    {% elif ajuste.tipo == 'secreto' %}
+                    {# Never rendered back, not even to whoever typed it. The
+                       field arrives empty and an empty field means «keep». #}
+                    <input type="password" class="form-control form-control-sm"
+                           id="ajuste__{{ ajuste.clave }}" name="ajuste__{{ ajuste.clave }}"
+                           autocomplete="new-password" value=""
+                           placeholder="{{ 'guardada — escriba para cambiarla' if valor else 'sin definir' }}">
                     {% elif ajuste.tipo in ('int', 'float') %}
                     <input type="number" class="form-control form-control-sm"
                            id="ajuste__{{ ajuste.clave }}" name="ajuste__{{ ajuste.clave }}"
@@ -54,4 +64,56 @@
     <button type="submit" class="btn btn-primary">
         <i class="bi bi-save me-1"></i>Guardar ajustes</button>
 </form>
+
+{# Los proveedores no son un valor sino filas con su propia vida —claves
+   cifradas, pruebas de conexión, una tarea atada a cada uno—, así que viven en
+   su pantalla. Aparecen aquí porque es donde se viene a buscarlos. #}
+<div class="card mt-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>
+            Proveedores de inteligencia artificial
+            <small class="text-muted ms-2">
+                Endpoint, modelo y qué tarea usa cada uno.
+            </small>
+        </span>
+        <a href="{{ url_for('admin.ai_providers') }}" class="btn btn-sm btn-outline-primary">
+            <i class="bi bi-gear me-1"></i>Administrar
+        </a>
+    </div>
+    {% if proveedores %}
+    <ul class="list-group list-group-flush">
+        {% for p in proveedores %}
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+            <div>
+                <strong>{{ p.nombre }}</strong>
+                <span class="text-muted small ms-2">{{ p.modelo_por_defecto or '—' }}</span>
+                <div class="text-muted small"><code>{{ p.base_url }}</code></div>
+            </div>
+            <div class="text-nowrap">
+                {% if p.es_por_defecto %}
+                <span class="badge bg-primary">Predeterminado</span>
+                {% endif %}
+                {% if not p.activo %}
+                <span class="badge bg-secondary">Desactivado</span>
+                {% endif %}
+                {% if p.ultimo_chequeo_ok is not none %}
+                <span class="badge bg-{{ 'success' if p.ultimo_chequeo_ok else 'danger' }}">
+                    {{ 'accesible' if p.ultimo_chequeo_ok else 'no accesible' }}</span>
+                {% endif %}
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <div class="card-body text-muted small">
+        No hay ningún proveedor configurado, así que no hay extracción posible.
+    </div>
+    {% endif %}
+    {% if bindings %}
+    <div class="card-footer small text-muted">
+        {{ bindings | length }} tareas con proveedor asignado; el resto usan el
+        predeterminado.
+    </div>
+    {% endif %}
+</div>
 {% endblock %}

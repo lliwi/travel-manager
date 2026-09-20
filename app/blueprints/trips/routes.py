@@ -169,8 +169,11 @@ def create():
 
     if request.method == 'GET':
         form.estado.data = TripStatus.BORRADOR.value
-        form.inicio_tz.data = current_app.config['DEFAULT_TIMEZONE']
-        form.fin_tz.data = current_app.config['DEFAULT_TIMEZONE']
+        from app.services import settings_service
+
+        zona = settings_service.zona_horaria_por_defecto()
+        form.inicio_tz.data = zona
+        form.fin_tz.data = zona
 
     return render_template('trips/form.html', form=form, trip=None)
 

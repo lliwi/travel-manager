@@ -31,6 +31,31 @@ services:
       replicas: 0
     profiles: ['antivirus']
 
+  # Buzón de pruebas: acepta cualquier correo, no entrega ninguno y los muestra
+  # en su propia web. En producción se configura un servidor real desde Ajustes;
+  # aquí lo que interesa es poder ver qué se habría enviado sin escribirle a
+  # nadie de verdad.
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: travelmanager_mailpit
+    restart: unless-stopped
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: '1'
+      MP_SMTP_AUTH_ALLOW_INSECURE: '1'
+    ports:
+      - '${MAILPIT_PORT:-8025}:8025'
+    networks:
+      # «backend» es interna, y un puerto publicado sobre una red sin salida no
+      # se alcanza desde el anfitrión: para ver el buzón hace falta «frontend»,
+      # igual que para la aplicación.
+      - backend
+      - frontend
+    healthcheck:
+      test: ['CMD', 'sh', '-c', 'nc -z localhost 1025']
+      interval: 20s
+      timeout: 5s
+      retries: 5
+
   web:
     build:
       context: ..

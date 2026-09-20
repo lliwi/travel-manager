@@ -691,11 +691,11 @@ def _validate_dates(trip):
 
 def _default_timezone(actor):
     """The timezone to assume when none was given."""
-    from flask import current_app
+    from app.services import settings_service
 
     return (
         getattr(actor, 'zona_horaria', None)
-        or current_app.config.get('DEFAULT_TIMEZONE', 'Europe/Madrid')
+        or settings_service.zona_horaria_por_defecto()
     )
 
 

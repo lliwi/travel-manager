@@ -11,8 +11,6 @@ import logging
 import re
 from datetime import datetime
 
-from flask import current_app
-
 from app.models.catalog import Country, Location
 
 logger = logging.getLogger(__name__)
@@ -251,7 +249,9 @@ def _find_by_name(name, city=None):
 
 def _normalize_instants(campos, confianzas, avisos, resueltos):
     """Parse each instant and make sure it carries a usable timezone."""
-    default_tz = current_app.config.get('DEFAULT_TIMEZONE', 'Europe/Madrid')
+    from app.services import settings_service
+
+    default_tz = settings_service.zona_horaria_por_defecto()
 
     for field, value in list(campos.items()):
         if not isinstance(value, dict) or 'local' not in value:

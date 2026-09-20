@@ -80,6 +80,21 @@ Lo que se borra es el contenido del documento. La fila de metadatos, su hash y
 la traza de auditoría permanecen: se borra el original, no la prueba de que
 existió.
 
+## Correo
+
+El servidor de salida se configura en Administración → Ajustes → Correo: host,
+puerto, usuario, contraseña, TLS y remitente. La contraseña se guarda cifrada y
+no vuelve a mostrarse.
+
+En desarrollo, `docker-compose.dev.yml` levanta **Mailpit**, que acepta
+cualquier correo, no entrega ninguno y los enseña en <http://localhost:8025>.
+Sirve para ver qué se habría enviado sin escribirle a nadie de verdad: apunte
+el host a `mailpit` y el puerto a `1025`.
+
+Mientras `CORREO_HABILITADO` esté desactivado no se envía nada, y ese es el
+estado de fábrica: un despliegue al que nadie le ha dicho a dónde mandar el
+correo no debe empezar a escribir a la primera dirección que encuentre.
+
 ## Copias de seguridad
 
 Hay dos almacenes que respaldar, y hacerlo por separado no sirve de nada si no

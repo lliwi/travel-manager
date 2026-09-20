@@ -67,9 +67,16 @@ def create_user(actor, username, email, nombre, password, apellidos=None,
     if problems:
         raise ValidationError(problems[0], detalles={'requisitos': problems})
 
+    from app.services import settings_service
+
     user = User(
         username=username,
         email=email,
+        # The organisation's zone, not the one hardcoded on the column. Every
+        # account carries a timezone and that is what a trip uses, so a column
+        # default of «Europe/Madrid» quietly overrode the setting for everyone.
+        zona_horaria=settings_service.zona_horaria_por_defecto(),
+        idioma=settings_service.idioma_por_defecto(),
         nombre=nombre,
         apellidos=apellidos,
         puesto=puesto,

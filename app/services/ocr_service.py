@@ -138,7 +138,9 @@ def _ocr_pdf_pages(stream, page_numbers):
         stream.seek(0)
     data = stream.read()
     dpi = current_app.config['OCR_DPI']
-    languages = current_app.config['OCR_LANGUAGES']
+    from app.services import settings_service
+
+    languages = settings_service.idiomas_ocr()
 
     results = {}
     for number in page_numbers:
@@ -168,7 +170,9 @@ def _extract_image(stream):
     if hasattr(stream, 'seek'):
         stream.seek(0)
     image = Image.open(stream)
-    text = _leer(image, current_app.config['OCR_LANGUAGES'])
+    from app.services import settings_service
+
+    text = _leer(image, settings_service.idiomas_ocr())
     page = PageText(1, text, uso_ocr=True)
     return ExtractedText([page], motor='tesseract', uso_ocr=True,
                          idioma=_detect_language([page]))
