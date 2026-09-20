@@ -180,16 +180,51 @@ def build_timeline(actor, trip, traveler=None):
     )
 
 
+#: Beyond this, two consecutive legs are not a connection. Used when no
+#: administrator has set ``CONEXION_MAX_HORAS``.
+CONEXION_MAX_HORAS_POR_DEFECTO = 24
+
+
+def conexion_max_minutos():
+    """How far apart two legs may be and still be one connection."""
+    from app.services import settings_service
+
+    horas = settings_service.get_int(
+        'CONEXION_MAX_HORAS', CONEXION_MAX_HORAS_POR_DEFECTO
+    )
+    return max(1, horas) * 60
+
+
+def es_conexion(margen_minutos, maximo=None):
+    """Whether a gap between two consecutive legs is a connection at all.
+
+    A connection is a transfer the traveller has to make: they land and the
+    clock is running. Two legs days apart are the outbound and the return of a
+    journey, with a stay in between -- reporting that as a connection of «58 h
+    35 min» describes the trip as a transfer nobody has to catch.
+
+    A negative margin means the legs overlap, which is the overlap rule's
+    finding, not a connection.
+    """
+    if margen_minutos is None or margen_minutos < 0:
+        return False
+    return margen_minutos <= (maximo if maximo is not None else conexion_max_minutos())
+
+
 def find_connections(entries):
     """Pair consecutive transport segments of the same traveller.
 
     Returns a list of dicts carrying both segments, the margin in minutes
-    computed in UTC, and whether the connection happens in the same place. The
-    alert engine consumes the same structure, so the margin shown in the
-    interface and the margin a rule judges are computed once, here.
+    computed in UTC, and whether the connection happens in the same place.
+
+    What counts as a connection is decided by :func:`es_conexion`, which the
+    alert rule uses too: the interface and the rule must agree on which pairs
+    are connections, or one of them is describing something the other does not
+    recognise.
     """
     connections = []
     by_traveler = defaultdict(list)
+    maximo = conexion_max_minutos()
 
     for entry in entries:
         if entry.kind != 'segmento':
@@ -200,11 +235,13 @@ def find_connections(entries):
 
     for traveler_id, group in by_traveler.items():
         group.sort(key=lambda e: e.inicio_utc or _FAR_FUTURE)
-            # Consecutive pairs; the offset slice is shorter by one.
+        # Consecutive pairs; the offset slice is shorter by one.
         for first, second in zip(group, group[1:], strict=False):
             if second.inicio_utc is None or first.fin_utc is None:
                 continue
             margin = minutes_between(first.fin_utc, second.inicio_utc)
+            if not es_conexion(margin, maximo):
+                continue
             connections.append({
                 'trip_traveler_id': traveler_id,
                 'desde': first.item,

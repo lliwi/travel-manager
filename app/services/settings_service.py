@@ -14,6 +14,15 @@ logger = logging.getLogger(__name__)
 #: Default settings, seeded on first run. Each entry is
 #: ``clave: (valor, tipo, grupo, nombre, descripcion, visible_gestor)``.
 DEFAULTS = {
+    # --- Itinerary ----------------------------------------------------
+    'CONEXION_MAX_HORAS': (
+        24, 'int', 'itinerario', 'Máximo de una conexión (horas)',
+        'Separación máxima entre dos trayectos para considerarlos una conexión. '
+        'Por encima de ella son dos desplazamientos con una estancia en medio, '
+        'no un enlace que haya que alcanzar.',
+        True,
+    ),
+
     # --- Retention (section 3.2, RGPD) --------------------------------
     'RETENCION_DOCUMENTOS_DIAS': (
         1825, 'int', 'retencion', 'Retención de documentos (días)',

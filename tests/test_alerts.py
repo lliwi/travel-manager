@@ -397,3 +397,98 @@ class TestReconciliador:
         run = engine.run(trip)
 
         assert run.creadas > 0, 'Las demás reglas deben haber generado alertas.'
+
+
+@pytest.mark.unit
+class TestQueCuentaComoConexion:
+    """A connection is a transfer someone has to make, not any two legs.
+
+    Taken from a real return booking: Barcelona→Gatwick on 31 October and
+    Gatwick→Barcelona on 2 November were reported as a connection of «58 h
+    35 min». That is the trip, with two nights and a hotel in the middle,
+    described as a transfer nobody has to catch.
+    """
+
+    def _tramos(self, trip, segment_factory, salida_1, llegada_1, salida_2, llegada_2):
+        from app.utils.timeutil import set_instant
+
+        primero = segment_factory(numero='VY7604')
+        set_instant(primero, 'salida', salida_1, 'Europe/Madrid')
+        set_instant(primero, 'llegada', llegada_1, 'Europe/London')
+        segundo = segment_factory(numero='VY7623')
+        set_instant(segundo, 'salida', salida_2, 'Europe/London')
+        set_instant(segundo, 'llegada', llegada_2, 'Europe/Madrid')
+        db.session.commit()
+        return primero, segundo
+
+    def test_una_ida_y_vuelta_no_es_una_conexion(
+        self, gestor, trip, segment_factory
+    ):
+        from datetime import datetime
+
+        from app.services import itinerary_service
+
+        self._tramos(
+            trip, segment_factory,
+            datetime(2026, 10, 31, 7, 55), datetime(2026, 10, 31, 9, 20),
+            datetime(2026, 11, 2, 19, 55), datetime(2026, 11, 2, 23, 5),
+        )
+
+        timeline = itinerary_service.build_timeline(gestor, trip)
+
+        assert timeline.connections == [], (
+            'Dos días y dos noches de por medio no son un enlace que alcanzar.'
+        )
+
+    def test_un_enlace_del_mismo_dia_si_lo_es(self, gestor, trip, segment_factory):
+        from datetime import datetime
+
+        from app.services import itinerary_service
+
+        self._tramos(
+            trip, segment_factory,
+            datetime(2026, 10, 31, 7, 55), datetime(2026, 10, 31, 9, 20),
+            datetime(2026, 10, 31, 11, 0), datetime(2026, 10, 31, 13, 0),
+        )
+
+        timeline = itinerary_service.build_timeline(gestor, trip)
+
+        assert len(timeline.connections) == 1
+
+    def test_el_limite_es_configurable(self, app, seeded):
+        from app.services import settings_service
+        from app.services.itinerary_service import conexion_max_minutos, es_conexion
+
+        settings_service.set_value('CONEXION_MAX_HORAS', 6)
+
+        assert conexion_max_minutos() == 360
+        assert es_conexion(300)
+        assert not es_conexion(400)
+
+    def test_un_solape_no_es_una_conexion(self, app, seeded):
+        """Overlapping legs are the overlap rule's finding, not this one's."""
+        from app.services.itinerary_service import es_conexion
+
+        assert not es_conexion(-30)
+
+    def test_la_regla_y_la_interfaz_usan_la_misma_definicion(
+        self, gestor, trip, segment_factory
+    ):
+        """Or one describes something the other does not recognise."""
+        from datetime import datetime
+
+        from app.models.alert import Alert
+        from app.services import alert_service, itinerary_service
+
+        self._tramos(
+            trip, segment_factory,
+            datetime(2026, 10, 31, 7, 55), datetime(2026, 10, 31, 9, 20),
+            datetime(2026, 11, 2, 19, 55), datetime(2026, 11, 2, 23, 5),
+        )
+
+        alert_service.recalculate(trip)
+        timeline = itinerary_service.build_timeline(gestor, trip)
+
+        reglas = {a.regla for a in Alert.query.filter_by(trip_id=trip.id).all()}
+        assert timeline.connections == []
+        assert not any('onexi' in r for r in reglas)

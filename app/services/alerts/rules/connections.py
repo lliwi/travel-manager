@@ -14,6 +14,7 @@ An unknown country falls back to the stricter international threshold: guessing
 """
 from app.models.enums import CONNECTABLE_SEGMENT_TYPES, AlertSeverity
 from app.services.alerts.base import AlertRule, register
+from app.services.itinerary_service import es_conexion
 from app.utils.timeutil import format_duration, minutes_between
 
 
@@ -46,12 +47,12 @@ class ConnectionMarginRule(AlertRule):
     def _check_pair(self, ctx, traveler_id, first, second):
         """Judge one consecutive pair."""
         margin = minutes_between(first.llegada_utc, second.salida_utc)
-        if margin is None:
-            return None
 
-        # A negative margin means the segments overlap; that is the overlap
-        # rule's finding, not this one's, and reporting it twice would be noise.
-        if margin < 0:
+        # Same definition the timeline uses, so both call the same pairs
+        # connections. It also excludes a negative margin, which means the
+        # segments overlap: that is the overlap rule's finding, not this one's,
+        # and reporting it twice would be noise.
+        if not es_conexion(margin):
             return None
 
         threshold, motivo = self._threshold_for(ctx, first, second)
