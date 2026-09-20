@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "macros/forms.html" import render_field %}
+{% from "macros/forms.html" import dropzone, render_field %}
 {% block title %}{{ 'Editar viaje' if trip else 'Nuevo viaje' }} — {{ app_name }}{% endblock %}
 {% block breadcrumb_items %}
 <li class="breadcrumb-item"><a href="{{ url_for('trips.index') }}">Viajes</a></li>
@@ -84,7 +84,7 @@
                         Nada entrará en el itinerario hasta que usted lo revise
                         y lo apruebe.
                     </p>
-                    {{ render_field(form.documentos, field_class='form-control') }}
+                    {{ dropzone(form.documentos) }}
                     <div class="d-flex flex-wrap gap-3 text-muted small">
                         <span><i class="bi bi-check2 me-1"></i>PDF, JPG, PNG, TIFF y EML</span>
                         <span><i class="bi bi-check2 me-1"></i>Se analizan con antivirus</span>

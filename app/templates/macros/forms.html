@@ -99,3 +99,35 @@
   </nav>
   {% endif %}
 {% endmacro %}
+
+{# Drop zone wrapped around a real file input, never replacing it.
+
+   Progressive enhancement on purpose: the input is the thing that submits, and
+   it keeps working with JavaScript off, in a browser that does not do
+   DataTransfer, and for anybody driving the page from the keyboard. What the
+   script adds is a bigger target and the list of what is about to be sent --
+   which is the part people actually miss, because a file input shows one name
+   and then lies about the rest. #}
+{% macro dropzone(field, help=None, accept=None) %}
+<div class="mb-3">
+  {{ field.label(class='form-label') }}
+  <div class="dropzone js-dropzone" data-input="{{ field.id }}">
+    <div class="dropzone-body">
+      <i class="bi bi-cloud-arrow-up dropzone-icon"></i>
+      <p class="dropzone-title mb-1">
+        Arrastre {{ 'los documentos' if field.type == 'MultipleFileField' else 'el documento' }} aquí
+      </p>
+      <p class="text-muted small mb-2">o pulse para elegir{{ '' if field.type == 'MultipleFileField' else ' uno' }}</p>
+      {{ field(class='dropzone-input' + (' is-invalid' if field.errors else ''),
+               **({'accept': accept} if accept else {})) }}
+    </div>
+    <ul class="dropzone-list list-unstyled small mb-0"></ul>
+  </div>
+  {% if help and field.description %}
+    <small class="form-text text-muted d-block">{{ field.description }}</small>
+  {% endif %}
+  {% for error in field.errors %}
+    <div class="invalid-feedback d-block">{{ error }}</div>
+  {% endfor %}
+</div>
+{% endmacro %}

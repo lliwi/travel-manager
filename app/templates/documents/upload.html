@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "macros/forms.html" import render_field %}
+{% from "macros/forms.html" import dropzone, render_field %}
 {% block title %}Subir documento — {{ trip.referencia }}{% endblock %}
 {% block breadcrumb_items %}
 <li class="breadcrumb-item"><a href="{{ url_for('trips.detail', trip_id=trip.id) }}">{{ trip.referencia }}</a></li>
@@ -17,7 +17,7 @@
             <div class="card-body">
                 <form method="post" enctype="multipart/form-data" novalidate>
                     {{ form.hidden_tag() }}
-                    {{ render_field(form.archivo) }}
+                    {{ dropzone(form.archivo) }}
                     {{ render_field(form.tipo) }}
                     {{ render_field(form.trip_traveler_id) }}
                     {{ form.submit }}

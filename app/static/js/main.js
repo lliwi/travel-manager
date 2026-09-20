@@ -84,3 +84,97 @@
         return meta ? meta.getAttribute('content') : '';
     };
 })();
+
+/* Zona de arrastre para los campos de archivo.
+ *
+ * Mejora progresiva: el input sigue ahí y sigue siendo quien envía. Si esto no
+ * se ejecuta —JavaScript desactivado, un navegador sin DataTransfer— el campo
+ * se comporta como cualquier otro campo de archivo. Lo que añade es un blanco
+ * más grande y la lista de lo que se va a mandar, que es lo que de verdad se
+ * echa en falta: un input de archivos enseña un nombre y miente sobre el resto.
+ */
+(function () {
+    'use strict';
+
+    function formatearTamano(bytes) {
+        if (bytes < 1024) { return bytes + ' B'; }
+        if (bytes < 1024 * 1024) { return (bytes / 1024).toFixed(0) + ' KB'; }
+        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    function pintarLista(zona, input) {
+        var lista = zona.querySelector('.dropzone-list');
+        if (!lista) { return; }
+
+        lista.innerHTML = '';
+        Array.prototype.forEach.call(input.files || [], function (archivo) {
+            var fila = document.createElement('li');
+            var nombre = document.createElement('span');
+            nombre.className = 'text-truncate';
+            nombre.textContent = archivo.name;
+            var tamano = document.createElement('span');
+            tamano.className = 'dropzone-size';
+            tamano.textContent = formatearTamano(archivo.size);
+            fila.appendChild(nombre);
+            fila.appendChild(tamano);
+            lista.appendChild(fila);
+        });
+    }
+
+    function conectar(zona) {
+        var input = document.getElementById(zona.dataset.input);
+        if (!input) { return; }
+
+        input.addEventListener('change', function () { pintarLista(zona, input); });
+
+        ['dragenter', 'dragover'].forEach(function (evento) {
+            zona.addEventListener(evento, function (e) {
+                e.preventDefault();
+                zona.classList.add('is-dragging');
+            });
+        });
+
+        ['dragleave', 'drop'].forEach(function (evento) {
+            zona.addEventListener(evento, function (e) {
+                e.preventDefault();
+                // «dragleave» salta también al pasar sobre un hijo; sin esto la
+                // zona parpadea mientras se arrastra por encima.
+                if (evento === 'dragleave' && zona.contains(e.relatedTarget)) { return; }
+                zona.classList.remove('is-dragging');
+            });
+        });
+
+        zona.addEventListener('drop', function (e) {
+            var soltados = e.dataTransfer && e.dataTransfer.files;
+            if (!soltados || !soltados.length || typeof DataTransfer === 'undefined') {
+                return;
+            }
+
+            var destino = new DataTransfer();
+            var admiteVarios = input.multiple;
+
+            // Lo ya elegido se conserva: arrastrar un segundo documento sobre la
+            // zona es añadirlo, no empezar de nuevo.
+            if (admiteVarios) {
+                Array.prototype.forEach.call(input.files || [], function (archivo) {
+                    destino.items.add(archivo);
+                });
+            }
+
+            Array.prototype.forEach.call(soltados, function (archivo) {
+                if (admiteVarios || destino.items.length === 0) {
+                    destino.items.add(archivo);
+                }
+            });
+
+            input.files = destino.files;
+            pintarLista(zona, input);
+            // Para que cualquier validación enganchada al campo se entere.
+            input.dispatchEvent(new Event('change', {bubbles: true}));
+        });
+
+        pintarLista(zona, input);
+    }
+
+    document.querySelectorAll('.js-dropzone').forEach(conectar);
+})();
