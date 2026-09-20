@@ -121,7 +121,7 @@
                 {% for doc in pendientes_revision %}
                 <li class="list-group-item">
                     <a href="{{ url_for('documents.review', document_id=doc.id) }}">
-                        {{ doc.nombre_original }}</a>
+                        {{ doc.resumen_contenido or doc.nombre_original }}</a>
                     <div class="text-muted small">
                         {{ doc.clasificacion.label }} · {{ doc.trip.referencia }}
                     </div>

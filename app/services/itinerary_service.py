@@ -87,11 +87,38 @@ class Timeline:
     def is_empty(self):
         return not self.entries
 
+    #: Kinds that are a journey rather than a stay. A stay spans nights and a
+    #: journey happens at an instant, so putting both on one chronology means
+    #: the hotel appears as a point between two flights and its three nights
+    #: are nowhere.
+    DESPLAZAMIENTOS = ('segmento', 'vehiculo', 'servicio')
+
+    @property
+    def desplazamientos(self):
+        """Entries that are a movement, in order."""
+        return [e for e in self.entries if e.kind in self.DESPLAZAMIENTOS]
+
+    @property
+    def estancias(self):
+        """Entries that are a stay, in order."""
+        return [e for e in self.entries if e.kind == 'alojamiento']
+
+    def por_dia_de(self, entradas):
+        """Group a subset of entries by local date, as :attr:`por_dia` does.
+
+        Takes the subset rather than filtering inside, so the caller decides
+        what belongs on a chronology and this stays a grouping function.
+        """
+        return self._agrupar(entradas)
+
     @property
     def por_dia(self):
         """Entries grouped by local calendar date, for the day-by-day view."""
+        return self._agrupar(self.entries)
+
+    def _agrupar(self, entradas):
         grouped = defaultdict(list)
-        for entry in self.entries:
+        for entry in entradas:
             tz = _timezone_of(entry)
             day = local_date(entry.inicio_utc, tz) if entry.inicio_utc else None
             grouped[day].append(entry)

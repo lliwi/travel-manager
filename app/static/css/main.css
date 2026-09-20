@@ -569,3 +569,113 @@ a.stat-card { transition: border-color .12s ease, box-shadow .12s ease, transfor
     .item-head { flex-direction: column; gap: .15rem; }
     .item-when { white-space: normal; }
 }
+
+/* ---------- Informes ----------
+   Antes todo se dibujaba igual: una barra «valor contra máximo», daba igual que
+   el dato fuera una composición de un total, una escala ordenada, un ranking o
+   una proporción. Con cuatro paneles de seis categorías y cuatro ceros, la
+   pantalla dedicaba el mismo espacio a lo que no pasa que a lo que pasa.
+
+   Los colores no son una elección de gusto: salen de una paleta validada para
+   daltonismo y contraste. La categórica pasa los seis controles; la severidad
+   usa una rampa ordinal de un solo tono, porque «crítica» no es otra identidad
+   que «media», es más de lo mismo. Los pares de estado (aviso/grave) quedaban
+   a ΔE 13,6 en visión normal, por debajo del mínimo: indistinguibles aunque se
+   vea todo el color. */
+.viz {
+    --viz-surface: var(--card-bg);
+    /* Categórica, en orden fijo. Nunca se cicla ni se genera un tono nuevo. */
+    --viz-1: #2a78d6;
+    --viz-2: #eb6834;
+    --viz-3: #1baf7a;
+    --viz-4: #eda100;
+    --viz-5: #e87ba4;
+    --viz-6: #008300;
+    /* Ordinal de un solo tono, de menos a más. */
+    --viz-o1: #86b6ef;
+    --viz-o2: #3987e5;
+    --viz-o3: #1c5cab;
+    --viz-o4: #0d366b;
+    --viz-track: #e2e8f0;
+}
+
+/* Composición de un total: un solo tramo por clase, con 2 px de superficie
+   separándolos. El hueco es lo que separa, no un borde: un borde añade tinta
+   que no es dato. */
+.viz-stack {
+    display: flex;
+    height: 20px;
+    gap: 2px;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    background: var(--viz-track);
+}
+
+.viz-stack > span { display: block; min-width: 2px; }
+
+.viz-legend {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+    gap: .3rem .9rem;
+    margin-top: .75rem;
+    font-size: .85rem;
+}
+
+.viz-legend-item { display: flex; align-items: center; gap: .45rem; }
+.viz-legend-item.is-zero { opacity: .5; }
+
+.viz-swatch {
+    width: .7rem;
+    height: .7rem;
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+
+.viz-legend-name { color: var(--text-muted); }
+.viz-legend-value { margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* Ranking: barras de un solo tono, porque comparan magnitud y no identidad.
+   Extremo redondeado en la punta y recto en la línea base. */
+.viz-rank { display: grid; gap: .55rem; }
+.viz-rank-row { display: grid; grid-template-columns: 1fr auto; gap: .5rem .75rem; align-items: center; }
+.viz-rank-label { font-size: .85rem; grid-column: 1 / -1; color: var(--text-muted); }
+
+.viz-rank-track { height: 12px; background: var(--viz-track); border-radius: 2px; }
+.viz-rank-fill {
+    height: 100%;
+    background: var(--viz-o2);
+    border-radius: 0 4px 4px 0;
+}
+
+.viz-rank-value { font-weight: 600; font-variant-numeric: tabular-nums; min-width: 2ch; text-align: right; }
+
+/* Medidor: una proporción contra un límite. La pista es el mismo tono, más
+   claro; el relleno dice cuánto de ese total queda por hacer. */
+.viz-meter-track {
+    height: 14px;
+    background: var(--viz-track);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.viz-meter-fill { height: 100%; background: var(--viz-o3); border-radius: 0 4px 4px 0; }
+.viz-meter-head { display: flex; justify-content: space-between; align-items: baseline; gap: .75rem; }
+.viz-meter-value { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* Serie temporal: columnas desde una línea base común. El área de dibujo lleva
+   altura propia porque un porcentaje contra una caja sin altura definida se
+   resuelve a cero, y la columna salía como una raya. */
+.viz-columns { display: flex; align-items: flex-end; gap: .75rem; }
+.viz-column { flex: 1; display: flex; flex-direction: column; align-items: center;
+              gap: .3rem; min-width: 0; }
+.viz-column-plot { height: 120px; width: 100%; display: flex; align-items: flex-end;
+                   justify-content: center; }
+.viz-column-bar {
+    width: 100%;
+    max-width: 24px;
+    background: var(--viz-o2);
+    border-radius: 4px 4px 0 0;
+    min-height: 3px;
+}
+.viz-column-label { font-size: .72rem; color: var(--text-muted); white-space: nowrap; }
+.viz-column-value { font-size: .78rem; font-weight: 600; font-variant-numeric: tabular-nums; }

@@ -9,11 +9,18 @@
             <i class="bi bi-speedometer2"></i><span>Panel</span>
         </a>
     </li>
+    {# Solo a quien puede abrirlo: la pantalla responde 403 a cualquier otro,
+       así que ofrecerla era enseñar una sección que no existe para quien la
+       pulsa. Que un gestor no pueda verla parece más estrecho de lo que se
+       quiso —el informe ya se acota a los viajes de cada cual— pero eso es
+       una decisión de permisos, no de menú. #}
+    {% if current_user.is_administrador %}
     <li>
         <a href="{{ url_for('dashboard.reports') }}" class="nav-link">
             <i class="bi bi-bar-chart"></i><span>Informes</span>
         </a>
     </li>
+    {% endif %}
     <li>
         <a href="{{ url_for('dashboard.notifications') }}" class="nav-link">
             <i class="bi bi-bell"></i><span>Notificaciones</span>

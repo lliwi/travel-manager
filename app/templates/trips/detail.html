@@ -84,7 +84,7 @@
     <div class="col-lg-8">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-list-ol me-2"></i>Itinerario consolidado</span>
+                <span><i class="bi bi-list-ol me-2"></i>Trayectos</span>
                 {% if Permiso.EDITAR_ITINERARIO in permisos %}
                 <div class="dropdown">
                     <button class="btn btn-sm btn-outline-primary dropdown-toggle" type="button"
@@ -117,14 +117,36 @@
                 {% endif %}
             </div>
             <div class="card-body">
-                {% if timeline.is_empty %}
+                {# Solo desplazamientos. El alojamiento tiene su propia sección
+                   debajo: una estancia dura noches y un trayecto ocurre en un
+                   instante, así que ponerlos en la misma cronología dejaba el
+                   hotel como un punto entre dos vuelos —repetido, además, en
+                   las dos partes de la pantalla. #}
+                {% set trayectos = timeline.desplazamientos %}
+                {% set por_revisar = timeline.entries | selectattr('item.requiere_revision') | list %}
+                {% if por_revisar %}
+                {# Uno, no uno por fila. La misma frase repetida cuatro veces
+                   deja de leerse a la segunda, y ocupaba el sitio donde debía
+                   estar lo que distingue un trayecto de otro. #}
+                <div class="alert alert-warning d-flex justify-content-between align-items-center gap-3 py-2">
+                    <span>
+                        <i class="bi bi-exclamation-triangle me-1"></i>
+                        {{ por_revisar | length }}
+                        {{ 'elemento necesita' if por_revisar | length == 1 else 'elementos necesitan' }}
+                        que alguien confirme sus datos.
+                    </span>
+                    <a href="{{ url_for('documents.index', trip_id=trip.id) }}"
+                       class="btn btn-sm btn-outline-secondary text-nowrap">Revisar</a>
+                </div>
+                {% endif %}
+                {% if not trayectos %}
                 <div class="empty-state">
                     <i class="bi bi-signpost-split"></i>
-                    <p>El itinerario está vacío. Suba documentos de reserva o añada
+                    <p>Todavía no hay trayectos. Suba documentos de reserva o añada
                        los servicios manualmente.</p>
                 </div>
                 {% else %}
-                {% for dia, entradas in timeline.por_dia %}
+                {% for dia, entradas in timeline.por_dia_de(trayectos) %}
                 <div class="timeline-day">
                     <div class="timeline-date">
                         {% if dia %}{{ dia.strftime('%d/%m/%Y') }}{% else %}Sin fecha{% endif %}
@@ -175,8 +197,11 @@
                                     <span class="chip"><i class="bi bi-people"></i>Todo el viaje</span>
                                     {% endif %}
                                     {% if item.requiere_revision %}
-                                    <span class="chip chip-warning">
-                                        <i class="bi bi-exclamation-triangle"></i>Requiere revisión</span>
+                                    {# Discreto: que este trayecto concreto es
+                                       uno de los que hay que revisar, sin
+                                       repetir el aviso entero. #}
+                                    <span class="chip chip-warning" title="Requiere revisión">
+                                        <i class="bi bi-exclamation-triangle"></i>Sin confirmar</span>
                                     {% endif %}
                                 </div>
                                 <div class="item-actions">
@@ -278,7 +303,8 @@
                             {% endif %}
                         </div>
                     </div>
-                    <div class="timeline-meta mt-2">
+                    <div class="item-row mt-2">
+                        <div class="timeline-meta">
                         {% if hotel.numero_habitaciones %}
                         <span class="chip"><i class="bi bi-door-closed"></i>
                             {{ hotel.numero_habitaciones }} hab.</span>
@@ -296,21 +322,27 @@
                         <span class="chip"><i class="bi bi-people"></i>Todo el viaje</span>
                         {% endif %}
                         {% if hotel.requiere_revision %}
-                        <span class="chip chip-warning">
-                            <i class="bi bi-exclamation-triangle"></i>Requiere revisión</span>
+                        <span class="chip chip-warning" title="Requiere revisión">
+                            <i class="bi bi-exclamation-triangle"></i>Sin confirmar</span>
                         {% endif %}
-                        {% if hotel.documento_origen_id %}
-                        <a class="chip chip-primary"
-                           href="{{ url_for('documents.detail', document_id=hotel.documento_origen_id) }}">
-                            <i class="bi bi-file-earmark-text"></i>Documento</a>
-                        {% endif %}
-                        {% if Permiso.EDITAR_ITINERARIO in permisos %}
-                        <a class="chip"
-                           href="{{ url_for('trips.edit_itinerary_item', trip_id=trip.id,
-                                            kind='alojamiento', item_id=hotel.id) }}">
-                            <i class="bi bi-pencil"></i>Editar</a>
-                        {% endif %}
-                    </div>
+                        </div>
+                        {# Igual que en los trayectos: lo que se pulsa, aparte. #}
+                        <div class="item-actions">
+                            {% if hotel.documento_origen_id %}
+                            <a class="btn btn-sm btn-outline-secondary"
+                               href="{{ url_for('documents.detail', document_id=hotel.documento_origen_id) }}"
+                               title="Ver el documento del que salió"
+                               aria-label="Ver el documento de {{ hotel.nombre }}">
+                                <i class="bi bi-file-earmark-text"></i></a>
+                            {% endif %}
+                            {% if Permiso.EDITAR_ITINERARIO in permisos %}
+                            <a class="btn btn-sm btn-outline-secondary"
+                               href="{{ url_for('trips.edit_itinerary_item', trip_id=trip.id,
+                                                kind='alojamiento', item_id=hotel.id) }}"
+                               title="Editar" aria-label="Editar {{ hotel.nombre }}">
+                                <i class="bi bi-pencil"></i></a>
+                            {% endif %}
+                        </div>
                 </li>
                 {% endfor %}
             </ul>

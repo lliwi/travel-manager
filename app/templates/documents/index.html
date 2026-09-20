@@ -28,8 +28,16 @@
             <tr>
                 <td>
                     <a href="{{ url_for('documents.detail', document_id=doc.id) }}"
-                       class="fw-semibold">{{ doc.nombre_original }}</a>
+                       class="fw-semibold">{{ doc.resumen_contenido or doc.nombre_original }}</a>
+                    {# El nombre de fichero debajo y en pequeño: sigue siendo la
+                       forma de reconocerlo en el correo del que salió, pero no
+                       es lo que se busca al recorrer la lista. #}
+                    {% if doc.resumen_contenido %}
+                    <div class="text-muted small text-truncate" style="max-width: 28rem;"
+                         title="{{ doc.nombre_original }}">{{ doc.nombre_original }}</div>
+                    {% else %}
                     <div class="text-muted small font-monospace">{{ doc.hash_sha256[:16] }}…</div>
+                    {% endif %}
                 </td>
                 <td>
                     {{ badge(doc.clasificacion.label, 'light') }}
