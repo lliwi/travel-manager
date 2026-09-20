@@ -40,6 +40,20 @@
     </div>
 </div>
 
+{% if Permiso.ELIMINAR_VIAJE in permisos %}
+{# Apart from the action bar and last on the page: deleting a trip is not a
+   neighbour of the things done to it every day. #}
+<div class="d-flex justify-content-end mb-3">
+    <form method="post" action="{{ url_for('trips.delete', trip_id=trip.id) }}"
+          onsubmit="return confirm('¿Eliminar el viaje {{ trip.referencia }}? Dejará de aparecer en los listados. Sus documentos, su itinerario y la traza de auditoría se conservan.');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-outline-danger btn-sm">
+            <i class="bi bi-trash me-1"></i>Eliminar viaje
+        </button>
+    </form>
+</div>
+{% endif %}
+
 <ul class="nav nav-tabs mb-3">
     <li class="nav-item"><a class="nav-link active" href="#itinerario" data-bs-toggle="tab">
         <i class="bi bi-list-ol me-1"></i>Itinerario</a></li>

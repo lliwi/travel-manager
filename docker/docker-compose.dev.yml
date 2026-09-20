@@ -35,7 +35,12 @@ services:
     build:
       context: ..
       dockerfile: docker/flask/Dockerfile
-    command: flask run --host=0.0.0.0 --port=5000 --reload
+    # El recargador vigila todo el árbol del proyecto, así que escribir un test
+    # reiniciaba el servidor y cortaba la petición que alguien tuviera en curso.
+    # Nada de lo excluido aquí forma parte de la aplicación en ejecución.
+    command: >
+      flask run --host=0.0.0.0 --port=5000 --reload
+      --exclude-patterns '/app/tests/*:/app/htmlcov/*:/app/logs/*:/app/docs/*'
     environment:
       FLASK_ENV: development
       FLASK_DEBUG: '1'
