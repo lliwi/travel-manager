@@ -63,9 +63,10 @@ test that fails by name.
    and a key in the environment is a key in plain text. Only two bootstrap
    values remain in config, used to seed the first provider on a fresh install.
 
-8. **Documents and PII do not leave by default.** `ai/guard.py` refuses to route
-   a sensitive payload to an external provider unless an administrator enabled
-   it, and records the refusal as a blocked `ai_runs` row.
+8. **PII does not leave by default.** `ai/guard.py` refuses to route a payload
+   carrying personal data to an external provider unless an administrator
+   enabled it, and records the refusal as a blocked `ai_runs` row. Document
+   content is *not* gated: see the departures below.
 
 9. **Untrusted content is delimited and schema-bound.** Document text and web
    content enter prompts only as `UntrustedBlock`, and every answer is validated
@@ -86,6 +87,12 @@ Each is a considered decision, not an oversight:
 
 - **Enum values are ASCII snake_case**, with the accented Spanish as a label.
   The specification writes states like `en preparación`; that is the label.
+
+- **Document content reaches an external provider without a gate** (§2.5 asks
+  for both documents and PII to be withheld by default). Reading a booking is
+  what this application is for and an external model is how it reads it, so the
+  gate stood between the product and its purpose. The gate on personal data
+  stays, because a booking names people.
 
 - **`organizations` exists but is unused.** §2.1 promises a future
   organisational scope; two nullable columns now beat a backfill across every
@@ -120,6 +127,9 @@ $COMPOSE exec web flask ai-health
 $COMPOSE exec web flask verify-audit
 $COMPOSE exec web flask apply-retention      # simula; --execute borra
 $COMPOSE logs -f worker
+
+./scripts/backup.sh                         # base de datos + documentos, juntos
+./scripts/restore.sh --from backups/backup_AAAAMMDD_HHMMSS
 ```
 
 ## Testing

@@ -152,3 +152,6 @@ desktop.ini
 *.rej
 tmp/
 scratch/
+
+# Copias de seguridad: contienen datos reales y no van al repositorio.
+backups/

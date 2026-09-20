@@ -84,50 +84,37 @@ existió.
 
 Hay dos almacenes que respaldar, y hacerlo por separado no sirve de nada si no
 se restauran juntos: la base de datos guarda las claves de los objetos y el
-almacén guarda los objetos.
-
-### PostgreSQL
+almacén guarda los objetos. Los scripts los tratan siempre como una sola cosa.
 
 ```bash
-COMPOSE="docker compose -f docker/docker-compose.yml"
-FECHA=$(date +%Y%m%d_%H%M%S)
-
-$COMPOSE exec -T postgres pg_dump -U travel -Fc travel_manager \
-  > backup_db_${FECHA}.dump
-
-# Cifrar antes de sacarla de la máquina
-gpg --symmetric --cipher-algo AES256 backup_db_${FECHA}.dump
+./scripts/backup.sh                    # deja ./backups/backup_AAAAMMDD_HHMMSS
+./scripts/backup.sh --output /mnt/nas  # en otro sitio
+./scripts/backup.sh --encrypt          # cifrado con gpg, para sacarla de la máquina
 ```
 
-### Documentos (MinIO)
-
-```bash
-docker run --rm --network travel-manager_backend \
-  -v "$(pwd):/backup" minio/mc:latest sh -c "
-    mc alias set tm http://minio:9000 \$S3_ACCESS_KEY \$S3_SECRET_KEY &&
-    mc mirror tm/travel-documents /backup/documentos_${FECHA}"
-```
+Cada copia lleva la base de datos, un tar con los documentos, un manifiesto y
+las sumas de verificación. Si cualquiera de las dos mitades falla no se deja
+nada detrás: media copia que parece entera es peor que ninguna, porque nadie la
+vuelve a hacer.
 
 ### Restauración
 
 ```bash
-$COMPOSE stop web worker beat
-
-gpg --decrypt backup_db_20260601_030000.dump.gpg > restore.dump
-$COMPOSE exec -T postgres pg_restore -U travel -d travel_manager \
-  --clean --if-exists < restore.dump
-
-# ... restaurar también los objetos ...
-
-$COMPOSE start web worker beat
-$COMPOSE exec web flask verify-audit
+./scripts/restore.sh --from backups/backup_20260601_030000
 ```
 
-La verificación final no es opcional: si la cadena de auditoría no cuadra tras
-la restauración, la copia estaba incompleta o alterada.
+Comprueba las sumas antes de tocar nada, detiene la aplicación, restaura las
+dos mitades y termina ejecutando `flask verify-audit`. Esa comprobación final
+no es un adorno: si la cadena de auditoría no cuadra después de restaurar, la
+copia estaba incompleta o alterada, y conviene saberlo antes de dejar entrar a
+nadie.
+
+Para ensayar sin tocar los documentos, `--only-database`.
 
 **Pruebe la restauración periódicamente.** Una copia que nunca se ha restaurado
-no es una copia de seguridad, es una suposición.
+no es una copia de seguridad, es una suposición. Una prueba que sirve: cree un
+viaje con un título reconocible, restaure una copia anterior y compruebe que ha
+desaparecido; si sigue ahí, la restauración no hizo lo que parecía.
 
 ## Escalado
 

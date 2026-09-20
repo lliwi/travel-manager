@@ -399,13 +399,20 @@ _URLS_RE = re.compile(r'["\'](\/[^"\'<>\s]{4,300}|https?:\/\/[^"\'<>\s]{4,300})[
 
 
 def _normalizar(texto):
-    """Lowercase, unaccented, with «+» and «%20» read as spaces."""
+    """Lowercase, unaccented, with every separator read as a space.
+
+    A site writes the same country as «Reino+Unido», «Reino%20Unido» or
+    «united-kingdom», and the punctuation between the words is the site's
+    convention, not part of the name. Comparing «united kingdom» against a
+    hyphenated path found nothing at all.
+    """
     import unicodedata
     from urllib.parse import unquote
 
-    plano = unquote(str(texto or '')).replace('+', ' ')
+    plano = unquote(str(texto or ''))
     descompuesto = unicodedata.normalize('NFKD', plano)
-    return ''.join(c for c in descompuesto if not unicodedata.combining(c)).lower()
+    sin_tildes = ''.join(c for c in descompuesto if not unicodedata.combining(c))
+    return ' '.join(re.split(r'[^0-9a-zA-Z]+', sin_tildes.lower())).strip()
 
 
 def enlace_al_lugar(html, base_url, nombres):

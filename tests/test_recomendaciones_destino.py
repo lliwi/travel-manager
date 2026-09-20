@@ -582,3 +582,59 @@ class TestSeguirElEnlaceDelPais:
         assert enlace_al_lugar(
             html, 'https://www.exteriores.gob.es/', ['Reino Unido'],
         ) is None
+
+
+@pytest.mark.unit
+class TestElNombreSegunLaFuente:
+    """Half the authorised sources are in English, and they hyphenate.
+
+    A destination named only in Spanish cannot be recognised on a page that
+    files it under «united-kingdom», and comparing «united kingdom» against a
+    hyphenated path found nothing at all: the punctuation between the words is
+    the site's convention, not part of the name.
+    """
+
+    HTML = '''
+        <a href="/foreign-travel-advice/united-kingdom">UK</a>
+        <a href="/destinations/united-kingdom">Canada's page</a>
+        <a href="/es/Paginas/Detalle.aspx?trc=Reino+Unido">ES</a>
+    '''
+
+    def _enlace(self, nombres):
+        from app.services.web_research_service import enlace_al_lugar
+
+        return enlace_al_lugar(self.HTML, 'https://www.gov.uk/foreign-travel-advice', nombres)
+
+    def test_se_reconoce_un_nombre_con_guiones(self, app, seeded):
+        enlace = self._enlace(['United Kingdom'])
+
+        assert enlace is not None
+        assert 'united-kingdom' in enlace
+
+    def test_se_reconoce_el_mas_y_el_porciento_veinte(self, app, seeded):
+        from app.services.web_research_service import _normalizar
+
+        assert _normalizar('Reino+Unido') == 'reino unido'
+        assert _normalizar('Reino%20Unido') == 'reino unido'
+        assert _normalizar('united-kingdom') == 'united kingdom'
+
+    def test_el_destino_lleva_su_nombre_ingles(self, gestor, trip, seeded):
+        """Or no English source can recognise where the trip goes."""
+        from app.services import trip_service
+        from app.services.advisory_service import _nombres_de
+
+        destino = trip_service.add_destination(
+            gestor, trip, ciudad='Londres', pais_codigo='GB',
+            pais_nombre='Reino Unido',
+        )
+
+        assert 'United Kingdom' in _nombres_de(destino)
+
+    def test_el_catalogo_tiene_los_nombres_ingleses(self, app, seeded):
+        from app.models.catalog import Country
+
+        sin_ingles = Country.query.filter(Country.nombre_en.is_(None)).count()
+
+        assert sin_ingles == 0, (
+            'Un país sin nombre inglés es invisible para media lista de fuentes.'
+        )

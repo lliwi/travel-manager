@@ -82,12 +82,6 @@ DEFAULTS = {
         False,
     ),
     # --- AI egress policy (section 2.5) -------------------------------
-    'IA_PERMITIR_DOCUMENTOS_EXTERNOS': (
-        False, 'bool', 'ia', 'Permitir documentos a proveedores externos',
-        'Por defecto, el contenido de los documentos nunca sale a un proveedor '
-        'remoto. Habilitarlo es una decisión expresa de la organización.',
-        False,
-    ),
     'IA_PERMITIR_PII_EXTERNOS': (
         False, 'bool', 'ia', 'Permitir datos personales a proveedores externos',
         'Por defecto, los datos personales nunca salen a un proveedor remoto.',

@@ -251,8 +251,20 @@ def _nombres_de(destino):
     Country first: an official source files travel advice by country, while
     the capital also names an embassy, a consulate and a trade office. Asking
     for «Londres» first found the embassy.
+
+    The English name goes in too. Half the authorised sources are in English
+    and file the United Kingdom under «united-kingdom»; a destination named
+    only in Spanish cannot be recognised on any of their pages.
     """
-    return [n for n in (destino.pais_nombre, destino.ciudad, destino.pais_codigo) if n]
+    nombres = [destino.pais_nombre, destino.ciudad]
+
+    if destino.pais_codigo:
+        fila = Country.query.filter_by(codigo=destino.pais_codigo).first()
+        if fila is not None and fila.nombre_en:
+            nombres.append(fila.nombre_en)
+        nombres.append(destino.pais_codigo)
+
+    return [n for n in nombres if n]
 
 
 def _pais_ajeno(riesgo, destino):

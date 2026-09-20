@@ -171,7 +171,7 @@ WEB_SOURCE_DEFINITIONS = (
      AdvisoryCategory.SEGURIDAD, True, 'ES', 'es', 10, 0.95),
     ('Ministerio de Sanidad — La salud también viaja',
      'sanidad.gob.es',
-     'https://www.sanidad.gob.es/profesionales/saludPublica/sanidadExterior/salud/home.htm',
+     'https://www.sanidad.gob.es/areas/sanidadExterior/laSaludTambienViaja/home.htm',
      AdvisoryCategory.SANIDAD, True, 'ES', 'es', 20, 0.95),
     ('Unión Europea — Re-open / viajes',
      'europa.eu', 'https://europa.eu/youreurope/citizens/travel/',
@@ -182,9 +182,13 @@ WEB_SOURCE_DEFINITIONS = (
     ('UK Foreign Travel Advice',
      'gov.uk', 'https://www.gov.uk/foreign-travel-advice',
      AdvisoryCategory.SEGURIDAD, True, 'GB', 'en', 50, 0.85),
-    ('US State Department Travel Advisories',
-     'travel.state.gov', 'https://travel.state.gov/content/travel/en/traveladvisories.html',
-     AdvisoryCategory.SEGURIDAD, True, 'US', 'en', 60, 0.85),
+    # travel.state.gov queda fuera: responde 403 a cualquier cliente
+    # automatizado, con cualquier User-Agent. Sortear esa protección sería
+    # eludir un control de acceso ajeno, así que se sustituye por otra fuente
+    # oficial equivalente en lugar de disfrazarse para entrar.
+    ('Gobierno de Canadá — Travel Advice and Advisories',
+     'travel.gc.ca', 'https://travel.gc.ca/travelling/advisories',
+     AdvisoryCategory.SEGURIDAD, True, 'CA', 'en', 60, 0.85),
 )
 
 
@@ -225,49 +229,52 @@ EU_COUNTRIES = frozenset({
     'SI', 'ES', 'SE',
 })
 
-#: ``codigo: (nombre, iso3, zona_horaria_principal, moneda)``. A working set
+#: ``codigo: (nombre, iso3, zona_horaria_principal, moneda, nombre_en)``. The
+#: English name is not decoration: an official source in English files the
+#: United Kingdom under «united-kingdom», and a destination named only in
+#: Spanish cannot be recognised on its pages. A working set
 #: covering the destinations a Spanish organisation travels to most; the full
 #: ISO list can be imported later through the administration screen.
 COUNTRY_DEFINITIONS = {
-    'ES': ('España', 'ESP', 'Europe/Madrid', 'EUR'),
-    'PT': ('Portugal', 'PRT', 'Europe/Lisbon', 'EUR'),
-    'FR': ('Francia', 'FRA', 'Europe/Paris', 'EUR'),
-    'DE': ('Alemania', 'DEU', 'Europe/Berlin', 'EUR'),
-    'IT': ('Italia', 'ITA', 'Europe/Rome', 'EUR'),
-    'NL': ('Países Bajos', 'NLD', 'Europe/Amsterdam', 'EUR'),
-    'BE': ('Bélgica', 'BEL', 'Europe/Brussels', 'EUR'),
-    'AT': ('Austria', 'AUT', 'Europe/Vienna', 'EUR'),
-    'CH': ('Suiza', 'CHE', 'Europe/Zurich', 'CHF'),
-    'DK': ('Dinamarca', 'DNK', 'Europe/Copenhagen', 'DKK'),
-    'SE': ('Suecia', 'SWE', 'Europe/Stockholm', 'SEK'),
-    'NO': ('Noruega', 'NOR', 'Europe/Oslo', 'NOK'),
-    'FI': ('Finlandia', 'FIN', 'Europe/Helsinki', 'EUR'),
-    'PL': ('Polonia', 'POL', 'Europe/Warsaw', 'PLN'),
-    'CZ': ('Chequia', 'CZE', 'Europe/Prague', 'CZK'),
-    'HU': ('Hungría', 'HUN', 'Europe/Budapest', 'HUF'),
-    'GR': ('Grecia', 'GRC', 'Europe/Athens', 'EUR'),
-    'IE': ('Irlanda', 'IRL', 'Europe/Dublin', 'EUR'),
-    'GB': ('Reino Unido', 'GBR', 'Europe/London', 'GBP'),
-    'US': ('Estados Unidos', 'USA', 'America/New_York', 'USD'),
-    'CA': ('Canadá', 'CAN', 'America/Toronto', 'CAD'),
-    'MX': ('México', 'MEX', 'America/Mexico_City', 'MXN'),
-    'BR': ('Brasil', 'BRA', 'America/Sao_Paulo', 'BRL'),
-    'AR': ('Argentina', 'ARG', 'America/Argentina/Buenos_Aires', 'ARS'),
-    'CL': ('Chile', 'CHL', 'America/Santiago', 'CLP'),
-    'CO': ('Colombia', 'COL', 'America/Bogota', 'COP'),
-    'PE': ('Perú', 'PER', 'America/Lima', 'PEN'),
-    'MA': ('Marruecos', 'MAR', 'Africa/Casablanca', 'MAD'),
-    'ZA': ('Sudáfrica', 'ZAF', 'Africa/Johannesburg', 'ZAR'),
-    'AE': ('Emiratos Árabes Unidos', 'ARE', 'Asia/Dubai', 'AED'),
-    'TR': ('Turquía', 'TUR', 'Europe/Istanbul', 'TRY'),
-    'IL': ('Israel', 'ISR', 'Asia/Jerusalem', 'ILS'),
-    'IN': ('India', 'IND', 'Asia/Kolkata', 'INR'),
-    'CN': ('China', 'CHN', 'Asia/Shanghai', 'CNY'),
-    'JP': ('Japón', 'JPN', 'Asia/Tokyo', 'JPY'),
-    'KR': ('Corea del Sur', 'KOR', 'Asia/Seoul', 'KRW'),
-    'SG': ('Singapur', 'SGP', 'Asia/Singapore', 'SGD'),
-    'AU': ('Australia', 'AUS', 'Australia/Sydney', 'AUD'),
-    'NZ': ('Nueva Zelanda', 'NZL', 'Pacific/Auckland', 'NZD'),
+    'ES': ('España', 'ESP', 'Europe/Madrid', 'EUR', 'Spain'),
+    'PT': ('Portugal', 'PRT', 'Europe/Lisbon', 'EUR', 'Portugal'),
+    'FR': ('Francia', 'FRA', 'Europe/Paris', 'EUR', 'France'),
+    'DE': ('Alemania', 'DEU', 'Europe/Berlin', 'EUR', 'Germany'),
+    'IT': ('Italia', 'ITA', 'Europe/Rome', 'EUR', 'Italy'),
+    'NL': ('Países Bajos', 'NLD', 'Europe/Amsterdam', 'EUR', 'Netherlands'),
+    'BE': ('Bélgica', 'BEL', 'Europe/Brussels', 'EUR', 'Belgium'),
+    'AT': ('Austria', 'AUT', 'Europe/Vienna', 'EUR', 'Austria'),
+    'CH': ('Suiza', 'CHE', 'Europe/Zurich', 'CHF', 'Switzerland'),
+    'DK': ('Dinamarca', 'DNK', 'Europe/Copenhagen', 'DKK', 'Denmark'),
+    'SE': ('Suecia', 'SWE', 'Europe/Stockholm', 'SEK', 'Sweden'),
+    'NO': ('Noruega', 'NOR', 'Europe/Oslo', 'NOK', 'Norway'),
+    'FI': ('Finlandia', 'FIN', 'Europe/Helsinki', 'EUR', 'Finland'),
+    'PL': ('Polonia', 'POL', 'Europe/Warsaw', 'PLN', 'Poland'),
+    'CZ': ('Chequia', 'CZE', 'Europe/Prague', 'CZK', 'Czechia'),
+    'HU': ('Hungría', 'HUN', 'Europe/Budapest', 'HUF', 'Hungary'),
+    'GR': ('Grecia', 'GRC', 'Europe/Athens', 'EUR', 'Greece'),
+    'IE': ('Irlanda', 'IRL', 'Europe/Dublin', 'EUR', 'Ireland'),
+    'GB': ('Reino Unido', 'GBR', 'Europe/London', 'GBP', 'United Kingdom'),
+    'US': ('Estados Unidos', 'USA', 'America/New_York', 'USD', 'United States'),
+    'CA': ('Canadá', 'CAN', 'America/Toronto', 'CAD', 'Canada'),
+    'MX': ('México', 'MEX', 'America/Mexico_City', 'MXN', 'Mexico'),
+    'BR': ('Brasil', 'BRA', 'America/Sao_Paulo', 'BRL', 'Brazil'),
+    'AR': ('Argentina', 'ARG', 'America/Argentina/Buenos_Aires', 'ARS', 'Argentina'),
+    'CL': ('Chile', 'CHL', 'America/Santiago', 'CLP', 'Chile'),
+    'CO': ('Colombia', 'COL', 'America/Bogota', 'COP', 'Colombia'),
+    'PE': ('Perú', 'PER', 'America/Lima', 'PEN', 'Peru'),
+    'MA': ('Marruecos', 'MAR', 'Africa/Casablanca', 'MAD', 'Morocco'),
+    'ZA': ('Sudáfrica', 'ZAF', 'Africa/Johannesburg', 'ZAR', 'South Africa'),
+    'AE': ('Emiratos Árabes Unidos', 'ARE', 'Asia/Dubai', 'AED', 'United Arab Emirates'),
+    'TR': ('Turquía', 'TUR', 'Europe/Istanbul', 'TRY', 'Turkey'),
+    'IL': ('Israel', 'ISR', 'Asia/Jerusalem', 'ILS', 'Israel'),
+    'IN': ('India', 'IND', 'Asia/Kolkata', 'INR', 'India'),
+    'CN': ('China', 'CHN', 'Asia/Shanghai', 'CNY', 'China'),
+    'JP': ('Japón', 'JPN', 'Asia/Tokyo', 'JPY', 'Japan'),
+    'KR': ('Corea del Sur', 'KOR', 'Asia/Seoul', 'KRW', 'South Korea'),
+    'SG': ('Singapur', 'SGP', 'Asia/Singapore', 'SGD', 'Singapore'),
+    'AU': ('Australia', 'AUS', 'Australia/Sydney', 'AUD', 'Australia'),
+    'NZ': ('Nueva Zelanda', 'NZL', 'Pacific/Auckland', 'NZD', 'New Zealand'),
 }
 
 #: ``codigo: (nombre, ciudad, pais, zona_horaria, tipo)``. Airports and major
@@ -385,13 +392,22 @@ def seed_catalogs(commit=True):
 def _seed_countries():
     existing = {c.codigo for c in Country.query.all()}
     created = 0
-    for codigo, (nombre, iso3, tz, moneda) in COUNTRY_DEFINITIONS.items():
+    for codigo, definicion in COUNTRY_DEFINITIONS.items():
+        nombre, iso3, tz, moneda = definicion[:4]
+        nombre_en = definicion[4] if len(definicion) > 4 else None
+
         if codigo in existing:
+            # Reference data catches up: a column added later stays empty on
+            # every install that was seeded before it existed.
+            fila = Country.query.filter_by(codigo=codigo).first()
+            if fila is not None and not fila.nombre_en and nombre_en:
+                fila.nombre_en = nombre_en
             continue
         db.session.add(Country(
             codigo=codigo,
             codigo_iso3=iso3,
             nombre=nombre,
+            nombre_en=nombre_en,
             es_schengen=codigo in SCHENGEN_COUNTRIES,
             es_ue=codigo in EU_COUNTRIES,
             zona_horaria_principal=tz,

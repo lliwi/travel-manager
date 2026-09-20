@@ -39,18 +39,6 @@ class TestPoliticaDeSalidaDeDatos:
 
         return OllamaProvider(base_url='http://localhost:11434', modelo='test')
 
-    def test_un_documento_no_sale_a_un_proveedor_externo(self, seeded):
-        peticion = AIRequest(
-            tarea=AITask.EXTRACT_DOCUMENT.value,
-            sistema='s', instruccion='i',
-            contiene_documentos=True,
-        )
-        decision = check_egress(peticion, self._external_provider(),
-                                AITask.EXTRACT_DOCUMENT)
-
-        assert not decision.permitido
-        assert 'no permite enviar contenido de documentos' in decision.motivo
-
     def test_los_datos_personales_no_salen_a_un_proveedor_externo(self, seeded):
         peticion = AIRequest(
             tarea=AITask.SUMMARIZE_TRIP.value, sistema='s', instruccion='i',
@@ -70,17 +58,35 @@ class TestPoliticaDeSalidaDeDatos:
         assert decision.permitido
         assert decision.motivo == 'proveedor local'
 
-    def test_la_administracion_puede_habilitar_la_salida(self, seeded):
+    def test_el_contenido_de_un_documento_ya_no_esta_restringido(self, seeded):
+        """A deliberate departure from section 2.5, decided by the operator.
+
+        Reading a booking is what this application is for and an external model
+        is how it reads it, so the gate stood between the product and its
+        purpose. The one on personal data stays.
+        """
+        peticion = AIRequest(
+            tarea=AITask.EXTRACT_DOCUMENT.value, sistema='s', instruccion='i',
+            contiene_documentos=True, contiene_pii=False,
+        )
+
+        assert check_egress(peticion, self._external_provider(),
+                            AITask.EXTRACT_DOCUMENT)
+
+    def test_los_datos_personales_siguen_necesitando_permiso(self, seeded):
+        """A booking names people, and where their names go is decided."""
         from app.services import settings_service
 
         peticion = AIRequest(
             tarea=AITask.EXTRACT_DOCUMENT.value, sistema='s', instruccion='i',
-            contiene_documentos=True,
+            contiene_documentos=True, contiene_pii=True,
         )
+        settings_service.set_value('IA_PERMITIR_PII_EXTERNOS', False)
+
         assert not check_egress(peticion, self._external_provider(),
                                 AITask.EXTRACT_DOCUMENT)
 
-        settings_service.set_value('IA_PERMITIR_DOCUMENTOS_EXTERNOS', True)
+        settings_service.set_value('IA_PERMITIR_PII_EXTERNOS', True)
 
         assert check_egress(peticion, self._external_provider(),
                             AITask.EXTRACT_DOCUMENT)

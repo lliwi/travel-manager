@@ -1,19 +1,23 @@
 """Data egress policy (specification section 2.5).
 
-"Política explícita de salida de datos: por defecto, documentos y PII no salen a
-proveedores externos sin habilitación administrativa."
+The rule is enforced here, once, before any request leaves the process. A
+request carrying personal data is refused for an external provider unless an
+administrator enabled that egress, and the refusal is recorded as a blocked
+``ai_runs`` row rather than silently downgraded -- a caller must never be able
+to believe the model saw data it did not, nor have data leave because a check
+was skipped.
 
-The rule is enforced here, once, before any request leaves the process. A task
-whose payload contains document text or personal data is refused for an external
-provider unless an administrator has explicitly enabled that class of egress, and
-the refusal is recorded as a blocked ``ai_runs`` row rather than silently
-downgraded -- a caller must never be able to believe the model saw data it did
-not, nor have data leave because a check was skipped.
+Document content used to be gated the same way and no longer is. The
+specification asks for both; this deployment decided that reading a booking is
+what the application is for and that an external model is how it reads it, so
+the gate stood between the product and its purpose. Personal data keeps its
+gate, because a booking names people and where their names travel is still a
+decision somebody makes on purpose rather than a side effect.
 """
 import logging
 import re
 
-from app.models.enums import SENSITIVE_AI_TASKS, AITask
+from app.models.enums import AITask
 from app.utils.errors import AIPolicyBlocked
 
 logger = logging.getLogger(__name__)
@@ -45,14 +49,10 @@ def check(request, provider, tarea=None):
 
     tarea = AITask.coerce(tarea or request.tarea)
 
-    if request.contiene_documentos or tarea in SENSITIVE_AI_TASKS:
-        if not settings_service.get_bool('IA_PERMITIR_DOCUMENTOS_EXTERNOS', False):
-            return EgressDecision(False, (
-                'La política de la organización no permite enviar contenido de '
-                'documentos a proveedores externos. Habilítelo en Administración '
-                '→ Ajustes si la organización lo autoriza expresamente.'
-            ))
-
+    # Document content is no longer gated: the organisation decided that
+    # extracting a booking is what this application is for, and an external
+    # model is how it does it. Personal data still is -- a booking names people,
+    # and where their names go remains a decision somebody makes on purpose.
     if request.contiene_pii:
         if not settings_service.get_bool('IA_PERMITIR_PII_EXTERNOS', False):
             return EgressDecision(False, (
