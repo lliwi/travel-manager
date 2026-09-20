@@ -78,6 +78,8 @@ def generate_for_trip(actor, trip, categorias=None):
 
     from app.services import ai_service, web_research_service
 
+    retiradas = _retirar_anteriores(actor, trip)
+
     created = []
     for destino in destinos:
         consulta = _query_for(destino, trip)
@@ -140,6 +142,12 @@ def generate_for_trip(actor, trip, categorias=None):
 
     db.session.commit()
 
+    if retiradas:
+        logger.info(
+            'Se retiraron %s recomendaciones anteriores del viaje %s.',
+            retiradas, trip.id,
+        )
+
     audit_service.record(
         'advisory.generated',
         recurso_tipo=AuditResourceType.RECOMENDACION,
@@ -171,6 +179,38 @@ def _query_for(destino, trip):
         f'recomendaciones de viaje, seguridad, sanidad y requisitos de entrada '
         f'para {lugar} en las fechas del viaje'
     )
+
+
+def _estado_inicial():
+    """How a freshly generated advisory starts.
+
+    Section 2.7 asks for a manager to validate before publication, and that is
+    still available: turning the setting off restores it. The default is the
+    other way round because a queue of drafts nobody clears is not a control --
+    it is a list of advisories the traveller never sees. Born validated, the
+    manager's job becomes rejecting what does not apply, which is work
+    proportional to the exceptions rather than to the volume.
+    """
+    from app.services import settings_service
+
+    if settings_service.get_bool('RECOMENDACIONES_VALIDAR_AL_GENERAR', True):
+        return AdvisoryValidationState.VALIDADA
+    return AdvisoryValidationState.PENDIENTE_VALIDACION
+
+
+def _retirar_anteriores(actor, trip):
+    """Withdraw the advisories a previous run produced for this trip.
+
+    Regenerating means "say again what applies now", so what the previous run
+    said is superseded, not added to. Soft-deleted rather than destroyed: the
+    audit trail still leads back to what was shown and to who decided on it.
+    """
+    anteriores = SecurityAdvisory.query.filter_by(
+        trip_id=trip.id, is_deleted=False,
+    ).all()
+    for advisory in anteriores:
+        advisory.soft_delete(actor)
+    return len(anteriores)
 
 
 def _fuentes_sobre(fuentes, destino):
@@ -256,8 +296,7 @@ def _build_advisory(actor, trip, destino, riesgo, fuentes, run_id):
             for f in fuentes
         ],
         caduca_en=_expiry(),
-        # Draft, pending a manager's validation. Section 2.7.
-        estado_validacion=AdvisoryValidationState.PENDIENTE_VALIDACION,
+        estado_validacion=_estado_inicial(),
         generado_por_id=actor.id,
     )
     db.session.add(advisory)

@@ -77,10 +77,16 @@
         <div class="card">
             <div class="card-header"><i class="bi bi-patch-check me-2"></i>Validación</div>
             <div class="card-body">
+                {% set rechazada = advisory.estado_validacion.value == 'rechazada' %}
                 {% if advisory.validado_por %}
                 <p class="small text-muted">
-                    Validada por {{ advisory.validado_por.nombre_completo }}
+                    {{ 'Rechazada' if rechazada else 'Validada' }} por
+                    {{ advisory.validado_por.nombre_completo }}
                     el {{ advisory.validado_en | local_dt('UTC') }}.
+                </p>
+                {% elif rechazada %}
+                <p class="small text-muted">
+                    Rechazada, por lo que no es visible para las personas viajeras.
                 </p>
                 {% else %}
                 <p class="small text-muted">
@@ -92,11 +98,23 @@
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <textarea class="form-control mb-2" name="comentario" rows="2"
                               placeholder="Comentario de validación (opcional)"></textarea>
+                    {# The generated advisories arrive validated, so the work
+                       left is rejecting what does not apply. The primary button
+                       follows the state instead of always offering to approve
+                       something already approved. #}
                     <div class="d-flex gap-2">
+                        {% if rechazada %}
+                        <button type="submit" name="decision" value="validar" class="btn btn-success flex-fill">
+                            <i class="bi bi-arrow-counterclockwise me-1"></i>Restablecer</button>
+                        {% elif advisory.estado_validacion.value == 'validada' %}
+                        <button type="submit" name="decision" value="rechazar" class="btn btn-outline-danger flex-fill">
+                            <i class="bi bi-x-lg me-1"></i>Rechazar: no aplica a este viaje</button>
+                        {% else %}
                         <button type="submit" name="decision" value="validar" class="btn btn-success flex-fill">
                             <i class="bi bi-check-lg me-1"></i>Validar</button>
                         <button type="submit" name="decision" value="rechazar" class="btn btn-outline-danger">
                             <i class="bi bi-x-lg"></i></button>
+                        {% endif %}
                     </div>
                 </form>
             </div>

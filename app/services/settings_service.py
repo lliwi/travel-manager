@@ -23,6 +23,15 @@ DEFAULTS = {
         True,
     ),
 
+    'RECOMENDACIONES_VALIDAR_AL_GENERAR': (
+        True, 'bool', 'recomendaciones', 'Validar al generar',
+        'Las recomendaciones nacen validadas y el gestor rechaza las que no '
+        'procedan. Desactívelo si su organización exige que alguien apruebe '
+        'cada una antes de que sea visible, como describe la sección 2.7 de la '
+        'especificación.',
+        True,
+    ),
+
     # --- Retention (section 3.2, RGPD) --------------------------------
     'RETENCION_DOCUMENTOS_DIAS': (
         1825, 'int', 'retencion', 'Retención de documentos (días)',

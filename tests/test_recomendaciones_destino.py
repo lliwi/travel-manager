@@ -365,3 +365,155 @@ class TestNiSiquieraSeLePreguntaAlModelo:
         }]
 
         assert len(advisory_service._fuentes_sobre(fuentes, destino)) == 1
+
+
+@pytest.mark.integration
+class TestRegenerarRecomendaciones:
+    """Regenerating says again what applies now; it does not add to what was.
+
+    Each run used to append, so a trip consulted three times carried three
+    copies of the same advice and a manager had to work out which run each one
+    came from.
+    """
+
+    def _con_fuente(self, monkeypatch, texto='Reino Unido exige una ETA.'):
+        from app.services import ai_service, web_research_service
+
+        monkeypatch.setattr(web_research_service, 'search', lambda *a, **k: [{
+            'url': 'https://www.gov.uk/foreign-travel-advice',
+            'contenido': texto, 'es_oficial': True, 'fuente': 'gov.uk',
+        }])
+        monkeypatch.setattr(ai_service, 'analyze_risks', lambda *a, **k: {
+            'riesgos': [{
+                'titulo': 'Autorización electrónica de viaje',
+                'descripcion': 'Reino Unido exige una ETA antes de viajar.',
+                'nivel': 'precaucion', 'categoria': 'seguridad',
+            }],
+            'run_id': 'x',
+        })
+
+    def _viaje_listo(self, gestor, trip):
+        from datetime import datetime
+
+        from app.services import trip_service
+        from app.utils.timeutil import set_instant
+
+        trip_service.add_destination(
+            gestor, trip, ciudad='Londres', pais_codigo='GB',
+            pais_nombre='Reino Unido',
+        )
+        set_instant(trip, 'inicio', datetime(2026, 10, 31, 7, 55), 'Europe/Madrid')
+        set_instant(trip, 'fin', datetime(2026, 11, 2, 23, 5), 'Europe/Madrid')
+        db.session.commit()
+
+    def test_la_segunda_generacion_no_duplica(self, gestor, trip, seeded, monkeypatch):
+        from app.models.advisory import SecurityAdvisory
+        from app.services import advisory_service
+
+        self._viaje_listo(gestor, trip)
+        self._con_fuente(monkeypatch)
+
+        advisory_service.generate_for_trip(gestor, trip)
+        primera = SecurityAdvisory.query.filter_by(
+            trip_id=trip.id, is_deleted=False,
+        ).count()
+
+        advisory_service.generate_for_trip(gestor, trip)
+        segunda = SecurityAdvisory.query.filter_by(
+            trip_id=trip.id, is_deleted=False,
+        ).count()
+
+        assert primera == segunda, 'Regenerar sustituye, no acumula.'
+
+    def test_las_anteriores_se_retiran_sin_destruirse(
+        self, gestor, trip, seeded, monkeypatch
+    ):
+        """The trail still leads back to what was shown and who decided on it."""
+        from app.models.advisory import SecurityAdvisory
+        from app.services import advisory_service
+
+        self._viaje_listo(gestor, trip)
+        self._con_fuente(monkeypatch)
+
+        advisory_service.generate_for_trip(gestor, trip)
+        advisory_service.generate_for_trip(gestor, trip)
+
+        retiradas = SecurityAdvisory.query.filter_by(
+            trip_id=trip.id, is_deleted=True,
+        ).all()
+
+        assert retiradas
+        assert all(a.deleted_by_id == gestor.id for a in retiradas)
+
+    def test_nacen_validadas(self, gestor, trip, seeded, monkeypatch):
+        """The manager's job is rejecting what does not apply."""
+        from app.models.enums import AdvisoryValidationState
+        from app.services import advisory_service
+
+        self._viaje_listo(gestor, trip)
+        self._con_fuente(monkeypatch)
+
+        creadas = advisory_service.generate_for_trip(gestor, trip)
+
+        reales = [a for a in creadas if a.pais_codigo == 'GB']
+        assert reales
+        assert all(
+            a.estado_validacion is AdvisoryValidationState.VALIDADA for a in reales
+        )
+
+    def test_un_aviso_de_que_no_se_pudo_comprobar_sigue_pendiente(
+        self, gestor, trip, seeded, monkeypatch
+    ):
+        """That notice is for the manager, not advice for the traveller.
+
+        «No se pudo consultar ninguna fuente» is not a recommendation, and
+        publishing it as one would put a non-advisory in front of whoever is
+        travelling. It stays pending because it is exactly the thing a manager
+        needs to act on.
+        """
+        from app.models.enums import AdvisoryValidationState
+        from app.services import advisory_service, web_research_service
+
+        self._viaje_listo(gestor, trip)
+        monkeypatch.setattr(web_research_service, 'search', lambda *a, **k: [])
+
+        creadas = advisory_service.generate_for_trip(gestor, trip)
+
+        assert creadas
+        assert all(
+            a.estado_validacion is AdvisoryValidationState.PENDIENTE_VALIDACION
+            for a in creadas
+        )
+
+    def test_se_puede_exigir_validacion_previa(
+        self, gestor, trip, seeded, monkeypatch
+    ):
+        """Section 2.7 is still available to an organisation that needs it."""
+        from app.models.enums import AdvisoryValidationState
+        from app.services import advisory_service, settings_service
+
+        settings_service.set_value('RECOMENDACIONES_VALIDAR_AL_GENERAR', False)
+        self._viaje_listo(gestor, trip)
+        self._con_fuente(monkeypatch)
+
+        creadas = advisory_service.generate_for_trip(gestor, trip)
+
+        assert all(
+            a.estado_validacion is AdvisoryValidationState.PENDIENTE_VALIDACION
+            for a in creadas
+        )
+
+    def test_el_gestor_puede_rechazar_una(self, gestor, trip, seeded, monkeypatch):
+        from app.models.enums import AdvisoryValidationState
+        from app.services import advisory_service
+
+        self._viaje_listo(gestor, trip)
+        self._con_fuente(monkeypatch)
+        creada = advisory_service.generate_for_trip(gestor, trip)[0]
+
+        advisory_service.validate(
+            gestor, creada, aprobar=False, comentario='No aplica a este viaje.',
+        )
+
+        assert creada.estado_validacion is AdvisoryValidationState.RECHAZADA
+        assert creada.comentario_validacion == 'No aplica a este viaje.'

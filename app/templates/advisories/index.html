@@ -10,10 +10,11 @@
 <div class="page-header d-flex justify-content-between align-items-center">
     <div><h1>Recomendaciones de seguridad</h1><p class="text-muted mb-0">{{ trip.titulo }}</p></div>
     {% if puede_validar %}
-    <form method="post" action="{{ url_for('advisories.generate', trip_id=trip.id) }}">
+    <form method="post" action="{{ url_for('advisories.generate', trip_id=trip.id) }}"
+          onsubmit="return confirm('Se generarán recomendaciones nuevas y las actuales quedarán retiradas. ¿Continuar?');">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button class="btn btn-primary" type="submit">
-            <i class="bi bi-stars me-1"></i>Generar recomendaciones
+            <i class="bi bi-stars me-1"></i>{{ 'Regenerar' if advisories else 'Generar' }} recomendaciones
         </button>
     </form>
     {% endif %}
