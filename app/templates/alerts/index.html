@@ -20,11 +20,11 @@
 </div>
 
 <div class="mb-3 filter-pills">
-    <a href="{{ url_for('alerts.index', trip_id=trip.id) }}"
-       class="btn btn-sm btn-outline-secondary {{ 'active' if not request.args.get('estado') }}">Todas</a>
+    <a href="{{ url_for('alerts.index', trip_id=trip.id, estado=TODAS) }}"
+       class="btn btn-sm btn-outline-secondary {{ 'active' if estado_activo == TODAS }}">Todas</a>
     {% for estado in AlertState %}
     <a href="{{ url_for('alerts.index', trip_id=trip.id, estado=estado.value) }}"
-       class="btn btn-sm btn-outline-secondary {{ 'active' if request.args.get('estado') == estado.value }}">
+       class="btn btn-sm btn-outline-secondary {{ 'active' if estado_activo == estado.value }}">
         {{ estado.label }}</a>
     {% endfor %}
 </div>
@@ -60,7 +60,15 @@
 {% else %}
 <div class="card"><div class="card-body empty-state">
     <i class="bi bi-check-circle"></i>
+    {% if estado_activo == AlertState.ABIERTA.value %}
+    {# Sin esto, un viaje con todo resuelto parece un viaje sin alertas: el
+       filtro por defecto no se ve, y lo que se esconde detrás sí importa. #}
+    <p>No hay alertas abiertas en este viaje.</p>
+    <a href="{{ url_for('alerts.index', trip_id=trip.id, estado=TODAS) }}"
+       class="btn btn-sm btn-outline-secondary">Ver todas</a>
+    {% else %}
     <p>No hay alertas que mostrar con estos filtros.</p>
+    {% endif %}
 </div></div>
 {% endif %}
 {% endblock %}

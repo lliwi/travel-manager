@@ -272,6 +272,23 @@ a.chip:hover { background: #e2e8f0; }
 
 .filter-pills { display: flex; flex-wrap: wrap; gap: .35rem; }
 
+/* El filtro aplicado, en verde claro. La lista de alertas abre filtrada por
+   «Abiertas», y un filtro por defecto que no se ve deja una lista incompleta
+   con aspecto de lista completa: lo que falta no se echa en falta. El relleno
+   distingue la pastilla activa del resto de un vistazo, sin leerlas. */
+.filter-pills .btn.active {
+    background-color: #d1f2e0;
+    border-color: #6fcf9a;
+    color: #14603b;
+}
+
+.filter-pills .btn.active:hover,
+.filter-pills .btn.active:focus {
+    background-color: #bfead4;
+    border-color: #4fbf85;
+    color: #0f4b2e;
+}
+
 .evidence-entity {
     background: #f8fafc;
     border: 1px solid var(--border);

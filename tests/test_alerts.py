@@ -492,3 +492,102 @@ class TestQueCuentaComoConexion:
         reglas = {a.regla for a in Alert.query.filter_by(trip_id=trip.id).all()}
         assert timeline.connections == []
         assert not any('onexi' in r for r in reglas)
+
+
+@pytest.mark.integration
+class TestElFiltroPorDefecto:
+    """The list opens on what is still wrong, not on everything that ever was.
+
+    Once a trip has been running a while the resolved alerts outnumber the open
+    ones and bury them, so the view worth looking at was reached only by
+    filtering every time.
+    """
+
+    def _alerta(self, trip, estado, titulo, dedup):
+        from app.models.alert import Alert
+        from app.models.enums import AlertSeverity
+
+        alerta = Alert(
+            trip_id=trip.id, tipo='conexion', regla='Margen de conexión',
+            dedup_key=dedup, severidad=AlertSeverity.ALTA, estado=estado,
+            titulo=titulo, mensaje='x', evidencia={},
+        )
+        db.session.add(alerta)
+        db.session.commit()
+        return alerta
+
+    def _url(self, trip):
+        return f'/alerts/viaje/{trip.id}'
+
+    def test_sin_filtro_solo_se_ven_las_abiertas(self, as_user, gestor, trip):
+        from app.models.enums import AlertState
+
+        self._alerta(trip, AlertState.ABIERTA, 'Sigue abierta', 'a' * 16)
+        self._alerta(trip, AlertState.RESUELTA, 'Ya resuelta', 'b' * 16)
+
+        with as_user(gestor) as client:
+            html = client.get(self._url(trip)).get_data(as_text=True)
+
+        assert 'Sigue abierta' in html
+        assert 'Ya resuelta' not in html
+
+    def test_todas_sigue_siendo_alcanzable(self, as_user, gestor, trip):
+        """The default cannot become a wall: what it hides has to be one click
+        away, or a manager cannot find an alert they resolved yesterday."""
+        from app.models.enums import AlertState
+
+        self._alerta(trip, AlertState.ABIERTA, 'Sigue abierta', 'c' * 16)
+        self._alerta(trip, AlertState.RESUELTA, 'Ya resuelta', 'd' * 16)
+
+        with as_user(gestor) as client:
+            html = client.get(f'{self._url(trip)}?estado=todas').get_data(as_text=True)
+
+        assert 'Sigue abierta' in html
+        assert 'Ya resuelta' in html
+
+    def test_la_pastilla_de_abiertas_sale_marcada(self, as_user, gestor, trip):
+        """A filter nobody can see applied is a list that looks incomplete."""
+        with as_user(gestor) as client:
+            html = client.get(self._url(trip)).get_data(as_text=True)
+
+        marcadas = [
+            linea for linea in html.splitlines()
+            if 'btn-outline-secondary active' in linea
+        ]
+        assert len(marcadas) == 1
+        assert 'estado=abierta' in html
+
+    def test_otro_estado_se_sigue_pudiendo_pedir(self, as_user, gestor, trip):
+        from app.models.enums import AlertState
+
+        self._alerta(trip, AlertState.DESCARTADA, 'Descartada', 'e' * 16)
+
+        with as_user(gestor) as client:
+            html = client.get(
+                f'{self._url(trip)}?estado=descartada'
+            ).get_data(as_text=True)
+
+        assert 'Descartada' in html
+
+    def test_sin_abiertas_se_dice_que_hay_un_filtro(self, as_user, gestor, trip):
+        """Otherwise a trip with everything resolved looks like a trip that
+        never had an alert, and what is hidden is exactly what matters."""
+        from app.models.enums import AlertState
+
+        self._alerta(trip, AlertState.RESUELTA, 'Ya resuelta', 'f' * 16)
+
+        with as_user(gestor) as client:
+            html = client.get(self._url(trip)).get_data(as_text=True)
+
+        assert 'No hay alertas abiertas' in html
+        assert 'Ver todas' in html
+
+    def test_el_filtro_aplicado_se_ve(self):
+        """Green fill on the active pill, because the default filter is the
+        one nobody chose and therefore the one nobody expects."""
+        from pathlib import Path
+
+        css = (Path(__file__).resolve().parent.parent
+               / 'app' / 'static' / 'css' / 'main.css').read_text()
+
+        assert '.filter-pills .btn.active' in css

@@ -18,21 +18,36 @@ from app.utils.errors import AppError
 logger = logging.getLogger(__name__)
 
 
+#: Asking for everything, as opposed to not having asked for anything. The
+#: distinction has to exist in the URL because the empty filter now means
+#: «abiertas», so «todas» needs a value of its own to be reachable.
+TODAS = 'todas'
+
+
 @alerts_bp.route('/viaje/<trip_id>')
 @login_required
 @require_trip_access(Permiso.VER_ALERTA)
 def index(trip_id, trip):
-    """List a trip's alerts, scoped to what this actor may see."""
+    """List a trip's alerts, scoped to what this actor may see.
+
+    Open alerts by default. The list is what a manager opens to find what is
+    still wrong with the trip, and once a trip has been running for a while
+    the resolved ones outnumber the open ones and bury them -- so the useful
+    view was reached only by filtering every time.
+    """
+    pedido = request.args.get('estado') or AlertState.ABIERTA.value
     alerts = alert_service.list_for_trip(
         current_user._get_current_object(),
         trip,
-        estado=request.args.get('estado') or None,
+        estado=None if pedido == TODAS else pedido,
         severidad=request.args.get('severidad') or None,
     )
     return render_template(
         'alerts/index.html',
         trip=trip,
         alerts=alerts,
+        estado_activo=pedido,
+        TODAS=TODAS,
         AlertState=AlertState,
         AlertSeverity=AlertSeverity,
     )
