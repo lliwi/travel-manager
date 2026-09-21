@@ -48,6 +48,9 @@ Acciones
 Opciones
   --build        Forzar la reconstrucción de las imágenes.
   --no-build     No reconstruir aunque haya cambios.
+  --proxy [URL]  Construir las imágenes a través de un proxy. Sin URL se usa
+                 BUILD_PROXY del .env o HTTPS_PROXY del entorno. Solo afecta a
+                 la construcción: los contenedores no lo heredan.
   --no-migrate   No aplicar migraciones ni siembra.
   --logs         Seguir el registro al terminar de arrancar.
   --status       Mostrar el estado y salir.
@@ -57,6 +60,8 @@ Ejemplos
   ./start.sh --dev                 arrancar en desarrollo
   ./start.sh --dev --logs          arrancar y seguir el registro
   ./start.sh --prod --build        arrancar en producción reconstruyendo
+  ./start.sh --dev --build --proxy http://proxy.corp.local:3128
+                                   reconstruir detrás de un proxy corporativo
   ./start.sh --prod --stop         detener producción
 EOF
 }
@@ -69,6 +74,7 @@ ACCION="start"
 FORZAR_BUILD=""
 MIGRAR="si"
 SEGUIR_LOGS=""
+PROXY_BUILD=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -77,6 +83,17 @@ while [[ $# -gt 0 ]]; do
         --stop|--parar|--detener) ACCION="stop" ;;
         --status|--estado)       ACCION="status" ;;
         --build)                 FORZAR_BUILD="si" ;;
+        --proxy)
+            # La URL detrás es opcional: «--proxy https://...» la toma, y
+            # «--proxy» a secas la busca en la configuración. Se comprueba que
+            # lo siguiente no sea otra opción para no tragarse un «--build».
+            if [[ $# -gt 1 && "$2" != -* ]]; then
+                PROXY_BUILD="$2"
+                shift
+            else
+                PROXY_BUILD="auto"
+            fi
+            ;;
         --no-build)              FORZAR_BUILD="no" ;;
         --no-migrate|--sin-migrar) MIGRAR="no" ;;
         --logs|--registro)       SEGUIR_LOGS="si" ;;
@@ -189,13 +206,66 @@ necesita_build() {
     [[ -n "${cambios}" ]]
 }
 
+# Resuelve la URL del proxy de construcción, o cadena vacía si no hay que usar
+# ninguno. «--proxy» a secas la busca donde ya esté configurada, para no tener
+# que escribirla cada vez ni dejarla escrita en el repositorio.
+resolver_proxy() {
+    [[ -n "${PROXY_BUILD}" ]] || return 0
+
+    if [[ "${PROXY_BUILD}" != "auto" ]]; then
+        printf '%s' "${PROXY_BUILD}"
+        return 0
+    fi
+
+    local desde_env=""
+    if [[ -f "${ROOT}/.env" ]]; then
+        desde_env="$(grep -E '^[[:space:]]*BUILD_PROXY[[:space:]]*=' "${ROOT}/.env" \
+            | tail -1 | cut -d= -f2- | tr -d '"'"'"' ' || true)"
+    fi
+
+    printf '%s' "${desde_env:-${HTTPS_PROXY:-${https_proxy:-}}}"
+}
+
+construir() {
+    local proxy
+    proxy="$(resolver_proxy)"
+
+    if [[ -z "${proxy}" ]]; then
+        compose build
+        return
+    fi
+
+    # Solo durante la construcción. Ni se exporta al shell ni llega a los
+    # contenedores: la aplicación tiene su propio proxy de salida en Ajustes, y
+    # meterlo también por el entorno daría dos fuentes para la misma decisión.
+    #
+    # Se pasan las cuatro variables, en mayúsculas y en minúsculas, porque
+    # Docker predefine estos argumentos pero no replica el caso: pasando solo
+    # «HTTPS_PROXY», pip y apt —que leen la forma en minúsculas— seguirían
+    # saliendo directos, y la opción parecería funcionar sin hacer nada.
+    info "Construyendo a través del proxy ${proxy%%@*}"
+    HTTP_PROXY="${proxy}" HTTPS_PROXY="${proxy}" \
+    http_proxy="${proxy}" https_proxy="${proxy}" \
+    compose build \
+        --build-arg HTTP_PROXY="${proxy}" \
+        --build-arg HTTPS_PROXY="${proxy}" \
+        --build-arg http_proxy="${proxy}" \
+        --build-arg https_proxy="${proxy}" \
+        --build-arg NO_PROXY="${NO_PROXY:-localhost,127.0.0.1}" \
+        --build-arg no_proxy="${NO_PROXY:-localhost,127.0.0.1}"
+}
+
 arrancar() {
     header "Arrancando Travel Manager (${ETIQUETA})"
 
     if necesita_build; then
         info "Se han detectado cambios; reconstruyendo las imágenes."
-        compose build
+        construir
         ok "Imágenes actualizadas."
+    elif [[ -n "${PROXY_BUILD}" ]]; then
+        # Pedir un proxy y que no se construya nada deja a quien lo pidió sin
+        # saber si se usó. Se dice, y se sigue.
+        info "No hay cambios que reconstruir; el proxy no se ha usado."
     else
         ok "Las imágenes están al día."
     fi
