@@ -272,9 +272,9 @@ class User(UserMixin, SoftDeleteMixin, BaseModel):
 
         limite = self.locked_until
         if limite.tzinfo is None:
-            from datetime import timezone
+            from datetime import UTC
 
-            limite = limite.replace(tzinfo=timezone.utc)
+            limite = limite.replace(tzinfo=UTC)
         return limite > utcnow()
 
     # ------------------------------------------------------------------

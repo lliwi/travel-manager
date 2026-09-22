@@ -158,6 +158,25 @@ Tres límites del conector que conviene saber antes de prometer nada:
   ferroviario el asistente orienta como antes y lo dice; una lista vacía no
   significa que no haya tren.
 
+## Certificado TLS
+
+Se pone en `docker/nginx/certs/` con nombre fijo —`server.crt` y `server.key`—
+y el detalle está en [INSTALL.md](../INSTALL.md#2-certificado-tls).
+
+Lo que importa aquí es la **renovación**: Nginx lee el certificado al arrancar y
+no vuelve a mirarlo. Sustituir el fichero no basta, ni siquiera con una
+renovación automática que escribe el nuevo en su sitio. Hay que recargar:
+
+```bash
+$COMPOSE exec nginx nginx -s reload      # sin cortar conexiones
+$COMPOSE restart nginx                   # si la configuración también cambió
+```
+
+Un certificado renovado y no recargado caduca igual, y el síntoma aparece el día
+del vencimiento, no el de la renovación. Si lo renueva con certbot o similar,
+ponga la recarga en su `deploy-hook`; si lo hace a mano, apúntelo junto a la
+fecha de caducidad.
+
 ## Salida a internet (proxy)
 
 Si el servidor no alcanza internet directamente, se configura en **Ajustes →

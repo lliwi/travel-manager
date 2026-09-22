@@ -112,9 +112,47 @@ openssl req -x509 -nodes -newkey rsa:2048 -days 365 \
 chmod 600 docker/nginx/certs/server.key
 ```
 
-En producción, coloque ahí el certificado emitido por su autoridad de
-certificación y active la redirección a HTTPS descomentando la línea `return
-301 https://...` en `docker/nginx/app.conf`.
+#### En producción, con un certificado propio
+
+Nginx los lee por un nombre fijo, así que el suyo tiene que llamarse igual:
+
+| Fichero | Qué va dentro |
+| --- | --- |
+| `docker/nginx/certs/server.crt` | Su certificado **seguido de los intermedios** de la CA, concatenados en ese orden. |
+| `docker/nginx/certs/server.key` | La clave privada, sin contraseña. |
+
+```bash
+cat su_certificado.crt intermedios.crt > docker/nginx/certs/server.crt
+cp su_clave.key docker/nginx/certs/server.key
+chmod 600 docker/nginx/certs/server.key
+
+docker compose -f docker/docker-compose.yml restart nginx
+```
+
+Tres cosas que no son obvias y son las que suelen fallar:
+
+- **Los intermedios van en el mismo fichero.** Sin ellos el certificado es
+  válido y aun así medio mundo lo rechaza: los navegadores de escritorio suelen
+  completar la cadena por su cuenta y los móviles y los clientes de API no.
+  Compruébelo antes de dar por buena la instalación:
+  `openssl s_client -connect su-dominio:443 -servername su-dominio < /dev/null`
+  debe terminar en `Verify return code: 0 (ok)`.
+- **El directorio se monta de solo lectura.** Sustituya los ficheros en el
+  anfitrión y reinicie Nginx; editarlos dentro del contenedor no es posible y
+  cambiarlos sin reiniciar no hace nada, porque Nginx los lee al arrancar.
+- **No están en el repositorio.** `.gitignore` excluye `docker/nginx/certs/` y
+  cualquier `*.key`: una clave privada en el control de versiones sigue ahí
+  después de borrarla.
+
+Con el certificado puesto, active la redirección a HTTPS descomentando la línea
+`return 301 https://...` en `docker/nginx/app.conf` y reinicie Nginx. Hasta
+entonces déjela comentada: redirigir a un HTTPS que todavía no funciona deja la
+aplicación inalcanzable por los dos puertos.
+
+La cabecera `Strict-Transport-Security` ya está puesta, con un año de validez.
+Eso significa que un navegador que haya entrado una vez **se negará a usar HTTP
+después**, así que actívela cuando el certificado sea definitivo: si luego hay
+que volver a HTTP, quien ya entró no podrá hasta que caduque.
 
 ### 3. Arranque
 

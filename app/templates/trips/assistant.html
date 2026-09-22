@@ -99,7 +99,7 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>
+<script nonce="{{ csp_nonce() }}">
     document.querySelectorAll('.js-sugerida').forEach(function (boton) {
         boton.addEventListener('click', function () {
             var campo = document.getElementById('pregunta');

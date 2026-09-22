@@ -137,6 +137,9 @@ services:
       SECRETS_ENCRYPTION_KEY: ${SECRETS_ENCRYPTION_KEY:?SECRETS_ENCRYPTION_KEY debe estar definida}
       SECRETS_ENCRYPTION_KEY_PREVIOUS: ${SECRETS_ENCRYPTION_KEY_PREVIOUS:-}
       APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost}
+      # Lo fija ./start.sh según el certificado que encuentre, para que la
+      # aplicación y Nginx no tomen decisiones distintas sobre lo mismo.
+      FORCE_HTTPS: ${FORCE_HTTPS:-true}
 
       # Where the Gunicorn workers pool their counters so a scrape sees all
       # four rather than whichever one answered. On tmpfs: these files are
@@ -266,6 +269,10 @@ services:
       - '${HTTPS_PORT:-443}:443'
     volumes:
       - ./nginx/certs:/etc/nginx/certs:ro
+      # Montado y no copiado en la imagen: lo escribe ./start.sh según el
+      # certificado que encuentre, y así cambiar de autofirmado a uno real no
+      # obliga a reconstruir nada.
+      - ./nginx/tls_redirect.conf:/etc/nginx/conf.d/tls_redirect.conf:ro
     networks: [frontend]
     depends_on:
       web: {condition: service_healthy}

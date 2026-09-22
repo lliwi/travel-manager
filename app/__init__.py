@@ -125,7 +125,13 @@ def initialize_extensions(app):
         talisman.init_app(
             app,
             content_security_policy=csp,
-            force_https=True,
+            force_https=app.config.get('FORCE_HTTPS', True),
+            # Sin esto, «script-src 'self'» prohíbe todo <script> en línea y la
+            # página se sirve entera, con buen aspecto y sin funcionar: nada
+            # falla en el servidor y el error solo está en la consola del
+            # navegador. El nonce deja pasar exactamente los que la plantilla
+            # escribió, que es lo contrario de abrir 'unsafe-inline'.
+            content_security_policy_nonce_in=['script-src'],
             # HSTS is asserted by Nginx, which terminates TLS and can therefore
             # also set it on responses it generates itself (a 502 while the app
             # is restarting). Setting it in both places just duplicates it.
@@ -133,6 +139,11 @@ def initialize_extensions(app):
             referrer_policy='strict-origin-when-cross-origin',
             session_cookie_secure=True,
         )
+    else:
+        # En desarrollo y en los tests no hay política que satisfacer, pero la
+        # plantilla sigue pidiendo el nonce. Sin esto, escribir un <script> que
+        # funciona en producción rompe las otras dos.
+        app.jinja_env.globals.setdefault('csp_nonce', lambda: '')
 
     # Import the model package so SQLAlchemy and Alembic see every table.
     with app.app_context():

@@ -226,6 +226,71 @@ resolver_proxy() {
     printf '%s' "${desde_env:-${HTTPS_PROXY:-${https_proxy:-}}}"
 }
 
+# Decide si Nginx debe redirigir a HTTPS, mirando el certificado que hay.
+#
+# No basta con «¿existe un certificado?»: la instalación genera siempre uno
+# autofirmado, así que esa pregunta responde que sí desde el primer minuto y
+# redirigiría todo a un HTTPS que el navegador rechaza. La pregunta útil es si
+# alguien ha puesto uno de verdad, y eso se ve en que no esté firmado por sí
+# mismo: en un autofirmado, quien lo emite y para quién es el mismo.
+#
+# Se comprueba aquí y no dentro del contenedor porque la imagen de Nginx no
+# lleva openssl, y el anfitrión sí.
+configurar_tls() {
+    local dir="${ROOT}/docker/nginx/certs"
+    local destino="${ROOT}/docker/nginx/tls_redirect.conf"
+    local cert="${dir}/server.crt"
+    local cabecera="# Generado por ./start.sh — no editar a mano."
+
+    # Nginx y la aplicación tienen que decidir lo mismo. Talisman redirige por
+    # su cuenta, así que dejarlo en «true» mientras aquí se decide no redirigir
+    # da un 302 hacia un HTTPS que no existe, y el ajuste de nginx no se nota.
+    export FORCE_HTTPS=false
+
+    if [[ ! -f "${cert}" ]]; then
+        printf '%s\n# Sin certificado: se sirve por HTTP.\n' "${cabecera}" > "${destino}"
+        warn "No hay certificado en docker/nginx/certs; se sirve por HTTP."
+        return 0
+    fi
+
+    if ! command -v openssl >/dev/null 2>&1; then
+        printf '%s\n# Sin openssl para comprobar el certificado: se sirve por HTTP.\n' \
+            "${cabecera}" > "${destino}"
+        warn "openssl no disponible; no se activa la redirección a HTTPS."
+        return 0
+    fi
+
+    local emisor sujeto
+    emisor="$(openssl x509 -noout -issuer -in "${cert}" 2>/dev/null | sed 's/^issuer=//')"
+    sujeto="$(openssl x509 -noout -subject -in "${cert}" 2>/dev/null | sed 's/^subject=//')"
+
+    if [[ -z "${emisor}" ]]; then
+        printf '%s\n# El certificado no se pudo leer: se sirve por HTTP.\n' \
+            "${cabecera}" > "${destino}"
+        warn "docker/nginx/certs/server.crt no se pudo leer; se sirve por HTTP."
+        return 0
+    fi
+
+    if [[ "${emisor}" == "${sujeto}" ]]; then
+        printf '%s\n# Certificado autofirmado (desarrollo): se sirve por HTTP.\n' \
+            "${cabecera}" > "${destino}"
+        info "Certificado autofirmado; se sirve por HTTP sin redirigir."
+        return 0
+    fi
+
+    printf '%s\nreturn 301 https://$host$request_uri;\n' "${cabecera}" > "${destino}"
+    export FORCE_HTTPS=true
+    ok "Certificado emitido por «${emisor#*CN=}»: se activa la redirección a HTTPS."
+
+    # Un certificado caducado redirige a un HTTPS que nadie puede usar, y el
+    # aviso llega tarde si solo se ve en el navegador.
+    if ! openssl x509 -checkend 0 -noout -in "${cert}" >/dev/null 2>&1; then
+        warn "El certificado está CADUCADO. Renuévelo: la aplicación redirige a HTTPS."
+    elif ! openssl x509 -checkend 2592000 -noout -in "${cert}" >/dev/null 2>&1; then
+        warn "El certificado caduca en menos de 30 días."
+    fi
+}
+
 construir() {
     local proxy
     proxy="$(resolver_proxy)"
@@ -268,6 +333,12 @@ arrancar() {
         info "No hay cambios que reconstruir; el proxy no se ha usado."
     else
         ok "Las imágenes están al día."
+    fi
+
+    # Antes de levantar: Nginx lee el fragmento al arrancar, así que decidirlo
+    # después obligaría a reiniciarlo.
+    if [[ "${ENTORNO}" == "prod" ]]; then
+        configurar_tls
     fi
 
     compose up -d --remove-orphans

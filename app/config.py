@@ -269,6 +269,17 @@ class ProductionConfig(Config):
     DEBUG = False
     TESTING = False
 
+    #: Whether to redirect every request to HTTPS. True unless somebody says
+    #: otherwise, because a production deployment that quietly serves HTTP is
+    #: the failure worth defaulting against.
+    #:
+    #: It exists because the same decision is also taken by Nginx, and the two
+    #: disagreeing is worse than either: with a self-signed certificate, Nginx
+    #: served HTTP while the application answered 302 to an HTTPS the browser
+    #: refuses, so the site was unreachable by both doors. «./start.sh» now
+    #: sets this alongside the Nginx redirect, from one look at the certificate.
+    FORCE_HTTPS = _bool('FORCE_HTTPS', True)
+
     @staticmethod
     def init_app(app):
         Config.init_app(app)

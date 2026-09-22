@@ -24,23 +24,23 @@
                     {{ render_field(form.nombre, placeholder='Ollama local') }}
                     {{ render_field(form.proveedor) }}
                     {{ render_field(form.base_url, placeholder='http://host.docker.internal:11434') }}
+                    {# El desplegable lo monta modelos.js sobre este campo en
+                       cuanto el endpoint contesta. Si no contesta, se queda el
+                       campo de texto y el modelo se escribe a mano. #}
                     {{ render_field(form.modelo_por_defecto, placeholder='llama3.1:8b') }}
-                    {# A list, not a closed select: a model the endpoint has not
-                       published yet must still be settable. #}
-                    <datalist id="modelos-disponibles"></datalist>
                     {% if provider %}
                     <div class="d-flex align-items-center gap-2 mb-3">
+                        <span class="form-text flex-grow-1" id="estado-modelos"></span>
                         <button type="button" class="btn btn-sm btn-outline-secondary"
                                 id="consultar-modelos"
                                 data-url="{{ url_for('admin.ai_provider_models', provider_id=provider.id) }}">
-                            <i class="bi bi-list-ul me-1"></i>Consultar modelos disponibles
+                            <i class="bi bi-arrow-clockwise me-1"></i>Actualizar la lista
                         </button>
-                        <span class="form-text" id="estado-modelos"></span>
                     </div>
                     {% else %}
                     <p class="form-text">
-                        Guarde el proveedor para poder consultar los modelos que
-                        ofrece su endpoint.
+                        Guarde el proveedor y la lista de modelos de su endpoint
+                        aparecerá aquí para elegir.
                     </p>
                     {% endif %}
                 </div>
@@ -115,7 +115,8 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>
+<script src="{{ url_for('static', filename='js/modelos.js') }}"></script>
+<script nonce="{{ csp_nonce() }}">
 // Rellenar endpoint y modelo al elegir proveedor, solo si están vacíos:
 // una configuración que el administrador ya ha escrito no debe pisarse.
 (function () {
@@ -135,46 +136,24 @@
 
 // Preguntar al endpoint qué modelos tiene, en vez de fiarse de un nombre
 // escrito a mano que solo se descubre erróneo cuando falla una extracción.
+// Se pregunta al abrir la pantalla: si hubiera que pulsar un botón para verlo,
+// quien no supiera que está ahí seguiría escribiendo el nombre de memoria.
 (function () {
-    var boton = document.getElementById('consultar-modelos');
-    if (!boton) { return; }
-    var lista = document.getElementById('modelos-disponibles');
-    var estado = document.getElementById('estado-modelos');
     var campo = document.getElementById('modelo_por_defecto');
-    if (campo) { campo.setAttribute('list', 'modelos-disponibles'); }
+    var boton = document.getElementById('consultar-modelos');
+    if (!campo || !boton) { return; }
 
+    var selector = window.SelectorDeModelo.enlazar({
+        input: campo,
+        url: boton.dataset.url,
+        vacio: '— elija un modelo —',
+        estado: document.getElementById('estado-modelos')
+    });
+
+    // El endpoint se consulta con lo ya guardado, así que un cambio de URL o de
+    // clave sin guardar no se refleja: por eso esto refresca, no descubre.
     boton.addEventListener('click', function () {
-        boton.disabled = true;
-        estado.textContent = 'Consultando…';
-        estado.className = 'form-text';
-
-        fetch(boton.dataset.url, {headers: {'Accept': 'application/json'}})
-            .then(function (r) { return r.json(); })
-            .then(function (data) {
-                lista.innerHTML = '';
-                (data.modelos || []).forEach(function (nombre) {
-                    var opcion = document.createElement('option');
-                    opcion.value = nombre;
-                    lista.appendChild(opcion);
-                });
-
-                if (data.error) {
-                    estado.textContent = data.error;
-                    estado.className = 'form-text text-danger';
-                } else if (!data.modelos || !data.modelos.length) {
-                    estado.textContent = 'El endpoint no ofrece ningún modelo.';
-                    estado.className = 'form-text text-warning';
-                } else {
-                    estado.textContent = data.modelos.length +
-                        ' modelos disponibles. Despliegue el campo para elegir.';
-                    estado.className = 'form-text text-success';
-                }
-            })
-            .catch(function () {
-                estado.textContent = 'No se pudo consultar el endpoint.';
-                estado.className = 'form-text text-danger';
-            })
-            .finally(function () { boton.disabled = false; });
+        selector.cargar(boton.dataset.url, true);
     });
 })();
 </script>

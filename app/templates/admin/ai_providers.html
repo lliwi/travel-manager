@@ -126,6 +126,7 @@
 </div></div>
 {% endif %}
 
+{% set defecto = providers | selectattr('es_por_defecto') | selectattr('activo') | first %}
 <div class="card">
     <div class="card-header">
         <i class="bi bi-diagram-3 me-2"></i>Asignación por tarea
@@ -150,11 +151,17 @@
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="tarea" value="{{ tarea.value }}">
                     <td>
-                        <select name="provider_config_id" class="form-select form-select-sm">
+                        {# Cada opción lleva su endpoint de modelos: al cambiar
+                           de proveedor la lista de al lado cambia con él. #}
+                        <select name="provider_config_id"
+                                class="form-select form-select-sm js-proveedor"
+                                {% if defecto %}data-url-defecto="{{
+                                    url_for('admin.ai_provider_models', provider_id=defecto.id) }}"{% endif %}>
                             <option value="">— Predeterminado —</option>
                             {% for p in providers %}
                             {% if p.activo %}
                             <option value="{{ p.id }}"
+                                data-modelos="{{ url_for('admin.ai_provider_models', provider_id=p.id) }}"
                                 {{ 'selected' if binding and binding.provider_config_id == p.id }}>
                                 {{ p.nombre }}</option>
                             {% endif %}
@@ -162,7 +169,8 @@
                         </select>
                     </td>
                     <td>
-                        <input type="text" name="modelo" class="form-control form-control-sm"
+                        <input type="text" name="modelo"
+                               class="form-control form-control-sm js-modelo"
                                value="{{ binding.modelo if binding and binding.modelo else '' }}"
                                placeholder="del proveedor">
                     </td>
@@ -185,4 +193,39 @@
         </p>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/modelos.js') }}"></script>
+<script nonce="{{ csp_nonce() }}">
+// El modelo de cada tarea se elige de lo que publica su proveedor. Escribirlo
+// a mano sigue siendo posible —un modelo recién añadido puede no estar todavía
+// en la lista—, pero deja de ser la única manera.
+(function () {
+    'use strict';
+    Array.prototype.forEach.call(document.querySelectorAll('.js-modelo'), function (campo) {
+        var fila = campo.closest('tr');
+        var proveedor = fila ? fila.querySelector('.js-proveedor') : null;
+        if (!proveedor) { return; }
+
+        function url() {
+            var op = proveedor.selectedOptions[0];
+            return (op && op.dataset.modelos) || proveedor.dataset.urlDefecto || '';
+        }
+
+        var selector = window.SelectorDeModelo.enlazar({
+            input: campo,
+            url: url(),
+            vacio: '— el del proveedor —'
+        });
+
+        proveedor.addEventListener('change', function () {
+            // El modelo del proveedor anterior no tiene por qué existir en el
+            // nuevo, y dejarlo puesto guardaría una pareja que no funciona.
+            campo.value = '';
+            selector.cargar(url());
+        });
+    });
+})();
+</script>
 {% endblock %}

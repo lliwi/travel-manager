@@ -97,7 +97,8 @@ class AIProviderForm(FlaskForm):
     )
     modelo_por_defecto = StringField(
         'Modelo', validators=[Optional(), Length(max=160)],
-        description='Nombre exacto del modelo, p. ej. llama3.1:8b',
+        description='Se eligen de los que publica el endpoint; «Otro…» '
+                    'permite escribir uno que todavía no publique.',
     )
     api_key = PasswordField(
         'Clave API',
