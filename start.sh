@@ -344,6 +344,13 @@ arrancar() {
     compose up -d --remove-orphans
     ok "Servicios arrancados."
 
+    # Nginx resuelve «web» al arrancar y se queda con esa dirección. Si esta
+    # vuelta ha recreado el contenedor de la aplicación —lo hace en cuanto
+    # cambia la imagen— la dirección cambia y Nginx sigue llamando a la
+    # anterior: todo responde «healthy» y el navegador ve 502, que es el modo
+    # de fallo más caro de diagnosticar porque nada parece estar roto.
+    compose restart nginx >/dev/null 2>&1 || true
+
     header "Esperando a que la aplicación responda"
     local intentos=0
     until docker exec travelmanager_web curl -sf http://localhost:5000/healthz >/dev/null 2>&1; do

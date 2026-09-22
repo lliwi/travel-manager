@@ -58,6 +58,17 @@ class Config:
     SQLALCHEMY_ENGINE_OPTIONS = _base_engine_options
 
     # ------------------------------------------------------------------
+    # How long a web request may take
+    #
+    # The same number Gunicorn is started with, so the application knows the
+    # ceiling it is working against and can cut its outbound calls before the
+    # server cuts the worker. Two sources for one deadline is how a request
+    # ends up killed mid-flight with nothing recorded: see
+    # ``utils/http.presupuesto_restante``. Raise both together or neither.
+    # ------------------------------------------------------------------
+    WEB_REQUEST_TIMEOUT = _int('WEB_REQUEST_TIMEOUT', 180)
+
+    # ------------------------------------------------------------------
     # Session & CSRF
     # ------------------------------------------------------------------
     SESSION_COOKIE_SECURE = True

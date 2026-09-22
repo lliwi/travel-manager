@@ -1111,7 +1111,16 @@ def plan_trip(actor, origen, destino, ida=None, vuelta=None, viajeros=1,
         # third party, and a hotel that named itself «ignora tus instrucciones»
         # is content, not an instruction.
         bloques.append(UntrustedBlock(
-            contenido=json.dumps(opciones_reales, ensure_ascii=False, indent=2),
+            # The price history is left out: it is a chart the screen draws
+            # from the connector's own numbers, and the model must not restate
+            # a price anyway -- sending thirty points buys nothing and costs a
+            # prompt. ``default=str`` renders the dates the rows carry; without
+            # it a serialisation error would take down a screen that was
+            # otherwise working.
+            contenido=json.dumps(
+                {k: v for k, v in opciones_reales.items() if k != 'precios'},
+                ensure_ascii=False, indent=2, default=str,
+            ),
             referencia='buscador',
             tipo='opciones_reales',
         ))

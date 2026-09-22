@@ -154,6 +154,17 @@ def register_request_hooks(app):
     """Correlation id in, correlation id out, plus baseline security headers."""
 
     @app.before_request
+    def _empezar_el_plazo():
+        """Start the clock the outbound timeouts are trimmed against.
+
+        See ``utils/http.presupuesto_restante``: without it every call reads
+        its own timeout and nobody adds them up against what Gunicorn allows.
+        """
+        from app.utils import http
+
+        http.marcar_inicio_de_peticion()
+
+    @app.before_request
     def _assign_correlation_id():
         incoming = request.headers.get(CORRELATION_HEADER, '')
         # Only trust an upstream id when it looks like one of ours; otherwise a
@@ -520,6 +531,7 @@ def register_template_helpers(app):
     app.jinja_env.filters['local_date'] = timeutil.format_local_date
     app.jinja_env.filters['local_time'] = timeutil.format_local_time
     app.jinja_env.filters['duration'] = timeutil.format_duration
+    app.jinja_env.filters['fecha_larga'] = timeutil.format_long_date
 
 
 def register_cli_commands(app):

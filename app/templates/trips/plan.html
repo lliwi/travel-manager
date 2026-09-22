@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros/vuelos.html" import lista_de_vuelos %}
 {% from "macros/forms.html" import render_field %}
 {% block title %}Planificar un viaje — {{ app_name }}{% endblock %}
 {% block breadcrumb_items %}
@@ -82,85 +83,19 @@
         </div>
         {% endif %}
 
-        {# Lo real primero, y separado de la orientación. Los horarios y los
-           precios se pintan desde lo que devolvió el buscador, nunca desde lo
-           que escriba el modelo: si el modelo reescribe una cifra y se
-           equivoca en un dígito, nadie sabe cuál de las dos es la buena. #}
+        {# Lo real primero, y separado de la orientación. #}
         {% if opciones and opciones.vuelos %}
-        <div class="card mb-3">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-airplane me-1"></i>Vuelos encontrados</span>
-                <span class="badge bg-light text-muted border">Datos del buscador</span>
-            </div>
-            <ul class="list-group list-group-flush">
-                {% for vuelo in opciones.vuelos %}
-                <li class="list-group-item">
-                    <div class="d-flex justify-content-between align-items-start gap-3">
-                        <div>
-                            {% for tramo in vuelo.tramos %}
-                            <div class="mb-1">
-                                <strong>{{ tramo.salida }}</strong> {{ tramo.origen }}
-                                <i class="bi bi-arrow-right mx-1 text-muted"></i>
-                                <strong>{{ tramo.llegada }}</strong> {{ tramo.destino }}
-                                <span class="text-muted small ms-2">
-                                    {{ tramo.aerolinea }} {{ tramo.numero }}
-                                    {% if tramo.duracion %}· {{ tramo.duracion }}{% endif %}
-                                </span>
-                            </div>
-                            {% endfor %}
-                            <div class="timeline-meta">
-                                {% if vuelo.duracion_total %}
-                                <span class="chip"><i class="bi bi-clock"></i>{{ vuelo.duracion_total }}</span>
-                                {% endif %}
-                                {% for escala in vuelo.escalas %}
-                                <span class="chip"><i class="bi bi-arrow-repeat"></i>
-                                    Escala en {{ escala.aeropuerto }}
-                                    {% if escala.espera %}({{ escala.espera }}){% endif %}</span>
-                                {% else %}
-                                <span class="chip"><i class="bi bi-check2"></i>Sin escalas</span>
-                                {% endfor %}
-                                {% if vuelo.emisiones_kg %}
-                                <span class="chip"><i class="bi bi-cloud"></i>{{ vuelo.emisiones_kg }} kg CO₂</span>
-                                {% endif %}
-                            </div>
-                        </div>
-                        <div class="text-end text-nowrap">
-                            {% if vuelo.precio %}<strong>{{ vuelo.precio }}</strong>{% endif %}
-                            {% if vuelo.token %}
-                            {# Bajo demanda: preguntar dónde se compra es otra
-                               búsqueda facturada, y hacerlo para los ocho
-                               resultados de cada planificación gastaría el
-                               presupuesto de un día en seis planificaciones. #}
-                            <form method="post" action="{{ url_for('trips.purchase_options') }}"
-                                  class="mt-1 mb-0">
-                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                                <input type="hidden" name="token" value="{{ vuelo.token }}">
-                                {% for clave, valor in vuelo.busqueda.items() %}
-                                <input type="hidden" name="{{ clave }}" value="{{ valor }}">
-                                {% endfor %}
-                                <input type="hidden" name="resumen"
-                                       value="{{ vuelo.tramos[0].origen }} → {{ vuelo.tramos[-1].destino }}, {{ vuelo.tramos[0].salida }}">
-                                <button type="submit" class="btn btn-sm btn-outline-primary">
-                                    Dónde comprarlo
-                                </button>
-                            </form>
-                            {% endif %}
-                        </div>
-                    </div>
-                </li>
-                {% endfor %}
-            </ul>
-            <div class="card-footer text-muted small d-flex justify-content-between align-items-center gap-3">
-                <span>Precios orientativos de Google Flights en el momento de la
-                      consulta. No es una reserva ni garantiza disponibilidad.</span>
-                {% if opciones.enlace_vuelos %}
-                <a href="{{ opciones.enlace_vuelos }}" target="_blank"
-                   rel="noopener noreferrer" class="text-nowrap">
-                    Ver la búsqueda <i class="bi bi-box-arrow-up-right"></i>
-                </a>
-                {% endif %}
-            </div>
-        </div>
+        {{ lista_de_vuelos(
+            opciones.vuelos,
+            'Ida' if opciones.hay_vuelta else 'Vuelos encontrados',
+            opciones.fecha_ida,
+            opciones.enlace_vuelos,
+            none,
+            precio_es_total=opciones.hay_vuelta,
+            accion_vueltas=url_for('trips.return_flights') if opciones.hay_vuelta else none,
+            csrf=csrf_token(),
+            precios=opciones.precios,
+        ) }}
         {% endif %}
 
         {% if opciones and opciones.alojamiento %}

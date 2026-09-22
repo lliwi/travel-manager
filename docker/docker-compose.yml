@@ -124,7 +124,7 @@ services:
       --config /app/docker/flask/gunicorn.conf.py
       --workers ${GUNICORN_WORKERS:-4}
       --bind 0.0.0.0:5000
-      --timeout 120
+      --timeout ${WEB_REQUEST_TIMEOUT:-180}
       --graceful-timeout 30
       --access-logfile -
       --error-logfile -
@@ -140,6 +140,12 @@ services:
       # Lo fija ./start.sh según el certificado que encuentre, para que la
       # aplicación y Nginx no tomen decisiones distintas sobre lo mismo.
       FORCE_HTTPS: ${FORCE_HTTPS:-true}
+
+      # El mismo número con el que arranca Gunicorn arriba. La aplicación lo
+      # necesita para recortar sus llamadas salientes antes de que el servidor
+      # mate al worker: si se cambia uno hay que cambiar el otro, y por eso
+      # los dos leen esta variable.
+      WEB_REQUEST_TIMEOUT: ${WEB_REQUEST_TIMEOUT:-180}
 
       # Where the Gunicorn workers pool their counters so a scrape sees all
       # four rather than whichever one answered. On tmpfs: these files are

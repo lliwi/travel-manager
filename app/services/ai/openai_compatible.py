@@ -129,7 +129,8 @@ class OpenAICompatibleProvider(AIProvider):
                 data = response.json()
         except httpx.TimeoutException as exc:
             raise TransientError(
-                f'El proveedor {self.codigo} no respondió en {self.timeout} s.'
+                f'El proveedor {self.codigo} no respondió en '
+                f'{int(time.monotonic() - start)} s.'
             ) from exc
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code

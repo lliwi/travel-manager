@@ -1,0 +1,214 @@
+{# La lista de vuelos del buscador, en ida y en vuelta.
+
+   Un renglón por opción y las columnas alineadas hacia abajo: lo que
+   distingue una opción de otra son la hora, la duración y el precio, y esos
+   tres se leen comparando, no leyendo. Por eso la fecha sale una vez en la
+   cabecera y no cuatro veces por fila, y por eso los tramos de una escala se
+   repliegan: ocupaban dos renglones cada uno para decir algo que casi nadie
+   mira antes de elegir.
+
+   Los horarios y los precios salen del buscador, nunca de lo que escriba el
+   modelo: si el modelo reescribe una cifra y se equivoca en un dígito, quedan
+   dos números en la página y ninguna forma de saber cuál es el bueno. #}
+
+{% macro lista_de_vuelos(vuelos, titulo, fecha, enlace, nota, precio_es_total=False,
+                         accion_vueltas=None, csrf='', precios=None) %}
+{% set barato = vuelos | map(attribute='precio_valor') | select('number') | list | min %}
+{% set rapido = vuelos | map(attribute='duracion_minutos') | select('number') | list | min %}
+<div class="card mb-3">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span>
+            <i class="bi bi-airplane me-1"></i>{{ titulo }}
+            {% if fecha %}
+            <span class="text-muted fw-normal ms-1">· {{ fecha | fecha_larga }}</span>
+            {% endif %}
+        </span>
+        <span class="badge bg-light text-muted border">Datos del buscador</span>
+    </div>
+
+    {% if precios and precios.historico %}
+    {# El histórico viene en la misma respuesta que los vuelos, así que
+       dibujarlo no cuesta otra búsqueda. Columnas desde una línea base
+       común, como el resto de series del sistema. #}
+    <div class="card-body viz vuelo-precios border-bottom">
+        <div class="vuelo-precios-cabecera">
+            <span>
+                <strong>Precio en las últimas semanas</strong>
+                {% if precios.nivel %}
+                <span class="chip {{ 'chip-success' if precios.nivel == 'bajo'
+                                     else 'chip-warning' if precios.nivel == 'alto'
+                                     else 'chip-info' }} ms-1">
+                    Precio {{ precios.nivel }}</span>
+                {% endif %}
+            </span>
+            {% if precios.tipico_min and precios.tipico_max %}
+            <span class="text-muted small">
+                Habitual entre {{ precios.tipico_min }} y {{ precios.tipico_max }}</span>
+            {% endif %}
+        </div>
+
+        <div class="viz-columns vuelo-precios-grafico">
+            {% for punto in precios.historico %}
+            {% set alto = (punto.valor / precios.maximo * 100) if precios.maximo else 0 %}
+            <div class="viz-column">
+                <div class="viz-column-plot">
+                    <div class="viz-column-bar{{ ' es-minimo' if punto.valor == precios.minimo }}"
+                         style="height: {{ alto | round(1) }}%"></div>
+                </div>
+                {# A la misma altura en todas las columnas y no encima de cada
+                   barra: leer una serie pasando el ratón es comparar cifras, y
+                   una cifra que sube y baja con la barra se lee peor que una
+                   que se queda quieta. Sin «title», que además del retardo del
+                   navegador saldría dos veces. #}
+                <span class="vuelo-punto">
+                    <strong>{{ punto.texto or punto.valor | round | int }}</strong>
+                    <span class="vuelo-punto-fecha">{{ punto.fecha | local_date }}</span>
+                </span>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="vuelo-precios-pie text-muted small">
+            <span>{{ precios.historico[0].fecha | local_date }}</span>
+            {% if precios.explicacion %}<span>{{ precios.explicacion }}</span>{% endif %}
+            <span>{{ precios.historico[-1].fecha | local_date }}</span>
+        </div>
+    </div>
+    {% endif %}
+
+    <ul class="list-group list-group-flush">
+        {% for vuelo in vuelos %}
+        {% set es_el_mas_barato = vuelo.precio_valor is number and vuelo.precio_valor == barato %}
+        <li class="list-group-item vuelo{{ ' vuelo-barato' if es_el_mas_barato }}">
+            <div class="vuelo-fila">
+                <div class="vuelo-horas">
+                    <span class="vuelo-hora">{{ vuelo.hora_salida or '—' }}</span>
+                    <span class="vuelo-iata">{{ vuelo.origen }}</span>
+                    <i class="bi bi-arrow-right vuelo-flecha"></i>
+                    <span class="vuelo-hora">{{ vuelo.hora_llegada or '—' }}</span>
+                    <span class="vuelo-iata">{{ vuelo.destino }}</span>
+                    {% if vuelo.dias_extra %}
+                    {# Sin esto, un vuelo que aterriza a las 00:35 parece el
+                       más rápido de la página. #}
+                    <sup class="vuelo-dia-siguiente"
+                         title="Llega {{ vuelo.dias_extra }} día(s) después">+{{ vuelo.dias_extra }}</sup>
+                    {% endif %}
+                </div>
+
+                <div class="vuelo-trayecto">
+                    <span class="vuelo-duracion">{{ vuelo.duracion_total or '—' }}</span>
+                    <span class="vuelo-escalas">
+                        {% if not vuelo.escalas %}
+                        Directo
+                        {% elif vuelo.escalas | length == 1 %}
+                        1 escala en {{ vuelo.escalas[0].aeropuerto }}{%
+                            if vuelo.escalas[0].espera %} ({{ vuelo.escalas[0].espera }}){% endif %}
+                        {% else %}
+                        {{ vuelo.escalas | length }} escalas en
+                        {{ vuelo.escalas | map(attribute='aeropuerto') | join(', ') }}
+                        {% endif %}
+                    </span>
+                </div>
+
+                <div class="vuelo-compania">
+                    {{ vuelo.aerolineas | join(' + ') }}
+                    {# El número, solo cuando hay uno: en una conexión son
+                       varios y viven en el detalle de los tramos, pero en un
+                       vuelo directo es lo que se teclea para reservar. #}
+                    {% if vuelo.tramos | length == 1 and vuelo.tramos[0].numero %}
+                    <span class="vuelo-numero">{{ vuelo.tramos[0].numero }}</span>
+                    {% endif %}
+                    {% if vuelo.emisiones_kg %}
+                    <span class="vuelo-co2" title="Emisiones estimadas del trayecto">
+                        {{ vuelo.emisiones_kg }} kg CO₂</span>
+                    {% endif %}
+                </div>
+
+                <div class="vuelo-precio">
+                    {% if vuelo.precio %}
+                    <span class="vuelo-importe">{{ vuelo.precio }}</span>
+                    {% if precio_es_total %}
+                    <span class="vuelo-precio-nota">ida y vuelta</span>
+                    {% endif %}
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="vuelo-pie">
+                {% if es_el_mas_barato %}
+                <span class="chip chip-success"><i class="bi bi-tag"></i>El más barato</span>
+                {% endif %}
+                {% if vuelo.duracion_minutos is number and vuelo.duracion_minutos == rapido %}
+                <span class="chip chip-info"><i class="bi bi-lightning"></i>El más rápido</span>
+                {% endif %}
+
+                {% if vuelo.tramos | length > 1 %}
+                <details class="vuelo-tramos">
+                    <summary>Ver los {{ vuelo.tramos | length }} tramos</summary>
+                    <ol class="vuelo-tramos-lista">
+                        {% for tramo in vuelo.tramos %}
+                        <li>
+                            <span class="vuelo-hora-tramo">{{ tramo.hora_salida }}</span>
+                            {{ tramo.origen }}
+                            <i class="bi bi-arrow-right mx-1 text-muted"></i>
+                            <span class="vuelo-hora-tramo">{{ tramo.hora_llegada }}</span>
+                            {{ tramo.destino }}
+                            <span class="text-muted ms-2">
+                                {{ tramo.aerolinea }} {{ tramo.numero }}{%
+                                    if tramo.duracion %} · {{ tramo.duracion }}{% endif %}</span>
+                        </li>
+                        {% endfor %}
+                    </ol>
+                </details>
+                {% endif %}
+
+                <div class="vuelo-acciones">
+                    {% if accion_vueltas and vuelo.token_vuelta %}
+                    {# Otra búsqueda facturada: se hace cuando alguien la pide,
+                       no para los ocho resultados de cada planificación. #}
+                    <form method="post" action="{{ accion_vueltas }}" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+                        <input type="hidden" name="token" value="{{ vuelo.token_vuelta }}">
+                        {% for clave, valor in vuelo.busqueda.items() %}
+                        <input type="hidden" name="{{ clave }}" value="{{ valor }}">
+                        {% endfor %}
+                        <input type="hidden" name="resumen"
+                               value="{{ vuelo.origen }} → {{ vuelo.destino }}, salida {{ vuelo.hora_salida }}">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary">
+                            <i class="bi bi-arrow-left-right me-1"></i>Ver vueltas
+                        </button>
+                    </form>
+                    {% endif %}
+                    {% if vuelo.token %}
+                    <form method="post" action="{{ url_for('trips.purchase_options') }}"
+                          class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf }}">
+                        <input type="hidden" name="token" value="{{ vuelo.token }}">
+                        {% for clave, valor in vuelo.busqueda.items() %}
+                        <input type="hidden" name="{{ clave }}" value="{{ valor }}">
+                        {% endfor %}
+                        <input type="hidden" name="resumen"
+                               value="{{ vuelo.origen }} → {{ vuelo.destino }}, {{ vuelo.hora_salida }}">
+                        <button type="submit" class="btn btn-sm btn-outline-primary">
+                            Dónde comprarlo
+                        </button>
+                    </form>
+                    {% endif %}
+                </div>
+            </div>
+        </li>
+        {% endfor %}
+    </ul>
+
+    <div class="card-footer text-muted small d-flex justify-content-between align-items-center gap-3">
+        <span>
+            {{ nota or 'Precios orientativos de Google Flights en el momento de la
+               consulta. No es una reserva ni garantiza disponibilidad.' }}
+        </span>
+        {% if enlace %}
+        <a href="{{ enlace }}" target="_blank" rel="noopener noreferrer" class="text-nowrap">
+            Ver la búsqueda <i class="bi bi-box-arrow-up-right"></i>
+        </a>
+        {% endif %}
+    </div>
+</div>
+{% endmacro %}

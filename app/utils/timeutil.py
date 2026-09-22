@@ -15,7 +15,7 @@ both needs, so every instant on the itinerary is stored as a *triple*:
 ``_tz``. Nothing else in the codebase may write a ``_utc`` column, which is what
 keeps daylight-saving transitions correct everywhere at once.
 """
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 UTC = UTC
@@ -254,8 +254,37 @@ def format_local(value, tz_name=None, with_tz=True):
     return stamp
 
 
+#: Weekday names, used where a date is a choice rather than a record. A
+#: planning screen offers eight flights on one day and the day is the heading;
+#: «lunes» tells somebody they have the wrong week faster than «28» does.
+_DIAS_ES = (
+    'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo',
+)
+
+
+def format_long_date(value):
+    """«lunes, 28 sep 2026», from a date or a datetime."""
+    if value is None:
+        return ''
+    fecha = value.date() if hasattr(value, 'date') else value
+    try:
+        dia = _DIAS_ES[fecha.weekday()]
+        return f'{dia}, {fecha.day:02d} {_MONTHS_ES[fecha.month - 1]} {fecha.year}'
+    except (AttributeError, IndexError, TypeError):
+        return str(value)
+
+
 def format_local_date(value, tz_name=None):
-    """Render just the date part."""
+    """Render just the date part.
+
+    A plain ``date`` is taken as it is. The local/UTC resolution below exists
+    for the instant triples, and a date has no instant to resolve: putting one
+    through it asks for a ``tzinfo`` that is not there and raises in the middle
+    of a template.
+    """
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return f'{value.day:02d} {_MONTHS_ES[value.month - 1]} {value.year}'
+
     value = _as_local(value, tz_name)
     if value is None:
         return '—'

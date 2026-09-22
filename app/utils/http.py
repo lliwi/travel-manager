@@ -25,14 +25,33 @@ something nobody thought to check.
 own authority. That is not configured here: ``trust_env`` stays on, so
 ``SSL_CERT_FILE`` pointing at the corporate CA bundle works as it does for
 every other Python program.
+
+**The request's budget.** A web request has a hard ceiling -- Gunicorn kills
+the worker at ``WEB_REQUEST_TIMEOUT`` -- and one screen can make several
+outbound calls. Each call knowing its own timeout is not enough: the planning
+assistant asked the flight connector for 25 s, the lodging connector for
+another 25 and the model for 120, which is 170 against a ceiling of 120.
+Gunicorn won, and winning means SIGABRT: the route's own error handling never
+ran, the user got a bare 500, and the ``ai_runs`` row that says what we sent
+outside died with the transaction. So the clamp lives here rather than in each
+caller -- a timeout longer than what is left of the request cannot be asked
+for, and whoever adds the next outbound call inherits it without knowing.
 """
 
 import ipaddress
 import logging
+import time
 
 import httpx
+from flask import current_app, g, has_request_context
+
+from app.utils.errors import TransientError
 
 logger = logging.getLogger(__name__)
+
+#: Reserved for what still has to happen after the last outbound call returns:
+#: commit the transaction, render the template, write the response.
+MARGEN_DE_RESPUESTA = 5.0
 
 #: Never proxied unless somebody removes them. These are the addresses of
 #: things running inside the perimeter -- the other containers, the host, and
@@ -204,13 +223,74 @@ def _bundle_de_certificados():
     return True
 
 
+def marcar_inicio_de_peticion():
+    """Start this request's clock. Called once, from the request hooks."""
+    g._inicio_de_peticion = time.monotonic()
+
+
+def presupuesto_restante():
+    """Seconds this request may still spend waiting, or None if unbounded.
+
+    None outside a request context on purpose: the Celery worker answers to its
+    own task time limits, and a document that takes four minutes to extract is
+    doing its job rather than holding a browser open.
+    """
+    if not has_request_context():
+        return None
+
+    inicio = getattr(g, '_inicio_de_peticion', None)
+    if inicio is None:
+        return None
+
+    techo = current_app.config.get('WEB_REQUEST_TIMEOUT') or 0
+    if techo <= 0:
+        return None
+
+    return techo - (time.monotonic() - inicio) - MARGEN_DE_RESPUESTA
+
+
+def _dentro_del_presupuesto(timeout):
+    """Trim a timeout to what is left of the request.
+
+    Asking for longer than the request has left is asking to be killed by the
+    server instead of failing in the application, and those two are not the
+    same thing: one leaves a flash message and an audit row, the other leaves
+    a 500 and nothing.
+    """
+    restante = presupuesto_restante()
+    if restante is None:
+        return timeout
+
+    if restante <= 0:
+        raise TransientError(
+            'No quedaba tiempo en esta petición para consultar el servicio '
+            'externo. Inténtelo de nuevo.'
+        )
+
+    # Only a plain number is trimmed. ``None`` means the caller said nothing
+    # and httpx applies its own default; an ``httpx.Timeout`` carries a limit
+    # per phase and trimming it correctly is the caller's business. Neither is
+    # silently replaced by the whole remaining budget, which would make an
+    # unspecified timeout *longer* than it is today.
+    if isinstance(timeout, (int, float)) and not isinstance(timeout, bool):
+        return min(float(timeout), restante)
+    return timeout
+
+
 def cliente(**kwargs):
     """An ``httpx.Client`` that knows how this deployment reaches the internet.
 
     Every outbound call in the application builds its client here, so turning a
     proxy on is one setting rather than a search through the code for the
-    places that open sockets.
+    places that open sockets, and no call can ask for more time than the
+    request it belongs to has left.
     """
+    recortado = _dentro_del_presupuesto(kwargs.get('timeout'))
+    # Sin «timeout» explícito no se toca nada: httpx tiene su propio valor por
+    # defecto y ponerle aquí el presupuesto entero lo alargaría.
+    if recortado is not None:
+        kwargs['timeout'] = recortado
+
     proxy = proxy_configurado()
     if not proxy:
         # No proxy in the panel: httpx reads HTTPS_PROXY and NO_PROXY itself,

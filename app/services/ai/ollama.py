@@ -70,7 +70,7 @@ class OllamaProvider(AIProvider):
                 data = response.json()
         except httpx.TimeoutException as exc:
             raise TransientError(
-                f'Ollama no respondió en {self.timeout} s.'
+                f'Ollama no respondió en {int(time.monotonic() - start)} s.'
             ) from exc
         except httpx.HTTPStatusError as exc:
             detail = _safe_detail(exc.response)

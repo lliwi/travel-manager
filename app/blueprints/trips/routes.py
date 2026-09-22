@@ -478,6 +478,62 @@ def summary(trip_id, trip):
     return render_template('trips/summary.html', trip=trip, resumen=resumen)
 
 
+@trips_bp.route('/planificar/vueltas', methods=['POST'])
+@login_required
+@require_permiso(Permiso.CREAR_VIAJE)
+@rate_limited('10 per minute; 40 per hour')
+def return_flights():
+    """The returns that combine with one outbound.
+
+    On a round trip the engine answers with outbound journeys only, so the
+    returns are a second billed search -- on demand, like the purchase
+    options, rather than for the eight results of every planning.
+    """
+    from datetime import date
+
+    from app.services import travel_search_service
+
+    token = request.form.get('token')
+    if not token:
+        flash('No se ha indicado para qué ida buscar la vuelta.', 'warning')
+        return redirect(url_for('trips.plan'))
+
+    busqueda = {
+        clave: request.form.get(clave)
+        for clave in ('departure_id', 'arrival_id', 'outbound_date',
+                      'return_date', 'type', 'adults', 'travel_class')
+        if request.form.get(clave)
+    }
+
+    vuelos, enlace = [], None
+    try:
+        encontrado = travel_search_service.vuelos_de_vuelta(
+            current_user._get_current_object(), token, busqueda,
+        )
+        vuelos = encontrado['opciones']
+        enlace = encontrado['enlace']
+    except AppError as error:
+        flash(error.mensaje, 'warning')
+    except Exception:
+        logger.exception('Falló la consulta de vuelos de vuelta')
+        flash('No se ha podido consultar los vuelos de vuelta.', 'danger')
+
+    fecha = None
+    if busqueda.get('return_date'):
+        try:
+            fecha = date.fromisoformat(busqueda['return_date'])
+        except ValueError:
+            fecha = None
+
+    return render_template(
+        'trips/returns.html',
+        vuelos=vuelos,
+        enlace=enlace,
+        fecha=fecha,
+        resumen=request.form.get('resumen') or 'la ida seleccionada',
+    )
+
+
 @trips_bp.route('/planificar/comprar', methods=['POST'])
 @login_required
 @require_permiso(Permiso.CREAR_VIAJE)

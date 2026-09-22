@@ -24,7 +24,7 @@ Ajustes, which is the explicit decision the project asks for.
 """
 
 import logging
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from urllib.parse import parse_qsl
 
 import httpx
@@ -236,10 +236,33 @@ def _minutos_a_texto(minutos):
     return f'{horas} h {resto:02d} min' if horas else f'{resto} min'
 
 
+def _instante(texto):
+    """Split Google's «2026-09-28 10:50» into the date and the time.
+
+    The screen shows eight options for one day, and repeating the date on both
+    ends of every leg turns the one thing that distinguishes them -- the time
+    -- into the smallest part of the line. Splitting it here rather than in the
+    template is what lets the template align times in a column.
+
+    Returns ``(fecha, hora)``, either of which may be None: an unparseable
+    value falls back to showing whatever the connector sent, because an option
+    with an odd timestamp is still an option.
+    """
+    if not texto:
+        return None, None
+    try:
+        momento = datetime.strptime(str(texto).strip(), '%Y-%m-%d %H:%M')
+    except (TypeError, ValueError):
+        return None, str(texto)
+    return momento.date(), momento.strftime('%H:%M')
+
+
 def _tramo(bruto):
     """One leg, reduced to what a manager reads before choosing."""
     salida = bruto.get('departure_airport') or {}
     llegada = bruto.get('arrival_airport') or {}
+    fecha_salida, hora_salida = _instante(salida.get('time'))
+    fecha_llegada, hora_llegada = _instante(llegada.get('time'))
     return {
         'numero': bruto.get('flight_number'),
         'aerolinea': bruto.get('airline'),
@@ -247,12 +270,45 @@ def _tramo(bruto):
         'origen': salida.get('id'),
         'origen_nombre': salida.get('name'),
         'salida': salida.get('time'),
+        'fecha_salida': fecha_salida,
+        'hora_salida': hora_salida,
         'destino': llegada.get('id'),
         'destino_nombre': llegada.get('name'),
         'llegada': llegada.get('time'),
+        'fecha_llegada': fecha_llegada,
+        'hora_llegada': hora_llegada,
         'duracion': _minutos_a_texto(bruto.get('duration')),
         'clase': bruto.get('travel_class'),
     }
+
+
+def _aerolineas(tramos):
+    """The operating airlines, in order and without repeating one.
+
+    A connection flown end to end by the same carrier reads as one name, which
+    is also the thing that decides whether the bags are through-checked.
+    """
+    vistas = []
+    for tramo in tramos:
+        nombre = tramo.get('aerolinea')
+        if nombre and nombre not in vistas:
+            vistas.append(nombre)
+    return vistas
+
+
+def _dias_de_diferencia(tramos):
+    """Nights crossed between taking off and landing.
+
+    Shown as «+1» beside the arrival time. Without it a flight that lands at
+    00:35 looks like the fastest one on the page.
+    """
+    if not tramos:
+        return 0
+    primera = tramos[0].get('fecha_salida')
+    ultima = tramos[-1].get('fecha_llegada')
+    if not primera or not ultima:
+        return 0
+    return (ultima - primera).days
 
 
 def _opcion_de_vuelo(bruto):
@@ -264,14 +320,88 @@ def _opcion_de_vuelo(bruto):
         }
         for e in (bruto.get('layovers') or [])
     ]
+    tramos = [_tramo(t) for t in (bruto.get('flights') or [])]
+    precio = bruto.get('price')
     return {
-        'tramos': [_tramo(t) for t in (bruto.get('flights') or [])],
+        'tramos': tramos,
         'escalas': escalas,
         'duracion_total': _minutos_a_texto(bruto.get('total_duration')),
-        'precio': _precio(bruto.get('price')),
+        'duracion_minutos': bruto.get('total_duration') or None,
+        'precio': _precio(precio),
+        # The number behind the formatted price, kept so the page can sort and
+        # compare without parsing back the string it just produced.
+        'precio_valor': precio if isinstance(precio, (int, float)) else None,
         'tipo': bruto.get('type'),
         'emisiones_kg': ((bruto.get('carbon_emissions') or {}).get('this_flight') or 0) // 1000
         or None,
+        'aerolineas': _aerolineas(tramos),
+        'dias_extra': _dias_de_diferencia(tramos),
+        'hora_salida': tramos[0]['hora_salida'] if tramos else None,
+        'hora_llegada': tramos[-1]['hora_llegada'] if tramos else None,
+        'origen': tramos[0]['origen'] if tramos else None,
+        'destino': tramos[-1]['destino'] if tramos else None,
+        'fecha_salida': tramos[0]['fecha_salida'] if tramos else None,
+    }
+
+
+#: How Google labels the price it found against its own history.
+_NIVELES = {
+    'low': ('bajo', 'Por debajo de lo habitual en esta ruta.'),
+    'typical': ('normal', 'En la horquilla habitual de esta ruta.'),
+    'high': ('alto', 'Por encima de lo habitual en esta ruta.'),
+}
+
+
+def _historico_de_precios(bruto):
+    """Google's price history for this route, as points ready to draw.
+
+    It arrives in the same answer as the flights, so drawing it costs no extra
+    search. That is the whole reason it is drawn here instead of linked: a link
+    to Google's own graph looks like the same thing and is a second page, a
+    second load and a figure nobody can line up against the list underneath.
+    """
+    puntos = []
+    for entrada in (bruto or []):
+        try:
+            momento, precio = entrada[0], entrada[1]
+            puntos.append({
+                'fecha': datetime.fromtimestamp(int(momento), tz=UTC).date(),
+                'valor': float(precio),
+                # Formatted here like every other price on the page: the
+                # currency is known in this module and nowhere else.
+                'texto': _precio(round(float(precio))),
+            })
+        except (TypeError, ValueError, IndexError):
+            continue
+    return puntos
+
+
+def _analisis_de_precios(bruto):
+    """What the engine says about the price level, or None if it said nothing.
+
+    None rather than an empty shell: a graph with no data drawn as an empty
+    frame says «there is no price history», and what it actually means is that
+    nobody asked.
+    """
+    if not bruto:
+        return None
+
+    horquilla = bruto.get('typical_price_range') or []
+    nivel, explicacion = _NIVELES.get(bruto.get('price_level'), (None, None))
+    historico = _historico_de_precios(bruto.get('price_history'))
+
+    if not historico and nivel is None:
+        return None
+
+    return {
+        'nivel': nivel,
+        'explicacion': explicacion,
+        'mas_bajo': _precio(bruto.get('lowest_price')),
+        'tipico_min': _precio(horquilla[0]) if len(horquilla) > 1 else None,
+        'tipico_max': _precio(horquilla[1]) if len(horquilla) > 1 else None,
+        'historico': historico,
+        'maximo': max((p['valor'] for p in historico), default=0),
+        'minimo': min((p['valor'] for p in historico), default=0),
     }
 
 
@@ -305,14 +435,48 @@ def buscar_vuelos(actor, origen, destino, ida, vuelta=None, viajeros=1,
     # attached; SerpApi will not take the token on its own.
     for opcion, bruta in zip(opciones, brutas, strict=False):
         opcion['token'] = bruta.get('booking_token')
+        # Only present on a round trip: it is what the engine wants back to
+        # say which returns combine with *this* outbound.
+        opcion['token_vuelta'] = bruta.get('departure_token')
         opcion['busqueda'] = parametros
 
     _registrar(actor, 'google_flights', parametros, len(opciones))
     return {
         'opciones': opciones,
+        'precios': _analisis_de_precios(datos.get('price_insights')),
         # Free, and already in the response: one link to the same search on
         # Google Flights. Per-flight purchase links cost another search each,
         # so this is what every result gets without spending anything.
+        'enlace': (datos.get('search_metadata') or {}).get('google_flights_url'),
+    }
+
+
+def vuelos_de_vuelta(actor, token, busqueda):
+    """The returns that combine with one chosen outbound.
+
+    On a round trip the engine answers with outbound journeys only, each
+    carrying a ``departure_token``; the returns are a second search. Like
+    :func:`opciones_de_compra` it is billed, so it happens when somebody asks
+    for it rather than for the eight results of every planning.
+
+    The price on each option is the **whole trip**, not the return leg: that is
+    what the engine reports and the screen has to say so, because a figure that
+    could mean either is worse than no figure.
+    """
+    datos = _pedir(
+        actor, 'google_flights', {**(busqueda or {}), 'departure_token': token},
+    )
+
+    brutas = (datos.get('best_flights') or []) + (datos.get('other_flights') or [])
+    opciones = [_opcion_de_vuelo(o) for o in brutas[:8]]
+    for opcion, bruta in zip(opciones, brutas, strict=False):
+        opcion['token'] = bruta.get('booking_token')
+        opcion['busqueda'] = busqueda or {}
+
+    _registrar(actor, 'google_flights', {**(busqueda or {}), 'vueltas': True},
+               len(opciones))
+    return {
+        'opciones': opciones,
         'enlace': (datos.get('search_metadata') or {}).get('google_flights_url'),
     }
 
@@ -455,7 +619,12 @@ def buscar_para(actor, origen, destino, ida, vuelta=None, viajeros=1):
     empty list reads as «there is no way to get there».
     """
     resultado = {'vuelos': [], 'alojamiento': [], 'avisos': [],
-                 'enlace_vuelos': None, 'consultado': False}
+                 'enlace_vuelos': None, 'consultado': False,
+                 # With a return date the engine answers with outbound
+                 # journeys and prices the whole trip, so the screen has to
+                 # say both things rather than let «222 €» mean either.
+                 'hay_vuelta': bool(vuelta), 'fecha_ida': ida,
+                 'precios': None}
 
     if not esta_configurada() or not ida:
         return resultado
@@ -470,6 +639,7 @@ def buscar_para(actor, origen, destino, ida, vuelta=None, viajeros=1):
             )
             resultado['vuelos'] = encontrado['opciones']
             resultado['enlace_vuelos'] = encontrado['enlace']
+            resultado['precios'] = encontrado['precios']
             resultado['consultado'] = True
         except BusquedaNoDisponible as error:
             resultado['avisos'].append(error.mensaje)
