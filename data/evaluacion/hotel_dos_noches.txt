@@ -1,0 +1,20 @@
+From: reservas@example-hotels.test
+To: persona.ejemplo@example.test
+Subject: Reservation confirmed at Hotel Ejemplo Centro
+
+Reservation confirmed
+
+Confirmation number: 750959
+
+Hotel Ejemplo Centro
+Calle Inventada 12, Londres, W1D 7DH
+Phone: +44 20 0000 0000
+
+Guest: Persona Ejemplo Primera
+
+Check-in: Saturday, 31 October 2026 from 15:00
+Check-out: Monday, 02 November 2026 until 10:00
+
+2 nights | 1 room | Room only
+
+Total: 327.03 GBP

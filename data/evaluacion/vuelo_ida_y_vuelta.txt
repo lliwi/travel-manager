@@ -1,0 +1,52 @@
+From: Vueling <no-reply@comms.vueling.com>
+To: persona.ejemplo@example.test
+Subject: Your booking confirmation QWERTY - BCN-LGW 31 October, LGW-BCN 02 November
+Date: Sun, 06 Sep 2026 11:44:05 -0600
+
+Vueling
+This email is not valid as a boarding pass.
+
+Manage your booking | Check in now | Booking code: QWERTY
+
+Hi Persona, booking confirmed.
+
+Outbound | Saturday, 31 October 2026
+
+Barcelona (Spain) | London (Gatwick) (United Kingdom)
+
+BCN
+
+LGW
+
+07:55h | 09:20h
+
+VY7604
+
+Return | Monday, 02 November 2026
+
+London (Gatwick) (United Kingdom) | Barcelona (Spain)
+
+LGW
+
+BCN
+
+19:55h | 23:05h
+
+VY7623
+
+Passengers and services
+
+Passengers | Outbound | Return
+
+Persona Ejemplo Primera
+
+Seat
+15D | 15D
+
+Otra Persona Ejemplo
+
+Seat
+15E | 15F
+
+Status: | Confirmed
+Total: 776.94 EUR

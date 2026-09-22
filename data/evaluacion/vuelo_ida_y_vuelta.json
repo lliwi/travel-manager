@@ -1,0 +1,14 @@
+{
+  "documento": "vuelo_ida_y_vuelta.txt",
+  "clasificacion": "vuelo",
+  "servicios_esperados": 2,
+  "esperado": {
+    "numero_vuelo": "VY7604",
+    "localizador": "QWERTY",
+    "aerolinea": "Vueling",
+    "origen_codigo": "BCN",
+    "destino_codigo": "LGW",
+    "salida": "2026-10-31T07:55",
+    "llegada": "2026-10-31T09:20"
+  }
+}

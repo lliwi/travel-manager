@@ -105,11 +105,18 @@ warn "docker/.env contiene secretos y está excluido del control de versiones."
 # ---------------------------------------------------------------------
 header "Paso 4: comprobando Ollama en el host"
 # ---------------------------------------------------------------------
-OLLAMA_URL="$(grep -E '^OLLAMA_BASE_URL=' "${ENV_FILE}" | cut -d= -f2- || echo '')"
+# Los nombres son «OLLAMA_BOOTSTRAP_*» desde que la configuración de IA pasó a
+# la base de datos; este paso seguía leyendo los de antes y no encontraba nada,
+# así que avisaba de que «Ollama no responde en .» —sin URL— en una máquina
+# donde podía estar respondiendo perfectamente. Y vienen comentados en la
+# plantilla, porque el valor útil es el que trae la propia configuración.
+OLLAMA_URL="$(grep -E '^[[:space:]]*OLLAMA_BOOTSTRAP_URL=' "${ENV_FILE}" | tail -1 | cut -d= -f2- || true)"
+OLLAMA_URL="${OLLAMA_URL:-http://host.docker.internal:11434}"
 HOST_URL="${OLLAMA_URL/host.docker.internal/localhost}"
 if curl -sf "${HOST_URL}/api/tags" >/dev/null 2>&1; then
     ok "Ollama responde en ${HOST_URL}."
-    MODEL="$(grep -E '^OLLAMA_DEFAULT_MODEL=' "${ENV_FILE}" | cut -d= -f2- || echo '')"
+    MODEL="$(grep -E '^[[:space:]]*OLLAMA_BOOTSTRAP_MODEL=' "${ENV_FILE}" | tail -1 | cut -d= -f2- || true)"
+    MODEL="${MODEL:-llama3.1:8b}"
     if curl -sf "${HOST_URL}/api/tags" | grep -q "${MODEL%%:*}"; then
         ok "El modelo «${MODEL}» está descargado."
     else

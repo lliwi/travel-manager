@@ -81,7 +81,15 @@ bandit-report.*
 # Los documentos viven en MinIO y la base de datos en su volumen; estos
 # directorios solo aparecen en ejecuciones locales fuera de Docker.
 # ---------------------------------------------------------------------
-data/
+# Su contenido, no el directorio: excluyendo «data/» git no entra en él, y
+# entonces ninguna excepción de dentro puede rescatar nada. Con «data/*» sí
+# desciende, y el conjunto dorado se salva.
+data/*
+# El conjunto dorado no es un artefacto de ejecución sino la referencia con la
+# que se mide un modelo. La regla anterior se lo tragaba, así que un clon no lo
+# traía y «flask evaluar» no encontraba ningún caso: cambiar de modelo volvía a
+# ser un acto de fe, que es justo lo que este conjunto existe para evitar.
+!data/evaluacion/
 logs/
 *.log
 volumes/
@@ -118,8 +126,13 @@ docker/docker-compose.local.yml
 # Modelos y artefactos de IA
 #
 # Los modelos los gestiona Ollama en el host; si alguno acaba aquí, fuera.
+#
+# Anclado a la raíz. Sin la barra inicial, «models/» coincide a cualquier
+# profundidad y se tragaba «app/models/» entero: el modelo de datos de la
+# aplicación nunca llegó al repositorio, así que un clon recién hecho no tenía
+# con qué arrancar. No lo delataba nada, porque aquí los ficheros están.
 # ---------------------------------------------------------------------
-models/
+/models/
 *.gguf
 *.bin
 *.safetensors

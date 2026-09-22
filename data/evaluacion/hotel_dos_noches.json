@@ -1,0 +1,13 @@
+{
+  "documento": "hotel_dos_noches.txt",
+  "clasificacion": "hotel",
+  "servicios_esperados": 1,
+  "esperado": {
+    "nombre": "Hotel Ejemplo Centro",
+    "localizador": "750959",
+    "ciudad": "Londres",
+    "check_in": "2026-10-31T15:00",
+    "check_out": "2026-11-02T10:00",
+    "noches": 2
+  }
+}
