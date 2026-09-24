@@ -356,3 +356,77 @@ class TestLaVueltaTambienSeSelecciona:
         numeros = {t.numero for t in TravelSegment.query.all()}
 
         assert numeros == {'VY 8250', 'VY 8251'}
+
+
+@pytest.mark.unit
+class TestLaZonaDelAlojamientoSaleSola:
+    """Google contesta una búsqueda de alojamiento con la propiedad y su
+    precio, y no dice en qué ciudad está. Así que la estancia no tenía de
+    dónde sacar una zona horaria y las horas se guardaban como UTC, con un
+    aviso que nombraba la *habitación* —«1924 - Queen Room with Shared
+    Bathroom»— porque era el único texto que traía la fila.
+
+    Dos formas de saberlo sin preguntarle a nadie: la ciudad que se buscó, y
+    dónde aterriza el vuelo del mismo viaje.
+    """
+
+    HOTEL_SIN_CIUDAD = {'nombre': '1924 - Queen Room with Shared Bathroom'}
+
+    def _crear(self, gestor, hotel, vuelos=()):
+        from datetime import datetime
+
+        return desde_buscador.crear_viaje(
+            gestor, 'x', vuelos=list(vuelos), alojamientos=[hotel],
+            entrada=datetime(2026, 10, 15), salida=datetime(2026, 10, 18),
+        )
+
+    def test_la_ciudad_de_la_busqueda_basta(self, app, seeded, gestor):
+        """Es la que ahora acompaña a cada fila del buscador."""
+        trip, avisos = self._crear(
+            gestor, {**self.HOTEL_SIN_CIUDAD, 'ciudad': 'Londres', 'pais': 'GB'})
+        hotel = Accommodation.query.filter_by(trip_id=trip.id).one()
+
+        assert hotel.check_in_tz == 'Europe/London'
+        assert avisos == []
+
+    def test_sin_ciudad_vale_donde_aterriza_el_vuelo(self, app, seeded, gestor):
+        """Quien duerme en una ciudad a la que ha volado está en esa ciudad,
+        y eso es mejor respuesta que leer un check-in como UTC."""
+        trip, avisos = self._crear(gestor, self.HOTEL_SIN_CIUDAD, vuelos=[VUELO])
+        hotel = Accommodation.query.filter_by(trip_id=trip.id).one()
+
+        assert hotel.check_in_tz == 'Europe/London'
+        assert hotel.ciudad == 'Londres'
+        assert avisos == []
+
+    def test_se_usa_la_ida_y_no_la_vuelta(self, app, seeded, gestor):
+        """Con vuelta elegida el último tramo aterriza en casa, y el hotel del
+        destino acabaría resuelto contra la ciudad de la que se salió."""
+        vuelta = {'tramos': [{
+            'numero': 'VY 8251', 'origen': 'LHR', 'destino': 'BCN',
+            'origen_ciudad': 'London', 'destino_ciudad': 'Barcelona',
+            'salida': '2026-10-18 18:30', 'llegada': '2026-10-18 21:45',
+        }]}
+
+        trip, _ = self._crear(gestor, self.HOTEL_SIN_CIUDAD,
+                              vuelos=[VUELO, vuelta])
+        hotel = Accommodation.query.filter_by(trip_id=trip.id).one()
+
+        assert hotel.ciudad == 'Londres'
+
+    def test_sin_nada_de_donde_deducirla_se_avisa(self, app, seeded, gestor):
+        """Queda como UTC, pero dicho: un desfase equivocado corrompe en
+        silencio todos los márgenes que se calculan después."""
+        trip, avisos = self._crear(gestor, self.HOTEL_SIN_CIUDAD)
+        hotel = Accommodation.query.filter_by(trip_id=trip.id).one()
+
+        assert hotel.check_in_tz == 'UTC'
+        assert any('UTC' in a for a in avisos)
+
+    def test_la_ciudad_propia_del_hotel_manda(self, app, seeded, gestor):
+        """El vuelo es el respaldo, no la fuente."""
+        trip, _ = self._crear(
+            gestor, {**HOTEL, 'ciudad': 'París', 'pais': 'FR'}, vuelos=[VUELO])
+        hotel = Accommodation.query.filter_by(trip_id=trip.id).one()
+
+        assert hotel.check_in_tz == 'Europe/Paris'

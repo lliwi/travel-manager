@@ -1,6 +1,14 @@
 """Authentication forms."""
 from flask_wtf import FlaskForm
-from wtforms import BooleanField, PasswordField, StringField, SubmitField
+from wtforms import (
+    BooleanField,
+    DateField,
+    PasswordField,
+    SelectField,
+    StringField,
+    SubmitField,
+    TextAreaField,
+)
 from wtforms.validators import DataRequired, EqualTo, Length, Optional
 
 
@@ -80,3 +88,31 @@ class ProfileForm(FlaskForm):
         description='Nombre IANA, por ejemplo Europe/Madrid.',
     )
     submit = SubmitField('Guardar cambios')
+
+
+class TravelerDocumentForm(FlaskForm):
+    """A passport, visa or policy somebody carries.
+
+    The number is write-only: it is never rendered back, so leaving it empty
+    when editing means «unchanged» rather than «delete it». Only its last four
+    characters are shown anywhere.
+    """
+
+    tipo = SelectField('Documento', validators=[DataRequired()])
+    numero = StringField(
+        'Número', validators=[Optional(), Length(max=60)],
+        description='Se guarda cifrado. Al editar, déjelo en blanco para '
+                    'conservar el que ya hay.',
+        render_kw={'autocomplete': 'off'},
+    )
+    pais_emisor = StringField(
+        'País emisor', validators=[Optional(), Length(min=2, max=2)],
+        description='Código ISO de dos letras, por ejemplo ES.',
+    )
+    fecha_emision = DateField('Fecha de emisión', validators=[Optional()])
+    fecha_caducidad = DateField(
+        'Fecha de caducidad', validators=[Optional()],
+        description='De esta fecha salen los avisos de caducidad próxima.',
+    )
+    notas = TextAreaField('Notas', validators=[Optional(), Length(max=2000)])
+    submit = SubmitField('Guardar')

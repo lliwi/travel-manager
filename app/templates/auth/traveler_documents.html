@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}Documentos personales — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}
+{% if es_propio %}
+<li class="breadcrumb-item"><a href="{{ url_for('auth.profile') }}">Mi perfil</a></li>
+{% else %}
+<li class="breadcrumb-item"><a href="{{ url_for('admin.users') }}">Usuarios</a></li>
+{% endif %}
+<li class="breadcrumb-item active">Documentos personales</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Documentos personales</h1>
+    <p class="text-muted mb-0">
+        {% if es_propio %}Pasaportes, visados y seguros que lleva usted.
+        {% else %}De {{ propietario.nombre_completo }}.{% endif %}
+    </p>
+</div>
+
+{% if not habilitado %}
+<div class="card"><div class="card-body empty-state">
+    <i class="bi bi-passport"></i>
+    <p>El registro de documentos personales está desactivado.<br>
+       Un administrador puede activarlo en
+       <strong>Administración → Ajustes → Documentos personales del viajero</strong>.
+       Mientras siga apagado no se guardan y no hay avisos de caducidad.</p>
+</div></div>
+{% else %}
+
+<div class="d-flex justify-content-end mb-3">
+    <a class="btn btn-primary btn-sm"
+       href="{{ url_for('auth.new_traveler_document', user_id=propietario.id if not es_propio else None) }}">
+        <i class="bi bi-plus-lg me-1"></i>Añadir documento</a>
+</div>
+
+{% if documentos %}
+<div class="card">
+    <div class="table-responsive">
+        <table class="table align-middle mb-0">
+            <thead>
+                <tr><th>Documento</th><th>Número</th><th>País</th>
+                    <th>Caduca</th><th class="text-end">Acciones</th></tr>
+            </thead>
+            <tbody>
+            {% for doc in documentos %}
+            {% set dias = doc.dias_hasta_caducidad(hoy) %}
+            <tr>
+                <td class="text-capitalize">{{ doc.tipo.replace('_', ' ') }}</td>
+                <td>
+                    {# Solo los cuatro últimos: el número va cifrado y enseñarlo
+                       entero en una lista lo pondría en cualquier captura. #}
+                    {% if doc.numero_ultimos4 %}
+                    <span class="font-monospace text-muted">····{{ doc.numero_ultimos4 }}</span>
+                    {% else %}<span class="text-muted">—</span>{% endif %}
+                </td>
+                <td>{{ doc.pais_emisor or '—' }}</td>
+                <td>
+                    {% if doc.fecha_caducidad %}
+                    {{ doc.fecha_caducidad | local_date }}
+                    {% if dias is not none %}
+                    {% if dias < 0 %}
+                    <span class="chip chip-warning ms-1">caducado</span>
+                    {% elif dias < 180 %}
+                    <span class="chip chip-warning ms-1">{{ dias }} días</span>
+                    {% endif %}
+                    {% endif %}
+                    {% else %}
+                    <span class="text-muted">sin fecha</span>
+                    {% endif %}
+                </td>
+                <td class="text-end text-nowrap">
+                    <a class="btn btn-sm btn-outline-secondary"
+                       href="{{ url_for('auth.edit_traveler_document',
+                                        user_id=propietario.id if not es_propio else None,
+                                        documento_id=doc.id) }}">
+                        <i class="bi bi-pencil"></i></a>
+                    <form method="post" class="d-inline"
+                          action="{{ url_for('auth.delete_traveler_document',
+                                             user_id=propietario.id if not es_propio else None,
+                                             documento_id=doc.id) }}"
+                          onsubmit="return confirm('¿Eliminar este documento? Se borra de verdad, no se archiva.');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="btn btn-sm btn-outline-danger" type="submit">
+                            <i class="bi bi-trash"></i></button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <div class="card-footer small text-muted">
+        El número se guarda cifrado y solo se muestran sus cuatro últimos
+        caracteres. De la fecha de caducidad salen los avisos cuando un viaje
+        se acerca a ella.
+    </div>
+</div>
+{% else %}
+<div class="card"><div class="card-body empty-state">
+    <i class="bi bi-passport"></i>
+    <p>No hay ningún documento registrado.<br>
+       Sin fecha de caducidad no puede avisarse de que un pasaporte vence
+       antes de un viaje.</p>
+</div></div>
+{% endif %}
+{% endif %}
+{% endblock %}

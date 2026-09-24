@@ -174,12 +174,20 @@ def _tramo(trip, bruto, actor, avisos, precio=None, enlace=None):
     return segmento
 
 
-def _alojamiento(trip, bruto, entrada, salida, actor, avisos, enlace=None):
+def _alojamiento(trip, bruto, entrada, salida, actor, avisos, enlace=None,
+                 respaldo=(None, None)):
     """One selected hotel.
 
     Its own link when the connector gave one -- for lodging it usually does,
     and it goes straight to the booking page -- and the search it came from
     otherwise.
+
+    ``respaldo`` is where the flights land. Google answers a lodging search
+    with the property and its price and says nothing about which city it is
+    in, so a stay could end up with no place to resolve a timezone from and
+    its hours stored as UTC. The flight in the same trip lands at an airport
+    the catalogue knows, and somebody sleeping in a city they flew to is in
+    that city -- which is a better answer than reading a check-in as UTC.
     """
     hotel = Accommodation(
         trip_id=trip.id,
@@ -199,6 +207,13 @@ def _alojamiento(trip, bruto, entrada, salida, actor, avisos, enlace=None):
     db.session.flush()
 
     zona = _zona_de(None, hotel.ciudad, hotel.pais)
+    if zona is None and any(respaldo):
+        zona = _zona_de(None, *respaldo)
+        if zona is not None and not hotel.ciudad:
+            # Se anota también la ciudad: sin ella el alojamiento no sale en el
+            # mapa y no hay forma de saber de dónde salió esa hora.
+            hotel.ciudad, hotel.pais = respaldo[0], respaldo[1] or hotel.pais
+
     if (entrada or salida) and zona is None:
         avisos.append(
             f'No se conoce la zona horaria de «{hotel.ciudad or hotel.nombre}»: '
@@ -232,14 +247,16 @@ def crear_viaje(actor, titulo, vuelos=(), alojamientos=(), proyecto=None,
     )
     db.session.flush()
 
+    tramos = []
     for vuelo in vuelos:
         precio = vuelo.get('precio_valor')
         for indice, tramo in enumerate(vuelo.get('tramos') or ()):
-            _tramo(trip, tramo, actor, avisos,
-                   precio if indice == 0 else None, enlace)
+            tramos.append(_tramo(trip, tramo, actor, avisos,
+                                 precio if indice == 0 else None, enlace))
 
+    respaldo = _donde_aterriza(tramos)
     for hotel in alojamientos:
-        _alojamiento(trip, hotel, entrada, salida, actor, avisos, enlace)
+        _alojamiento(trip, hotel, entrada, salida, actor, avisos, enlace, respaldo)
 
     # The trip's own dates follow what was selected rather than being asked
     # for twice: the itinerary already says when it starts and ends.
@@ -248,6 +265,27 @@ def crear_viaje(actor, titulo, vuelos=(), alojamientos=(), proyecto=None,
     db.session.commit()
     logger.info('Viaje %s creado desde el buscador por %s', trip.referencia, actor.id)
     return trip, avisos
+
+
+def _donde_aterriza(tramos):
+    """The city the outbound flight arrives at, as ``(ciudad, pais)``.
+
+    The first arrival and not the last: with a return selected the last leg
+    lands back home, and a hotel in the destination would then be resolved
+    against the city somebody left. Empty when there are no flights.
+    """
+    from app.services.map_service import ciudad_del_catalogo
+
+    for tramo in tramos:
+        if tramo is None:
+            continue
+        ciudad, pais = ciudad_del_catalogo(
+            codigo=tramo.destino_codigo, nombres=(tramo.destino_ciudad,),
+            pais=tramo.destino_pais,
+        )
+        if ciudad:
+            return ciudad, pais
+    return None, None
 
 
 def _ajustar_fechas(trip):

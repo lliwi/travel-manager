@@ -64,6 +64,21 @@
                     <dt>Último acceso</dt>
                     <dd>{{ user.last_login_at | local_dt('UTC') if user.last_login_at else '—' }}</dd>
                 </dl>
+                {# Sin esta puerta la pantalla existe y no hay forma de llegar
+                   a ella, que es lo mismo que no existir. Se ofrece siempre:
+                   si la funcionalidad está apagada, allí se dice —y se dice
+                   dónde encenderla— en vez de callar. #}
+                <div class="mb-3">
+                    <a class="btn btn-outline-secondary btn-sm"
+                       href="{{ url_for('auth.traveler_documents') }}">
+                        <i class="bi bi-passport me-1"></i>Mis documentos personales
+                    </a>
+                    <div class="form-text">
+                        Pasaporte, visados y seguros. De su caducidad salen los
+                        avisos cuando se acerca un viaje.
+                    </div>
+                </div>
+
                 {# El segundo factor es nuestro, venga la contraseña de donde
                    venga: el directorio comprueba la primera, esto la segunda. #}
                 <div class="mb-3">

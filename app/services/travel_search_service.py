@@ -554,11 +554,22 @@ def opciones_de_compra(actor, token, busqueda):
 # ======================================================================
 # Lodging
 # ======================================================================
-def _alojamiento(bruto):
+def _alojamiento(bruto, ciudad=None, pais=None):
+    """One lodging option.
+
+    The city comes from the search rather than from the row: Google answers
+    with the property and its price and says nothing about which city it is
+    in, so a stay written into an itinerary had no place to resolve a timezone
+    from -- and the hours were stored as UTC with a warning naming the *room*,
+    «1924 - Queen Room with Shared Bathroom», because that was the only text
+    the row had. We searched that city; there is no need to guess it.
+    """
     tarifa = bruto.get('rate_per_night') or {}
     total = bruto.get('total_rate') or {}
     return {
         'nombre': bruto.get('name'),
+        'ciudad': ciudad,
+        'pais': pais,
         'tipo': bruto.get('type'),
         'valoracion': bruto.get('overall_rating'),
         'opiniones': bruto.get('reviews'),
@@ -590,9 +601,28 @@ def buscar_alojamiento(actor, destino, entrada, salida, viajeros=1):
     datos = _pedir(actor, 'google_hotels', parametros)
 
     brutas = datos.get('properties') or []
-    opciones = [_alojamiento(o) for o in brutas[:8]]
+    ciudad, pais = _ciudad_canonica(destino)
+    opciones = [_alojamiento(o, ciudad, pais) for o in brutas[:8]]
     _registrar(actor, 'google_hotels', parametros, len(opciones))
     return opciones
+
+
+def _ciudad_canonica(destino):
+    """The catalogue's own spelling of the place that was searched.
+
+    Canonical rather than what somebody typed, because that is what everything
+    downstream is keyed by: the timezone of the stay, and the marker on the
+    map. «London», «LON» and «Londres» have to end up as one city.
+    """
+    from app.services.map_service import ciudad_del_catalogo
+
+    if not destino:
+        return None, None
+    ciudad, pais = ciudad_del_catalogo(
+        codigo=str(destino).strip() if len(str(destino).strip()) <= 5 else None,
+        nombres=(destino,),
+    )
+    return ciudad, pais
 
 
 def fechas_por_defecto(ida, vuelta):

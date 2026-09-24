@@ -5,9 +5,11 @@ failure is deliberately identical whatever went wrong -- a wrong password, an
 unknown user and a disabled account are indistinguishable from outside.
 """
 import logging
+from datetime import date
 from urllib.parse import urlparse
 
 from flask import (
+    abort,
     flash,
     redirect,
     render_template,
@@ -377,3 +379,166 @@ def change_password():
         return redirect(url_for('auth.login'))
 
     return render_template('auth/change_password.html', form=form)
+
+# ======================================================================
+# Traveller documents
+# ======================================================================
+def _propietario(user_id):
+    """Whose documents these are: somebody else's only for an administrator.
+
+    Resolved here rather than in each view so «mis documentos» and «los de
+    esta persona» are one screen and cannot drift apart.
+    """
+    actor = current_user._get_current_object()
+    if not user_id:
+        return actor, actor
+
+    from app.models.user import User
+
+    try:
+        propietario = db.session.get(User, user_id)
+    except Exception:
+        # Un identificador que no es un UUID llega desde una URL escrita a
+        # mano; el driver levanta en vez de devolver None y el 500 tapa lo
+        # que en realidad es un 404.
+        propietario = None
+
+    if propietario is None:
+        abort(404)
+    return actor, propietario
+
+
+@auth_bp.route('/perfil/documentos', defaults={'user_id': None})
+@auth_bp.route('/usuarios/<user_id>/documentos')
+@login_required
+def traveler_documents(user_id):
+    """Passports, visas and policies on file for somebody."""
+    from app.services import traveler_document_service as servicio
+
+    actor, propietario = _propietario(user_id)
+    if not servicio.puede_gestionar(actor, propietario):
+        abort(403)
+
+    return render_template(
+        'auth/traveler_documents.html',
+        propietario=propietario,
+        es_propio=str(actor.id) == str(propietario.id),
+        habilitado=servicio.esta_habilitado(),
+        documentos=servicio.listar(actor, propietario) if servicio.esta_habilitado() else [],
+        hoy=date.today(),
+    )
+
+
+@auth_bp.route('/perfil/documentos/nuevo', defaults={'user_id': None},
+               methods=['GET', 'POST'])
+@auth_bp.route('/usuarios/<user_id>/documentos/nuevo', methods=['GET', 'POST'])
+@login_required
+def new_traveler_document(user_id):
+    """Register a document."""
+    from app.blueprints.auth.forms import TravelerDocumentForm
+    from app.services import traveler_document_service as servicio
+
+    actor, propietario = _propietario(user_id)
+    if not servicio.puede_gestionar(actor, propietario):
+        abort(403)
+
+    form = TravelerDocumentForm()
+    form.tipo.choices = list(servicio.TIPOS)
+
+    if form.validate_on_submit():
+        try:
+            servicio.crear(
+                actor, propietario, tipo=form.tipo.data,
+                numero=form.numero.data or None,
+                pais_emisor=form.pais_emisor.data or None,
+                fecha_emision=form.fecha_emision.data,
+                fecha_caducidad=form.fecha_caducidad.data,
+                notas=form.notas.data or None,
+            )
+        except AppError as error:
+            flash(error.mensaje, 'danger')
+        else:
+            flash('Documento registrado.', 'success')
+            return redirect(_volver(propietario, user_id))
+
+    return render_template(
+        'auth/traveler_document_form.html', form=form, propietario=propietario,
+        documento=None, user_id=user_id,
+    )
+
+
+@auth_bp.route('/perfil/documentos/<documento_id>/editar',
+               defaults={'user_id': None}, methods=['GET', 'POST'])
+@auth_bp.route('/usuarios/<user_id>/documentos/<documento_id>/editar',
+               methods=['GET', 'POST'])
+@login_required
+def edit_traveler_document(user_id, documento_id):
+    """Correct a document already on file."""
+    from app.blueprints.auth.forms import TravelerDocumentForm
+    from app.services import traveler_document_service as servicio
+
+    actor, propietario = _propietario(user_id)
+    if not servicio.puede_gestionar(actor, propietario):
+        abort(403)
+
+    try:
+        documento = servicio.obtener(actor, propietario, documento_id)
+    except AppError as error:
+        flash(error.mensaje, 'danger')
+        return redirect(_volver(propietario, user_id))
+
+    form = TravelerDocumentForm(obj=documento)
+    form.tipo.choices = list(servicio.TIPOS)
+    # El número nunca se devuelve al formulario: en blanco significa «déjalo
+    # como está», no «bórralo».
+    form.numero.data = ''
+
+    if form.validate_on_submit():
+        try:
+            servicio.actualizar(
+                actor, propietario, documento, tipo=form.tipo.data,
+                numero=form.numero.data or None,
+                pais_emisor=form.pais_emisor.data or None,
+                fecha_emision=form.fecha_emision.data,
+                fecha_caducidad=form.fecha_caducidad.data,
+                notas=form.notas.data or None,
+            )
+        except AppError as error:
+            flash(error.mensaje, 'danger')
+        else:
+            flash('Documento actualizado.', 'success')
+            return redirect(_volver(propietario, user_id))
+
+    return render_template(
+        'auth/traveler_document_form.html', form=form, propietario=propietario,
+        documento=documento, user_id=user_id,
+    )
+
+
+@auth_bp.route('/perfil/documentos/<documento_id>/eliminar',
+               defaults={'user_id': None}, methods=['POST'])
+@auth_bp.route('/usuarios/<user_id>/documentos/<documento_id>/eliminar',
+               methods=['POST'])
+@login_required
+def delete_traveler_document(user_id, documento_id):
+    """Remove a document from the list."""
+    from app.services import traveler_document_service as servicio
+
+    actor, propietario = _propietario(user_id)
+    if not servicio.puede_gestionar(actor, propietario):
+        abort(403)
+
+    try:
+        documento = servicio.obtener(actor, propietario, documento_id)
+        servicio.eliminar(actor, propietario, documento)
+        flash('Documento eliminado.', 'info')
+    except AppError as error:
+        flash(error.mensaje, 'danger')
+
+    return redirect(_volver(propietario, user_id))
+
+
+def _volver(propietario, user_id):
+    if user_id:
+        return url_for('auth.traveler_documents', user_id=propietario.id)
+    return url_for('auth.traveler_documents')
