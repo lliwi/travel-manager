@@ -66,6 +66,10 @@ class TripForm(FlaskForm):
     gestor_id = SelectField('Gestor responsable', validators=[Optional()])
     observaciones = TextAreaField('Observaciones', validators=[Optional()])
 
+    proyecto = StringField(
+        'Proyecto', validators=[Optional(), Length(max=120)],
+        description='Opcional. Con qué proyecto se agrupa en los informes.',
+    )
     coste_estimado = DecimalField(
         'Coste estimado', places=2, validators=[Optional(), NumberRange(min=0)]
     )
@@ -214,6 +218,14 @@ class ItineraryItemForm(FlaskForm):
     )
     localizador = StringField('Localizador', validators=[Optional(), Length(max=60)])
     proveedor = StringField('Proveedor', validators=[Optional(), Length(max=200)])
+    #: Behind COSTES_HABILITADOS in the template. The columns existed and the
+    #: extraction filled them, but nothing let a person type one, so an amount
+    #: that no document mentioned could not be recorded at all.
+    importe = DecimalField(
+        'Importe', places=2, validators=[Optional(), NumberRange(min=0)],
+        description='De este elemento. El viaje suma los de su itinerario.',
+    )
+    moneda = StringField('Moneda', validators=[Optional(), Length(min=3, max=3)])
     observaciones = TextAreaField('Observaciones', validators=[Optional()])
     submit = SubmitField('Guardar')
 

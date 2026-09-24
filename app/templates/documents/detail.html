@@ -40,6 +40,18 @@
             <button class="btn btn-outline-primary btn-sm" type="submit">
                 <i class="bi bi-arrow-clockwise me-1"></i>Reintentar</button>
         </form>
+        {% elif document.puede_reanalizarse %}
+        {# Distinto de «Reintentar»: aquel reanuda uno que se rompió, este
+           vuelve a leer uno que salió bien. Es lo que se quiere tras cambiar
+           de modelo, o cuando la extracción se dejó un campo que sí está en el
+           documento —un importe, por ejemplo—. #}
+        <form method="post" action="{{ url_for('documents.reprocess', document_id=document.id) }}"
+              onsubmit="return confirm('Se volverá a leer el documento con el modelo actual. Tendrá datos nuevos que revisar; lo que ya aprobó no cambia hasta que apruebe los nuevos. ¿Continuar?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="desde_el_principio" value="1">
+            <button class="btn btn-outline-primary btn-sm" type="submit">
+                <i class="bi bi-arrow-repeat me-1"></i>Volver a analizar</button>
+        </form>
         {% endif %}
     </div>
 </div>

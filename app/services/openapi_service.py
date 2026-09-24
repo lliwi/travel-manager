@@ -334,6 +334,8 @@ SCHEMAS = {
         'estado': _STR, 'estado_label': _STR_NULL,
         'finalidad': _STR_NULL, 'finalidad_detalle': _STR_NULL,
         'observaciones': _STR_NULL,
+        'proyecto': {**_STR_NULL,
+                     'description': 'Proyecto al que se imputa, si lo hay.'},
         'inicio': _ref('Instante'), 'fin': _ref('Instante'),
         'gestor': _ref('ReferenciaUsuario'),
         'itinerary_version': {'type': 'integer'},

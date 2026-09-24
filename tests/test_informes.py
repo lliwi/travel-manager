@@ -262,13 +262,12 @@ class TestLosInformesSiguenSaliendo:
 
 
 @pytest.mark.integration
-class TestElMenuNoOfreceLoQueNiegaDespues:
-    """Informes estaba en el menú de todo el mundo y solo responde a un
-    administrador: a un gestor le ofrecía un 403 con aspecto de sección.
-
-    Quién puede verlo es otra conversación —el servicio acota por los viajes
-    que cada cual ve, así que la restricción parece más estrecha de lo que se
-    quiso—; mientras siga así, al menos no se enseña.
+class TestElMenuOfreceLoQueLuegoAbre:
+    """El menú escondía Informes porque la pantalla respondía 403 a quien no
+    fuera administrador. Eso era un fallo del guardián —pedía ``VER_VIAJE``
+    como permiso global, y ``VER_VIAJE`` no está en ``PERMISOS_GLOBALES``— y no
+    una decisión sobre quién puede leer el informe. Arreglado el guardián, la
+    entrada vuelve al menú: lo que se ofrece y lo que se abre coinciden.
     """
 
     def test_a_un_administrador_se_le_ofrece(self, as_user, admin, seeded):
@@ -277,10 +276,45 @@ class TestElMenuNoOfreceLoQueNiegaDespues:
 
         assert '/dashboard/informes' in html
 
-    def test_a_un_gestor_no(self, as_user, gestor, seeded):
+    def test_a_un_gestor_tambien(self, as_user, gestor, seeded):
         with as_user(gestor) as client:
             html = client.get('/dashboard/').get_data(as_text=True)
             respuesta = client.get('/dashboard/informes')
 
-        assert respuesta.status_code == 403
-        assert '/dashboard/informes' not in html
+        assert respuesta.status_code == 200
+        assert '/dashboard/informes' in html
+
+    def test_y_a_un_viajero(self, as_user, viajero, seeded):
+        """Lee un informe de sus propios viajes, que es justo lo que el
+        servicio acota."""
+        with as_user(viajero) as client:
+            html = client.get('/dashboard/').get_data(as_text=True)
+            respuesta = client.get('/dashboard/informes')
+
+        assert respuesta.status_code == 200
+        assert '/dashboard/informes' in html
+
+
+@pytest.mark.unit
+class TestLaMigaDePanNoSeRepite:
+    """«Inicio / Inicio / Informes»: base.html ya pone la raíz, y las dos
+    pantallas del panel la volvían a poner dentro del bloque."""
+
+    def _miga(self, html):
+        import re
+
+        trozo = re.search(r'<ol class="breadcrumb.*?</ol>', html, re.S)
+        return trozo.group(0) if trozo else ''
+
+    def test_en_informes(self, as_user, gestor, seeded):
+        with as_user(gestor) as client:
+            miga = self._miga(client.get('/dashboard/informes').get_data(as_text=True))
+
+        assert miga.count('Inicio') == 1
+
+    def test_en_notificaciones(self, as_user, gestor, seeded):
+        with as_user(gestor) as client:
+            miga = self._miga(
+                client.get('/dashboard/notificaciones').get_data(as_text=True))
+
+        assert miga.count('Inicio') == 1

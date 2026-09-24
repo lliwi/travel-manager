@@ -46,6 +46,13 @@
                         <div class="col-md-6">{{ render_field(form.gestor_id) }}</div>
                         <div class="col-md-6">{{ render_field(form.finalidad) }}</div>
                         <div class="col-md-6">{{ render_field(form.finalidad_detalle) }}</div>
+                        {# Fuera del bloque de costes a propósito: agrupar por
+                           proyecto sirve aunque no se lleven importes, y
+                           esconderlo tras ese interruptor dejaría los viajes
+                           sin imputar justo en las instalaciones que luego
+                           quieren el informe. #}
+                        <div class="col-md-6">{{ render_field(form.proyecto,
+                            placeholder='P-2026-014') }}</div>
                     </div>
                     {{ render_field(form.observaciones, rows=3) }}
                 </div>

@@ -285,6 +285,64 @@ COUNTRY_DEFINITIONS = {
     'NZ': ('Nueva Zelanda', 'NZL', 'Pacific/Auckland', 'NZD', 'New Zealand'),
 }
 
+#: How each city is spelled elsewhere. The catalogue holds «Londres» and a
+#: booking confirmation says «London»; without this the two are different
+#: places, the stay keeps whatever timezone the model guessed, and the traveller
+#: does not appear on the map. Only genuinely different names are listed --
+#: accents are handled by normalising, so «Zürich» needs no entry for «Zurich».
+#:
+#: Keyed by the catalogue's own spelling, which is the one thing that lets two
+#: services agree that «London» and «Londres» are the same city.
+CITY_ALIASES = {
+    'Londres': ('London',),
+    'París': ('Paris',),
+    'Lisboa': ('Lisbon',),
+    'Oporto': ('Porto',),
+    'Sevilla': ('Seville',),
+    'Zaragoza': ('Saragossa',),
+    'Palma': ('Palma de Mallorca', 'Majorca', 'Mallorca'),
+    'Las Palmas': ('Las Palmas de Gran Canaria', 'Gran Canaria'),
+    'Tenerife': ('Santa Cruz de Tenerife',),
+    'Bruselas': ('Brussels', 'Bruxelles', 'Brussel'),
+    'Berlín': ('Berlin',),
+    'Fráncfort': ('Frankfurt', 'Frankfurt am Main'),
+    'Múnich': ('Munich', 'München', 'Muenchen'),
+    'Roma': ('Rome',),
+    'Milán': ('Milan', 'Milano'),
+    'Viena': ('Vienna', 'Wien'),
+    'Ginebra': ('Geneva', 'Genève', 'Genf'),
+    'Copenhague': ('Copenhagen', 'København'),
+    'Estocolmo': ('Stockholm',),
+    'Dublín': ('Dublin',),
+    'Praga': ('Prague', 'Praha'),
+    'Varsovia': ('Warsaw', 'Warszawa'),
+    'Atenas': ('Athens', 'Athina'),
+    'Estambul': ('Istanbul',),
+    'Johannesburgo': ('Johannesburg',),
+    'Dubái': ('Dubai',),
+    # Bombay is what the catalogue says and Mumbai is what the ticket says.
+    'Bombay': ('Mumbai',),
+    'Nueva Delhi': ('New Delhi', 'Delhi'),
+    'Pekín': ('Beijing', 'Peking'),
+    'Shanghái': ('Shanghai',),
+    'Seúl': ('Seoul',),
+    'Tokio': ('Tokyo',),
+    'Singapur': ('Singapore',),
+    'Sídney': ('Sydney',),
+    'Nueva York': ('New York', 'New York City'),
+    'Los Ángeles': ('Los Angeles',),
+    'Washington': ('Washington DC', 'Washington D.C.'),
+    'Ciudad de México': ('Mexico City', 'México D.F.', 'CDMX'),
+    'Santiago': ('Santiago de Chile',),
+    'Ámsterdam': ('Amsterdam',),
+    'Zúrich': ('Zurich',),
+    'Málaga': ('Malaga',),
+    'Bogotá': ('Bogota',),
+    'São Paulo': ('Sao Paulo',),
+    'Düsseldorf': ('Dusseldorf', 'Duesseldorf'),
+}
+
+
 #: ``codigo: (nombre, ciudad, pais, zona_horaria, tipo)``. Airports and major
 #: stations. The timezone is the operative field: without it a local departure
 #: time cannot be converted to UTC and the connection rule is unreliable.
@@ -361,6 +419,24 @@ LOCATION_DEFINITIONS = (
     ('SIN', 'Singapore Changi', 'Singapur', 'SG', 'Asia/Singapore'),
     ('SYD', 'Sydney Kingsford Smith', 'Sídney', 'AU', 'Australia/Sydney'),
     ('AKL', 'Auckland', 'Auckland', 'NZ', 'Pacific/Auckland'),
+
+    # --- Metropolitan codes -------------------------------------------
+    # IATA codes for a city with several airports. A booking made «to London»
+    # rather than to one terminal arrives as LON, which matched nothing and
+    # left the traveller unplaced -- the catalogue held four London airports
+    # and not London.
+    ('LON', 'Londres (todos los aeropuertos)', 'Londres', 'GB', 'Europe/London'),
+    ('PAR', 'París (todos los aeropuertos)', 'París', 'FR', 'Europe/Paris'),
+    ('NYC', 'Nueva York (todos los aeropuertos)', 'Nueva York', 'US', 'America/New_York'),
+    ('MIL', 'Milán (todos los aeropuertos)', 'Milán', 'IT', 'Europe/Rome'),
+    ('ROM', 'Roma (todos los aeropuertos)', 'Roma', 'IT', 'Europe/Rome'),
+    ('TYO', 'Tokio (todos los aeropuertos)', 'Tokio', 'JP', 'Asia/Tokyo'),
+    ('BUE', 'Buenos Aires (todos los aeropuertos)', 'Buenos Aires', 'AR',
+     'America/Argentina/Buenos_Aires'),
+    ('SAO', 'São Paulo (todos los aeropuertos)', 'São Paulo', 'BR', 'America/Sao_Paulo'),
+    ('WAS', 'Washington (todos los aeropuertos)', 'Washington', 'US', 'America/New_York'),
+    ('CHI', 'Chicago (todos los aeropuertos)', 'Chicago', 'US', 'America/Chicago'),
+    ('STO', 'Estocolmo (todos los aeropuertos)', 'Estocolmo', 'SE', 'Europe/Stockholm'),
 )
 
 #: Major rail stations, for train segments.
@@ -426,26 +502,31 @@ def _seed_countries():
 
 
 def _seed_locations():
-    existing = {loc.codigo for loc in Location.query.all() if loc.codigo}
+    existing = {loc.codigo: loc for loc in Location.query.all() if loc.codigo}
     created = 0
 
-    for codigo, nombre, ciudad, pais, tz in LOCATION_DEFINITIONS:
-        if codigo in existing:
-            continue
-        db.session.add(Location(
-            codigo=codigo, nombre=nombre, ciudad=ciudad, pais_codigo=pais,
-            zona_horaria=tz, tipo=LocationKind.AEROPUERTO, activo=True,
-        ))
-        created += 1
+    for definiciones, tipo in (
+        (LOCATION_DEFINITIONS, LocationKind.AEROPUERTO),
+        (STATION_DEFINITIONS, LocationKind.ESTACION_TREN),
+    ):
+        for codigo, nombre, ciudad, pais, tz in definiciones:
+            fila = existing.get(codigo)
+            if fila is None:
+                db.session.add(Location(
+                    codigo=codigo, nombre=nombre, ciudad=ciudad, pais_codigo=pais,
+                    zona_horaria=tz, tipo=tipo, activo=True,
+                    alias=list(CITY_ALIASES.get(ciudad, ())) or None,
+                ))
+                created += 1
+                continue
 
-    for codigo, nombre, ciudad, pais, tz in STATION_DEFINITIONS:
-        if codigo in existing:
-            continue
-        db.session.add(Location(
-            codigo=codigo, nombre=nombre, ciudad=ciudad, pais_codigo=pais,
-            zona_horaria=tz, tipo=LocationKind.ESTACION_TREN, activo=True,
-        ))
-        created += 1
+            # Aliases are refreshed on an existing row, not only written on a
+            # new one: they arrived after the catalogue did, and an install
+            # that already ran the seed would otherwise never get them and
+            # would keep failing to recognise «London» for ever.
+            esperados = list(CITY_ALIASES.get(fila.ciudad or ciudad, ())) or None
+            if fila.alias != esperados:
+                fila.alias = esperados
 
     return created
 

@@ -12,7 +12,8 @@
    dos números en la página y ninguna forma de saber cuál es el bueno. #}
 
 {% macro lista_de_vuelos(vuelos, titulo, fecha, enlace, nota, precio_es_total=False,
-                         accion_vueltas=None, csrf='', precios=None) %}
+                         accion_vueltas=None, csrf='', precios=None,
+                         seleccion=None) %}
 {% set barato = vuelos | map(attribute='precio_valor') | select('number') | list | min %}
 {% set rapido = vuelos | map(attribute='duracion_minutos') | select('number') | list | min %}
 <div class="card mb-3">
@@ -79,7 +80,16 @@
         {% for vuelo in vuelos %}
         {% set es_el_mas_barato = vuelo.precio_valor is number and vuelo.precio_valor == barato %}
         <li class="list-group-item vuelo{{ ' vuelo-barato' if es_el_mas_barato }}">
-            <div class="vuelo-fila">
+            <div class="vuelo-fila{{ ' es-seleccionable' if seleccion }}">
+                {% if seleccion %}
+                {# «form=» y no anidado: esta fila ya lleva dentro el
+                   formulario de «Dónde comprarlo», y un formulario dentro de
+                   otro es HTML inválido que el navegador descarta. #}
+                <input class="form-check-input vuelo-marca" type="checkbox"
+                       form="{{ seleccion }}" name="vuelo"
+                       value="{{ vuelo | tojson }}"
+                       aria-label="Incluir este vuelo en el viaje">
+                {% endif %}
                 <div class="vuelo-horas">
                     <span class="vuelo-hora">{{ vuelo.hora_salida or '—' }}</span>
                     <span class="vuelo-iata">{{ vuelo.origen }}</span>

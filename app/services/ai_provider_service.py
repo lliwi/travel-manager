@@ -91,7 +91,7 @@ def default_provider():
 
 def create(actor, nombre, proveedor, base_url=None, modelo=None, api_key=None,
            activo=True, por_defecto=False, timeout=120, max_tokens=2048,
-           temperatura=0.1, commit=True):
+           temperatura=0.1, sin_razonamiento=False, commit=True):
     """Configure a new provider."""
     proveedor = AIProviderCode.coerce(proveedor)
     if proveedor is None:
@@ -116,6 +116,7 @@ def create(actor, nombre, proveedor, base_url=None, modelo=None, api_key=None,
         timeout_segundos=timeout,
         max_tokens=max_tokens,
         temperatura=temperatura,
+        sin_razonamiento=bool(sin_razonamiento),
         creado_por_id=getattr(actor, 'id', None),
     )
     _set_api_key(config, api_key)
@@ -136,7 +137,7 @@ def create(actor, nombre, proveedor, base_url=None, modelo=None, api_key=None,
 
 def update(actor, config, nombre=None, base_url=None, modelo=None, api_key=None,
            activo=None, por_defecto=None, timeout=None, max_tokens=None,
-           temperatura=None, commit=True):
+           temperatura=None, sin_razonamiento=None, commit=True):
     """Change a provider's configuration.
 
     ``api_key`` left empty keeps the stored one: the form never renders the
@@ -170,6 +171,17 @@ def update(actor, config, nombre=None, base_url=None, modelo=None, api_key=None,
     if api_key:
         _set_api_key(config, api_key)
         cambios.append('api_key')
+
+    if sin_razonamiento is not None and bool(sin_razonamiento) != config.sin_razonamiento:
+        config.sin_razonamiento = bool(sin_razonamiento)
+        cambios.append('sin_razonamiento')
+        # Lo que el endpoint rechazó se olvida al cambiar el ajuste: puede
+        # haberse cambiado también el modelo, y arrastrar un «no» de otro
+        # modelo dejaría la casilla marcada sin efecto para siempre.
+        if config.parametros and 'sin_razonamiento_no_admitido' in config.parametros:
+            restantes = dict(config.parametros)
+            restantes.pop('sin_razonamiento_no_admitido')
+            config.parametros = restantes or None
 
     if activo is not None and bool(activo) != config.activo:
         config.activo = bool(activo)

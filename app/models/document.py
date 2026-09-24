@@ -229,6 +229,29 @@ class Document(SoftDeleteMixin, BaseModel):
         return f'{size:.1f} GB'
 
     @property
+    def puede_reanalizarse(self):
+        """Whether reading this document again would do anything.
+
+        A reprocess rewinds to classification, so it needs a document that got
+        at least that far and is not in a terminal state. Offering it on one
+        that never got there would send it to a task that can only fail, and
+        offering it on a rejected one would promise something that cannot
+        happen.
+        """
+        from app.models.enums import DOCUMENT_TERMINAL_STATES, DocumentProcessState
+
+        if self.estado_proceso in DOCUMENT_TERMINAL_STATES:
+            return False
+        return self.estado_proceso in (
+            DocumentProcessState.CLASIFICADO,
+            DocumentProcessState.EXTRAIDO,
+            DocumentProcessState.NORMALIZADO,
+            DocumentProcessState.PENDIENTE_REVISION,
+            DocumentProcessState.REVISADO,
+            DocumentProcessState.APROBADO,
+        )
+
+    @property
     def esta_disponible(self):
         """True when the original can still be downloaded."""
         return (

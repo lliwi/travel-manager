@@ -140,10 +140,13 @@ def create():
                 finalidad=TripPurpose.coerce(form.finalidad.data),
                 finalidad_detalle=form.finalidad_detalle.data or None,
                 observaciones=form.observaciones.data or None,
+                proyecto=form.proyecto.data or None,
                 inicio_local=form.inicio_local.data,
                 inicio_tz=form.inicio_tz.data or None,
                 fin_local=form.fin_local.data,
                 fin_tz=form.fin_tz.data or None,
+                coste_estimado=form.coste_estimado.data,
+                moneda=(form.moneda.data or '').strip().upper() or None,
             )
         except AppError as error:
             flash(error.mensaje, 'danger')
@@ -218,10 +221,17 @@ def edit(trip_id, trip):
             'finalidad': TripPurpose.coerce(form.finalidad.data),
             'finalidad_detalle': form.finalidad_detalle.data or None,
             'observaciones': form.observaciones.data or None,
+            'proyecto': form.proyecto.data or None,
             'inicio_local': form.inicio_local.data,
             'inicio_tz': form.inicio_tz.data or None,
             'fin_local': form.fin_local.data,
             'fin_tz': form.fin_tz.data or None,
+            # El formulario los tenía y «update_trip» los aceptaba; lo que
+            # faltaba era pasarlos. No se notó porque el bloque de costes está
+            # tras un interruptor que sale apagado: el campo no se dibujaba, así
+            # que nadie podía escribir nada que dejara de guardarse.
+            'coste_estimado': form.coste_estimado.data,
+            'moneda': (form.moneda.data or '').strip().upper() or None,
         }
         if form.gestor_id.data:
             campos['gestor_id'] = uuid.UUID(form.gestor_id.data)
@@ -476,6 +486,81 @@ def summary(trip_id, trip):
             )
 
     return render_template('trips/summary.html', trip=trip, resumen=resumen)
+
+
+@trips_bp.route('/planificar/crear', methods=['POST'])
+@login_required
+@require_permiso(Permiso.CREAR_VIAJE)
+@rate_limited('10 per minute; 40 per hour')
+def create_from_search():
+    """Open a draft trip from the flights and lodging somebody picked.
+
+    The selection travels as the connector's own rows, re-posted from the
+    hidden fields the results carried: the screen never invents a value, and
+    what gets written is what was shown.
+    """
+    import json
+
+    from app.services import trip_from_search_service
+
+    def _seleccionados(campo):
+        salida = []
+        for crudo in request.form.getlist(campo):
+            try:
+                salida.append(json.loads(crudo))
+            except (TypeError, ValueError):
+                logger.warning('Selección ilegible en «%s»', campo)
+        return salida
+
+    vuelos = _seleccionados('vuelo')
+    alojamientos = _seleccionados('alojamiento')
+
+    if not vuelos and not alojamientos:
+        flash('Marque al menos un vuelo o un alojamiento.', 'warning')
+        return redirect(url_for('trips.plan'))
+
+    entrada = _fecha_hora(request.form.get('entrada'))
+    salida = _fecha_hora(request.form.get('salida'))
+
+    try:
+        trip, avisos = trip_from_search_service.crear_viaje(
+            current_user._get_current_object(),
+            titulo=request.form.get('titulo') or None,
+            vuelos=vuelos,
+            alojamientos=alojamientos,
+            entrada=entrada,
+            salida=salida,
+        )
+    except AppError as error:
+        flash(error.mensaje, 'danger')
+        return redirect(url_for('trips.plan'))
+    except Exception:
+        logger.exception('Falló la creación del viaje desde el buscador')
+        flash('No se ha podido crear el viaje.', 'danger')
+        return redirect(url_for('trips.plan'))
+
+    flash(
+        f'Viaje {trip.referencia} creado en borrador con lo seleccionado. '
+        f'Los datos vienen del buscador y están sin confirmar: revíselos '
+        f'antes de darlos por buenos.',
+        'success',
+    )
+    for aviso in dict.fromkeys(avisos):
+        flash(aviso, 'warning')
+
+    return redirect(url_for('trips.detail', trip_id=trip.id))
+
+
+def _fecha_hora(crudo):
+    """«2026-10-15» as a naive local datetime at check-in time, or None."""
+    from datetime import datetime
+
+    if not crudo:
+        return None
+    try:
+        return datetime.strptime(str(crudo).strip(), '%Y-%m-%d')
+    except (TypeError, ValueError):
+        return None
 
 
 @trips_bp.route('/planificar/vueltas', methods=['POST'])

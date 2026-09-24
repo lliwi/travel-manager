@@ -229,6 +229,38 @@ def _precio(valor):
     return f'{valor:,.0f}'.replace(',', '.') + f' {simbolo}'
 
 
+def _numero_de(texto):
+    """The amount inside a price Google already formatted, or None.
+
+    «€1,234» and «1.234 €» are the same number written for two audiences, and
+    guessing which separator means what is how a thousand becomes one. Only the
+    digits and the last separator are read, and anything that does not parse
+    cleanly comes back as None rather than as a number that might be wrong.
+    """
+    if texto in (None, ''):
+        return None
+    if isinstance(texto, (int, float)):
+        return float(texto)
+
+    import re
+
+    limpio = re.sub(r'[^\d.,]', '', str(texto))
+    if not limpio:
+        return None
+
+    # The last separator is the decimal one only when two digits follow it.
+    if re.search(r'[.,]\d{2}$', limpio):
+        entero, _, decimales = limpio[:-3], limpio[-3], limpio[-2:]
+        limpio = re.sub(r'[.,]', '', entero) + '.' + decimales
+    else:
+        limpio = re.sub(r'[.,]', '', limpio)
+
+    try:
+        return float(limpio)
+    except ValueError:
+        return None
+
+
 def _minutos_a_texto(minutos):
     if not minutos:
         return None
@@ -533,6 +565,9 @@ def _alojamiento(bruto):
         'categoria': bruto.get('hotel_class'),
         'precio_noche': tarifa.get('lowest'),
         'precio_total': total.get('lowest'),
+        # El número detrás de la cadena que Google ya formateó, para poder
+        # sumarlo sin volver a interpretar «€66» en otro sitio.
+        'precio_total_valor': _numero_de(total.get('lowest')),
         'zona': bruto.get('nearby_places', [{}])[0].get('name')
         if bruto.get('nearby_places') else None,
         'enlace': bruto.get('link'),

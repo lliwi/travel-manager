@@ -260,6 +260,41 @@ def can(actor, permiso, recurso=None):
     return AccessDecision(False, 'no_asignado', trip_id=trip.id, no_existe=True)
 
 
+def permisos_de(actor):
+    """Every permission this actor holds, before any particular resource.
+
+    Distinct from :func:`can` with no resource on purpose. That one answers a
+    *global* question -- «may this person do X anywhere» -- and only the four
+    permissions in :data:`PERMISOS_GLOBALES` are global questions at all, so
+    asking it about a per-resource permission is always denied. The reports
+    page learnt that the hard way: guarded with ``can(actor, VER_VIAJE, None)``
+    it answered 403 to everybody but an administrator.
+
+    Use this to decide whether to *offer* something -- a column of costs, a
+    panel, a menu entry. Use :func:`can` to decide whether to allow it on a
+    given trip.
+    """
+    if actor is None or getattr(actor, 'is_anonymous', False):
+        return frozenset()
+    if getattr(actor, 'is_deleted', False) or not getattr(actor, 'is_active_account', False):
+        return frozenset()
+    if actor.has_role(RoleCode.ADMINISTRADOR):
+        return PERMISOS_ADMIN
+    if actor.has_role(RoleCode.GESTOR):
+        return _narrow_by_settings(PERMISOS_GESTOR)
+    return _traveler_permissions()
+
+
+def _narrow_by_settings(permisos):
+    """Apply the runtime switches that take a permission away from everybody."""
+    from app.services import settings_service
+
+    permisos = set(permisos)
+    if not settings_service.get_bool('COSTES_HABILITADOS', False):
+        permisos.discard(Permiso.VER_COSTES)
+    return frozenset(permisos)
+
+
 def _traveler_permissions():
     """Traveller permissions, narrowed by the current runtime settings."""
     from app.services import settings_service

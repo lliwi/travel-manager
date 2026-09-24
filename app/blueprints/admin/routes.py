@@ -472,6 +472,7 @@ def create_ai_provider():
                 timeout=form.timeout_segundos.data or 120,
                 max_tokens=form.max_tokens.data or 2048,
                 temperatura=form.temperatura.data,
+                sin_razonamiento=form.sin_razonamiento.data,
             )
         except AppError as error:
             flash(error.mensaje, 'danger')
@@ -513,6 +514,7 @@ def edit_ai_provider(provider_id):
                 timeout=form.timeout_segundos.data,
                 max_tokens=form.max_tokens.data,
                 temperatura=form.temperatura.data,
+                sin_razonamiento=form.sin_razonamiento.data,
             )
         except AppError as error:
             flash(error.mensaje, 'danger')

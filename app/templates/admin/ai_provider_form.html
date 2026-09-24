@@ -72,6 +72,17 @@
                         <div class="col-md-4">{{ render_field(form.max_tokens) }}</div>
                         <div class="col-md-4">{{ render_field(form.temperatura) }}</div>
                     </div>
+                    {{ render_field(form.sin_razonamiento) }}
+                    {% if provider and provider.parametros
+                          and provider.parametros.get('sin_razonamiento_no_admitido') %}
+                    {# Lo que el endpoint ya contestó una vez, dicho aquí para
+                       que nadie vuelva a marcar la casilla esperando algo. #}
+                    <p class="form-text text-warning-emphasis mb-3">
+                        <i class="bi bi-info-circle me-1"></i>
+                        Este endpoint rechazó el parámetro, así que no se le
+                        vuelve a enviar.
+                    </p>
+                    {% endif %}
                     {{ render_field(form.activo) }}
                     {{ render_field(form.es_por_defecto) }}
                 </div>

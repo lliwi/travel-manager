@@ -262,6 +262,15 @@ _DIAS_ES = (
 )
 
 
+def format_short_month(value):
+    """«2026-04» as «abr 26», which is what fits in a column heading."""
+    try:
+        anio, mes = str(value).split('-')
+        return f'{_MONTHS_ES[int(mes) - 1]} {anio[-2:]}'
+    except (AttributeError, IndexError, ValueError):
+        return str(value)
+
+
 def format_long_date(value):
     """«lunes, 28 sep 2026», from a date or a datetime."""
     if value is None:

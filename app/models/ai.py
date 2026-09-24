@@ -49,6 +49,13 @@ class AIProviderConfig(BaseModel):
     timeout_segundos = db.Column(db.Integer, default=120)
     max_tokens = db.Column(db.Integer, default=2048)
     temperatura = db.Column(db.Numeric(3, 2), default=0.1)
+    #: Ask the model not to reason before answering, where it can be asked.
+    #: A reasoning model spends its output budget thinking, and with a tight
+    #: limit there is nothing left to answer with: the call succeeds, empty.
+    sin_razonamiento = db.Column(db.Boolean(), nullable=False, default=False)
+
+    #: What this endpoint has already told us it will not accept. Not a
+    #: decision anybody makes -- it is discovered, once, from a refusal.
     parametros = db.Column(JSONBType())
 
     # --- Health --------------------------------------------------------

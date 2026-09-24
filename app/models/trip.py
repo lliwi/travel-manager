@@ -67,6 +67,11 @@ class Trip(SoftDeleteMixin, InstantMixin, BaseModel):
     alertas_recalculadas_en = db.Column(db.DateTime(timezone=True))
 
     # --- Costs (behind COSTS_ENABLED, specification section 2.2) -------
+    #: Which project the trip is charged to. Free text and optional: not every
+    #: trip belongs to one, and a required field would be filled with something
+    #: made up, which is how a column stops meaning anything.
+    proyecto = db.Column(db.String(120), index=True)
+
     coste_estimado = db.Column(db.Numeric(12, 2))
     moneda = db.Column(db.String(3))
 
@@ -251,6 +256,7 @@ class Trip(SoftDeleteMixin, InstantMixin, BaseModel):
             'finalidad': str(self.finalidad) if self.finalidad else None,
             'finalidad_detalle': self.finalidad_detalle,
             'observaciones': self.observaciones,
+            'proyecto': self.proyecto,
             'inicio': {
                 'local': self.inicio_local.isoformat() if self.inicio_local else None,
                 'tz': self.inicio_tz,

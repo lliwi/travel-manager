@@ -532,6 +532,21 @@ def register_template_helpers(app):
     app.jinja_env.filters['local_time'] = timeutil.format_local_time
     app.jinja_env.filters['duration'] = timeutil.format_duration
     app.jinja_env.filters['fecha_larga'] = timeutil.format_long_date
+    app.jinja_env.filters['mes_corto'] = timeutil.format_short_month
+    app.jinja_env.filters['importe'] = _formatear_importe
+
+
+def _formatear_importe(valor):
+    """«1.234» con el punto de los miles, y un cero sin decoración.
+
+    Sin moneda: una tabla de gastos la declara una vez en su pie, y repetirla
+    en cada celda llena la fila de tinta que no es dato.
+    """
+    try:
+        numero = float(valor or 0)
+    except (TypeError, ValueError):
+        return '—'
+    return f'{numero:,.0f}'.replace(',', '.')
 
 
 def register_cli_commands(app):

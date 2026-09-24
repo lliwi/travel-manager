@@ -122,6 +122,14 @@ class AIProviderForm(FlaskForm):
         'Máximo de tokens', default=2048,
         validators=[Optional(), NumberRange(min=64, max=32768)],
     )
+    sin_razonamiento = BooleanField(
+        'Desactivar el razonamiento',
+        description=(
+            'Solo si el modelo lo admite; se comprueba antes de pedirlo. Un '
+            'modelo que razona gasta su presupuesto de tokens pensando y '
+            'puede quedarse sin sitio para responder.'
+        ),
+    )
     temperatura = DecimalField(
         'Temperatura', places=2, default=0.1,
         validators=[Optional(), NumberRange(min=0, max=2)],

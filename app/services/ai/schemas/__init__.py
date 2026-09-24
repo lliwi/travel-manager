@@ -244,6 +244,11 @@ EXTRACT_VISADO = _extraction_schema({
     'fecha_emision': _INSTANTE,
     'fecha_caducidad': _INSTANTE,
     'estancia_maxima_dias': _INT,
+    # La tasa de un visado es gasto del viaje como cualquier otro. Era el
+    # único tipo documental que no lo pedía, así que ese gasto no llegaba al
+    # informe de proyectos y nada lo delataba.
+    'importe': _NUM,
+    'moneda': _STR,
 })
 
 EXTRACT_OTRO = _extraction_schema({

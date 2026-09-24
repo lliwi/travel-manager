@@ -17,6 +17,11 @@ from app.utils.errors import AIError, TransientError
 
 logger = logging.getLogger(__name__)
 
+#: What «no reasoning» is called where the parameter exists. OpenAI takes
+#: a level rather than a switch, and «minimal» is the floor it accepts:
+#: there is no «none».
+_ESFUERZO_MINIMO = 'minimal'
+
 #: The two names the output-length limit goes by.
 _OTRO_PARAMETRO = {
     'max_tokens': 'max_completion_tokens',
@@ -116,6 +121,8 @@ class OpenAICompatibleProvider(AIProvider):
             payload['temperature'] = float(request.temperatura)
         if request.esquema:
             payload['response_format'] = {'type': 'json_object'}
+        if self._pedir_sin_razonar():
+            payload['reasoning_effort'] = _ESFUERZO_MINIMO
 
         headers = {'Content-Type': 'application/json'}
         if key:
@@ -134,6 +141,17 @@ class OpenAICompatibleProvider(AIProvider):
             ) from exc
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code
+            if status == 400 and 'reasoning_effort' in payload:
+                detalle = _safe_detail(exc.response) or ''
+                if 'reasoning_effort' in detalle:
+                    # No hay forma de preguntarle a un endpoint compatible con
+                    # OpenAI qué parámetros admite —«/models/{id}» devuelve el
+                    # identificador y poco más—, así que se descubre una vez,
+                    # se anota y no se vuelve a enviar. Sin esto, marcar la
+                    # casilla rompería todas las llamadas a ese proveedor.
+                    self._anotar_rechazo('sin_razonamiento_no_admitido')
+                    payload.pop('reasoning_effort')
+                    return self._reintentar(payload, headers, start)
             if status == 401:
                 raise AIError(
                     f'La clave API del proveedor «{self.codigo}» fue rechazada.'
@@ -156,8 +174,65 @@ class OpenAICompatibleProvider(AIProvider):
             ) from exc
 
         choices = data.get('choices') or []
-        content = choices[0].get('message', {}).get('content', '') if choices else ''
+        primera = choices[0] if choices else {}
+        content = (primera.get('message') or {}).get('content') or ''
         usage = data.get('usage') or {}
+
+        if not content.strip():
+            _explicar_respuesta_vacia(self.codigo, self._modelo, primera, usage)
+
+        return AIResponse(
+            contenido=content,
+            modelo=data.get('model') or self._modelo,
+            proveedor=self.codigo,
+            tokens_entrada=usage.get('prompt_tokens'),
+            tokens_salida=usage.get('completion_tokens'),
+            duracion_ms=int((time.monotonic() - start) * 1000),
+        )
+
+    def _pedir_sin_razonar(self):
+        """Whether to ask this endpoint not to reason.
+
+        Two conditions: an administrator asked for it, and this endpoint has
+        not already refused the parameter.
+        """
+        if not getattr(self.config, 'sin_razonamiento', False):
+            return False
+        return not self._ajustes().get('sin_razonamiento_no_admitido')
+
+    def _anotar_rechazo(self, clave):
+        """Remember that this endpoint will not take a parameter.
+
+        Committed on its own: the point is that the next call does not repeat
+        the mistake, and losing the note to an unrelated rollback would repeat
+        it for ever.
+        """
+        from app.extensions import db
+
+        if self.config is None:
+            return
+        try:
+            parametros = dict(self.config.parametros or {})
+            parametros[clave] = True
+            self.config.parametros = parametros
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            logger.warning('No se pudo anotar el rechazo de «%s».', clave)
+
+    def _reintentar(self, payload, headers, start):
+        """One more attempt, with the refused parameter removed."""
+        with http.cliente(timeout=self.timeout) as client:
+            response = self._post(client, payload, headers)
+            response.raise_for_status()
+            data = response.json()
+
+        choices = data.get('choices') or []
+        primera = choices[0] if choices else {}
+        content = (primera.get('message') or {}).get('content') or ''
+        usage = data.get('usage') or {}
+        if not content.strip():
+            _explicar_respuesta_vacia(self.codigo, self._modelo, primera, usage)
 
         return AIResponse(
             contenido=content,
@@ -264,6 +339,50 @@ class OpenAICompatibleProvider(AIProvider):
                 f'ofrecidos ({len(models)} disponibles)'
             )
         return True, f'accesible ({len(models)} modelos)'
+
+
+def _explicar_respuesta_vacia(codigo, modelo, choice, usage):
+    """Say why the answer came back empty, in terms of what to change.
+
+    An empty answer used to surface as «el modelo no devolvió contenido», which
+    is true and useless: it names a symptom and no cause. The cause is in the
+    response and was being thrown away.
+
+    The one that actually happens: a reasoning model spends the whole output
+    budget thinking and never gets to write. The trip planner sends a long
+    prompt -- it now carries real flights and hotels -- so 2048 tokens go on
+    reasoning and the answer is cut off before its first character. Nothing is
+    broken and no setting looks wrong; it just stops working when the prompt
+    grows.
+    """
+    motivo = choice.get('finish_reason') or choice.get('native_finish_reason')
+    detalles = usage.get('completion_tokens_details') or {}
+    razonamiento = detalles.get('reasoning_tokens')
+    gastados = usage.get('completion_tokens')
+
+    if motivo == 'length':
+        gasto = ''
+        if razonamiento:
+            gasto = (f' Gastó {razonamiento} de los {gastados} tokens de salida '
+                     f'razonando, y no le quedaron para responder.')
+        elif gastados:
+            gasto = f' Agotó los {gastados} tokens de salida.'
+        raise AIError(
+            f'El modelo «{modelo}» se quedó sin espacio para responder.{gasto} '
+            f'Suba «Máximo de tokens» en Administración → Proveedores de IA, o '
+            f'asigne esta tarea a un modelo que no razone.'
+        )
+
+    if motivo == 'content_filter':
+        raise AIError(
+            f'El proveedor «{codigo}» bloqueó la respuesta por su filtro de '
+            f'contenido.'
+        )
+
+    raise AIError(
+        f'El modelo «{modelo}» no devolvió contenido'
+        + (f' (motivo: {motivo}).' if motivo else '.')
+    )
 
 
 def _safe_detail(response):

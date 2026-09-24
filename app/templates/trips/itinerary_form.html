@@ -136,6 +136,15 @@
                         <div class="col-md-6">{{ render_field(form.localizador) }}</div>
                         <div class="col-md-6">{{ render_field(form.proveedor) }}</div>
                     </div>
+                    {% if feature_flags.costs %}
+                    {# El importe de este elemento. El del viaje es la suma de
+                       los de su itinerario, así que se anota donde se conoce y
+                       no se vuelve a teclear arriba. #}
+                    <div class="row">
+                        <div class="col-md-6">{{ render_field(form.importe) }}</div>
+                        <div class="col-md-6">{{ render_field(form.moneda, placeholder='EUR') }}</div>
+                    </div>
+                    {% endif %}
                     {{ render_field(form.observaciones, rows=3) }}
                 </div>
             </div>

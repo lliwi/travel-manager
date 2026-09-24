@@ -50,7 +50,8 @@ def generate_reference(year=None):
 def create_trip(actor, titulo, gestor=None, estado=TripStatus.BORRADOR,
                 finalidad=None, finalidad_detalle=None, observaciones=None,
                 inicio_local=None, inicio_tz=None, fin_local=None, fin_tz=None,
-                referencia=None, commit=True):
+                referencia=None, proyecto=None, coste_estimado=None,
+                moneda=None, commit=True):
     """Create a trip.
 
     The manager defaults to the creating actor, which is the common case: a
@@ -66,6 +67,9 @@ def create_trip(actor, titulo, gestor=None, estado=TripStatus.BORRADOR,
         finalidad=finalidad,
         finalidad_detalle=finalidad_detalle,
         observaciones=observaciones,
+        proyecto=(str(proyecto).strip()[:120] or None) if proyecto else None,
+        coste_estimado=coste_estimado,
+        moneda=(str(moneda).strip().upper()[:3] or None) if moneda else None,
         gestor_id=(gestor.id if gestor is not None else actor.id),
         creado_por_id=actor.id,
         organizacion_id=getattr(actor, 'organizacion_id', None),
@@ -98,7 +102,7 @@ def update_trip(actor, trip, commit=True, **campos):
     cambios = {}
     simple_fields = (
         'titulo', 'finalidad', 'finalidad_detalle', 'observaciones', 'estado',
-        'gestor_id', 'coste_estimado', 'moneda',
+        'gestor_id', 'proyecto', 'coste_estimado', 'moneda',
     )
     for field in simple_fields:
         if field not in campos:

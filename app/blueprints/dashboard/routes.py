@@ -4,7 +4,7 @@ The content differs by role because the roles want different things: a manager
 wants open alerts and documents awaiting review, a traveller wants their next
 trip.
 """
-from flask import flash, redirect, render_template, url_for
+from flask import flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 
 from app.blueprints.dashboard import dashboard_bp
@@ -18,8 +18,8 @@ from app.models.enums import (
     TripStatus,
 )
 from app.models.trip import Trip
-from app.services.authorization_service import Permiso, visible_trips_query
-from app.utils.decorators import authenticated_only, require_permiso
+from app.services.authorization_service import visible_trips_query
+from app.utils.decorators import authenticated_only
 from app.utils.timeutil import utcnow
 
 
@@ -154,17 +154,31 @@ def read_all_notifications():
 
 @dashboard_bp.route('/informes')
 @login_required
-@require_permiso(Permiso.VER_VIAJE)
 def reports():
     """What is happening across the trips this person may see.
 
-    Guarded by the ordinary permission rather than by role: the numbers are
-    already scoped to what the asker may see, so a traveller reading this reads
-    a report about their own trips, which is a fair thing for them to have.
+    No permission check beyond the session, and that is deliberate: every query
+    behind this page starts from ``visible_trips_query``, so the scoping is the
+    query rather than a gate in front of it. A traveller reading this reads a
+    report about their own trips, which is a fair thing for them to have.
+
+    It used to ask ``can(actor, VER_VIAJE, None)``, which is a *global*
+    question about a permission that only exists per trip: ``VER_VIAJE`` is not
+    in ``PERMISOS_GLOBALES``, so the page answered 403 to everybody except an
+    administrator. Nobody noticed because no test opened it while logged in --
+    ``tests/test_informes.py`` only checked that a stranger was turned away, and
+    that passed for the wrong reason.
     """
-    from app.services import report_service
+    from app.services import map_service, report_service
 
     actor = current_user._get_current_object()
+    dia = map_service.fecha_pedida(request.args.get('fecha'))
     return render_template(
-        'dashboard/reports.html', informe=report_service.informe_completo(actor),
+        'dashboard/reports.html',
+        informe=report_service.informe_completo(actor),
+        mapa=map_service.donde_estan(actor, dia),
+        calendario=map_service.calendario_del_mes(
+            actor, dia, abierto=bool(request.args.get('cal')),
+        ),
+        hoy=utcnow().date(),
     )

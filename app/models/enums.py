@@ -331,15 +331,24 @@ class ProvenanceOrigin(LabeledEnum):
       instance a timezone derived from an airport code or a normalised carrier
       name.
     * ``manual``    -- a person typed or corrected the value.
+    * ``buscador``  -- it came from the travel connector, because somebody
+      picked that row. Not ``manual``: nobody typed the departure time. Not
+      ``documento``: there is no text it appears in. The distinction is what
+      lets the screen say a price is Google's and indicative, and that none of
+      it is a booking.
     """
 
     DOCUMENTO = ('documento', 'Documento')
     MANUAL = ('manual', 'Manual')
     IA = ('ia', 'IA')
+    BUSCADOR = ('buscador', 'Buscador')
 
     @property
     def css_class(self):
-        return {'documento': 'primary', 'manual': 'success', 'ia': 'info'}[self.value]
+        return {
+            'documento': 'primary', 'manual': 'success',
+            'ia': 'info', 'buscador': 'warning',
+        }[self.value]
 
 
 class ApplicationOutcome(LabeledEnum):

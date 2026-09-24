@@ -16,6 +16,11 @@ from app.utils.errors import AIError, TransientError
 
 logger = logging.getLogger(__name__)
 
+#: What each model can do, as ``/api/show`` reported it. Kept for the process:
+#: a model's capabilities do not change between two requests, and asking on
+#: every call would add a round trip to every extraction.
+_CAPACIDADES = {}
+
 
 class OllamaProvider(AIProvider):
     """Talks to Ollama's native chat endpoint."""
@@ -61,6 +66,11 @@ class OllamaProvider(AIProvider):
             # to argue itself from the document's 2026 to an invented 2023.
             # Models that cannot think ignore the flag.
             payload['think'] = False
+        elif self._sin_razonamiento() and self.admite_razonamiento():
+            # Fuera de una respuesta con esquema solo se pide si el modelo
+            # razona: «think» en uno que no lo hace es un parámetro que sobra,
+            # y algunos servidores rechazan la petición entera por él.
+            payload['think'] = False
 
         start = time.monotonic()
         try:
@@ -87,7 +97,24 @@ class OllamaProvider(AIProvider):
                 f'No se pudo contactar con Ollama en {self.base_url}: {exc}'
             ) from exc
 
-        message = (data.get('message') or {}).get('content', '')
+        message = (data.get('message') or {}).get('content') or ''
+        if not message.strip():
+            # Lo mismo que en el proveedor compatible con OpenAI: «no devolvió
+            # contenido» nombra el síntoma y no la causa, que está en la
+            # respuesta y se estaba tirando.
+            if data.get('done_reason') == 'length':
+                raise AIError(
+                    f'El modelo «{self._modelo}» se quedó sin espacio para '
+                    f'responder: agotó los {request.max_tokens} tokens de '
+                    f'salida. Suba «Máximo de tokens» en Administración → '
+                    f'Proveedores de IA.'
+                )
+            raise AIError(
+                f'El modelo «{self._modelo}» no devolvió contenido'
+                + (f' (motivo: {data["done_reason"]}).'
+                   if data.get('done_reason') else '.')
+            )
+
         return AIResponse(
             contenido=message,
             modelo=data.get('model') or self._modelo,
@@ -96,6 +123,41 @@ class OllamaProvider(AIProvider):
             tokens_salida=data.get('eval_count'),
             duracion_ms=int((time.monotonic() - start) * 1000),
         )
+
+    def _sin_razonamiento(self):
+        return bool(getattr(self.config, 'sin_razonamiento', False))
+
+    def admite_razonamiento(self):
+        """Whether this model can reason at all, as Ollama itself reports it.
+
+        ``/api/show`` lists the model's capabilities, and «thinking» is there
+        only for the ones that do. That is the whole reason to ask instead of
+        keeping a list of model names: a list is wrong the day somebody pulls a
+        model nobody had heard of.
+
+        On a failure it answers False -- not asking for something is always
+        safe, and refusing to run because the capability query failed would
+        turn a slow answer into no answer.
+        """
+        if self._modelo in _CAPACIDADES:
+            return 'thinking' in _CAPACIDADES[self._modelo]
+
+        try:
+            with http.cliente(timeout=10) as client:
+                response = client.post(
+                    f'{self.base_url}/api/show', json={'model': self._modelo},
+                )
+                response.raise_for_status()
+                capacidades = response.json().get('capabilities') or []
+        except (httpx.HTTPError, ValueError) as exc:
+            logger.info(
+                'No se pudieron consultar las capacidades de «%s»: %s',
+                self._modelo, exc,
+            )
+            return False
+
+        _CAPACIDADES[self._modelo] = capacidades
+        return 'thinking' in capacidades
 
     def list_models(self):
         """The models pulled on this Ollama."""

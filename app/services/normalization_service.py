@@ -380,6 +380,39 @@ def _normalize_place_timezones(campos, confianzas, avisos, resueltos):
                 )
 
 
+def _por_alias(aguja):
+    """Match a name against the catalogue's alternative spellings.
+
+    Resolved in Python rather than in SQL: ``alias`` is a JSON array, and
+    querying inside one is written differently on PostgreSQL and on SQLite --
+    which would make the tests pass against a matching rule production never
+    runs. Eighty-five rows cost nothing to scan.
+
+    Returns a criterion to add to the query, or None when nothing matched, so
+    the caller keeps one code path for all three ways of finding a place.
+    """
+    plano = _sin_acentos(aguja)
+    if not plano:
+        return None
+
+    codigos = [
+        fila.codigo
+        for fila in Location.query.filter(Location.activo.is_(True)).all()
+        if fila.codigo and any(
+            _sin_acentos(a) == plano for a in (fila.alias or ())
+        )
+    ]
+    return Location.codigo.in_(codigos) if codigos else None
+
+
+def _sin_acentos(texto):
+    """Lowercase without accents, so «Zürich» and «Zurich» are one name."""
+    import unicodedata
+
+    plano = unicodedata.normalize('NFKD', str(texto or ''))
+    return ''.join(c for c in plano if not unicodedata.combining(c)).strip().lower()
+
+
 def resolver_lugar(nombres, pais_codigo=None):
     """The timezone and country of a named place, from the catalogue.
 
@@ -406,8 +439,11 @@ def resolver_lugar(nombres, pais_codigo=None):
 
         for criterio in (
             Location.ciudad.ilike(aguja),
+            _por_alias(aguja),
             Location.nombre.ilike(f'%{aguja}%'),
         ):
+            if criterio is None:
+                continue
             filas = Location.query.filter(
                 Location.activo.is_(True),
                 Location.zona_horaria.isnot(None),

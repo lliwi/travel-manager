@@ -736,8 +736,14 @@ class TestElLugarEscritoEnOtroIdioma:
         assert campos['check_in']['zona_horaria'] == 'Europe/London'
         assert campos['pais'] == 'GB'
 
-    def test_un_nombre_ambiguo_no_se_resuelve(self, app, seeded):
-        """Refuse rather than guess: two zones is a question for a person."""
+    def test_un_alias_del_catalogo_gana_al_parecido_de_un_nombre(self, app, seeded):
+        """«London» resuelve a Londres aunque exista un «London Ontario».
+
+        El alias es un dato que alguien puso a propósito —el catálogo dice que
+        Londres también se escribe London—; que el nombre de otro aeropuerto
+        contenga esa palabra es un parecido. Dejar que el parecido vete al dato
+        curado significaría que al catálogo no se le puede enseñar nada.
+        """
         from app.models.catalog import Location
         from app.services.normalization_service import resolver_lugar
 
@@ -749,7 +755,43 @@ class TestElLugarEscritoEnOtroIdioma:
 
         zona, pais, ciudad = resolver_lugar(['London'], None)
 
-        assert (zona, pais, ciudad) == (None, None, None)
+        assert (zona, pais, ciudad) == ('Europe/London', 'GB', 'Londres')
+
+    def test_dos_ciudades_que_reclaman_el_mismo_alias_no_se_resuelven(
+        self, app, seeded,
+    ):
+        """Ahí sí: dos datos curados que se contradicen es una pregunta para
+        una persona, no algo que se decida cogiendo la primera fila."""
+        from app.models.catalog import Location
+        from app.services.normalization_service import resolver_lugar
+
+        for codigo, ciudad, pais, zona in (
+            ('XYZ2', 'Villa Norte', 'ES', 'Europe/Madrid'),
+            ('XYZ3', 'Villa Sur', 'CL', 'America/Santiago'),
+        ):
+            db.session.add(Location(
+                codigo=codigo, nombre=ciudad, ciudad=ciudad, pais_codigo=pais,
+                zona_horaria=zona, activo=True, alias=['Villaville'],
+            ))
+        db.session.commit()
+
+        assert resolver_lugar(['Villaville'], None) == (None, None, None)
+
+    def test_un_parecido_ambiguo_sigue_sin_resolverse(self, app, seeded):
+        """Sin alias de por medio, la regla de antes no ha cambiado."""
+        from app.models.catalog import Location
+        from app.services.normalization_service import resolver_lugar
+
+        for codigo, pais, zona in (('XYZ4', 'ES', 'Europe/Madrid'),
+                                   ('XYZ5', 'CL', 'America/Santiago')):
+            db.session.add(Location(
+                codigo=codigo, nombre=f'Aeropuerto de Villaverde {codigo}',
+                ciudad=f'Villaverde {codigo}', pais_codigo=pais,
+                zona_horaria=zona, activo=True,
+            ))
+        db.session.commit()
+
+        assert resolver_lugar(['Villaverde'], None) == (None, None, None)
 
     def test_un_lugar_desconocido_sigue_sin_inventarse(self, app, seeded):
         from app.services.normalization_service import resolver_lugar

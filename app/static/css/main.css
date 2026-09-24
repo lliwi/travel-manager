@@ -613,15 +613,20 @@ a.stat-card { transition: border-color .12s ease, box-shadow .12s ease, transfor
 
 .viz-stack > span { display: block; min-width: 2px; }
 
+/* La separación entre elementos tiene que ser mayor que la que hay dentro de
+   uno: la cifra iba alineada al borde derecho de su celda y quedaba más cerca
+   del concepto siguiente que del suyo, así que «Borrador 0 En preparación 1»
+   se leía como si el cero fuera de «En preparación». Es proximidad, no
+   alineación: son cuentas de una cifra, no una tabla de números que cuadrar. */
 .viz-legend {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
-    gap: .3rem .9rem;
+    grid-template-columns: repeat(auto-fill, minmax(10rem, auto));
+    gap: .35rem 1.75rem;
     margin-top: .75rem;
     font-size: .85rem;
 }
 
-.viz-legend-item { display: flex; align-items: center; gap: .45rem; }
+.viz-legend-item { display: flex; align-items: baseline; gap: .4rem; }
 .viz-legend-item.is-zero { opacity: .5; }
 
 .viz-swatch {
@@ -629,10 +634,11 @@ a.stat-card { transition: border-color .12s ease, box-shadow .12s ease, transfor
     height: .7rem;
     border-radius: 3px;
     flex-shrink: 0;
+    align-self: center;
 }
 
 .viz-legend-name { color: var(--text-muted); }
-.viz-legend-value { margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; }
+.viz-legend-value { font-weight: 600; font-variant-numeric: tabular-nums; }
 
 /* Ranking: barras de un solo tono, porque comparan magnitud y no identidad.
    Extremo redondeado en la punta y recto en la línea base. */
@@ -665,9 +671,14 @@ a.stat-card { transition: border-color .12s ease, box-shadow .12s ease, transfor
 /* Serie temporal: columnas desde una línea base común. El área de dibujo lleva
    altura propia porque un porcentaje contra una caja sin altura definida se
    resuelve a cero, y la columna salía como una raya. */
-.viz-columns { display: flex; align-items: flex-end; gap: .75rem; }
-.viz-column { flex: 1; display: flex; flex-direction: column; align-items: center;
-              gap: .3rem; min-width: 0; }
+/* Centradas y con ancho tope: «flex: 1» a secas reparte todo el ancho entre
+   las columnas que haya, así que con dos meses cada una ocupaba media tarjeta
+   y las barras quedaban en los extremos, separadas por un vacío que parece un
+   dato ausente. Con el tope se agrupan y el sobrante queda a los lados. */
+.viz-columns { display: flex; align-items: flex-end; justify-content: center;
+               gap: .75rem; }
+.viz-column { flex: 1 1 0; max-width: 4.5rem; display: flex; flex-direction: column;
+              align-items: center; gap: .3rem; min-width: 0; }
 .viz-column-plot { height: 120px; width: 100%; display: flex; align-items: flex-end;
                    justify-content: center; }
 .viz-column-bar {
@@ -691,6 +702,14 @@ a.stat-card { transition: border-color .12s ease, box-shadow .12s ease, transfor
     align-items: baseline;
     gap: .35rem 1rem;
 }
+
+/* Con casillas, una columna más por delante para todas las filas: sin ella
+   cada fila empezaría en un sitio y la columna de horas dejaría de alinearse,
+   que es lo único que permite compararlas. */
+.vuelo-fila.es-seleccionable {
+    grid-template-columns: auto minmax(0, 14rem) minmax(0, 1fr) minmax(0, 11rem) auto;
+}
+.vuelo-marca { align-self: center; margin: 0; cursor: pointer; }
 
 .vuelo-horas { display: flex; align-items: baseline; gap: .3rem; white-space: nowrap; }
 .vuelo-hora { font-size: 1.05rem; font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -848,3 +867,203 @@ a.stat-card { transition: border-color .12s ease, box-shadow .12s ease, transfor
     margin-top: .4rem;
 }
 .vuelo-numero { font-variant-numeric: tabular-nums; }
+
+/* ---------- Mapa de viajeros ----------
+   Un solo tono: la cifra es una magnitud, no una identidad, y colorear cada
+   ciudad de un color distinto haría creer que significan cosas distintas. El
+   tamaño va por área —el radio crece con la raíz— porque el ojo compara
+   manchas, no radios.
+
+   El fondo es un SVG servido por la propia aplicación. No hay baldosas de
+   terceros: en un despliegue sin salida a internet este panel seguiría
+   dibujándose, y nadie fuera se entera de qué ciudades se consultan. */
+.mapa {
+    position: relative;
+    /* El mismo recorte con el que se generó el SVG (84°N a 58°S). Si los dos
+       no coinciden, cada punto cae en otro sitio. */
+    aspect-ratio: 1000 / 394.4;
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.mapa-fondo {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    /* El mapa no aporta nada que no diga la tabla de debajo, así que no se
+       anuncia: es el lienzo, no el dato. */
+    pointer-events: none;
+    user-select: none;
+}
+
+.mapa-punto {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--viz-o3) 72%, transparent);
+    /* Anillo del color de la superficie: dos ciudades que se solapan siguen
+       leyéndose como dos y no como una mancha. */
+    box-shadow: 0 0 0 2px var(--viz-surface);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: default;
+}
+.mapa-punto.es-mayor { background: color-mix(in srgb, var(--viz-o4) 85%, transparent); }
+
+/* Sin cifra dentro. En Europa las ciudades caen a pocos píxeles unas de
+   otras, y el número de la burbuja mayor —el dato que más importa— quedaba
+   tapado por el de la menor que se le pone encima. El tamaño ya dice cuánto,
+   la leyenda de debajo dice cuánto exactamente, y el globo dice quiénes. */
+
+/* El globo sale por encima de todo punto, también de los más grandes. */
+.mapa-punto:hover { z-index: 5; }
+.mapa-globo {
+    position: absolute;
+    bottom: calc(100% + .4rem);
+    left: 50%;
+    transform: translateX(-50%);
+    display: none;
+    white-space: nowrap;
+    background: var(--text);
+    color: #fff;
+    border-radius: var(--radius-sm);
+    padding: .35rem .55rem;
+    font-size: .72rem;
+    line-height: 1.35;
+    box-shadow: var(--shadow);
+    pointer-events: none;
+    z-index: 6;
+}
+.mapa-punto:hover .mapa-globo { display: block; }
+.mapa-globo-cifra {
+    display: inline-block;
+    background: rgba(255, 255, 255, .18);
+    border-radius: 999px;
+    padding: 0 .35rem;
+    margin-right: .3rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+.mapa-globo-lista { display: block; opacity: .8; margin-top: .15rem; }
+
+/* Cerca de los bordes el globo se saldría de la tarjeta. */
+.mapa-punto[style*="left: 0"] .mapa-globo,
+.mapa-punto[style*="left: 1"] .mapa-globo,
+.mapa-punto[style*="left: 2"] .mapa-globo { left: 0; transform: none; }
+.mapa-punto[style*="left: 9"] .mapa-globo { left: auto; right: 0; transform: none; }
+
+/* La lectura sin ratón y sin color: los mismos números, en texto. */
+.mapa-ciudades {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .4rem .9rem;
+    margin-top: .75rem;
+    font-size: .85rem;
+}
+.mapa-ciudad { display: inline-flex; align-items: center; gap: .35rem; }
+.mapa-ciudad-punto {
+    width: .55rem;
+    height: .55rem;
+    border-radius: 50%;
+    background: var(--viz-o3);
+    flex-shrink: 0;
+}
+.mapa-ciudad strong { font-variant-numeric: tabular-nums; }
+
+/* ---------- Calendario de días con gente fuera ----------
+   El mapa contesta por un día; sin esto había que ir probando fechas hasta
+   dar con las que tienen a alguien. Un solo tono, más oscuro cuanta más
+   gente: es una magnitud, no seis categorías. */
+.calendario-desplegable { position: relative; }
+.calendario-desplegable > summary {
+    list-style: none;
+    cursor: pointer;
+    font-variant-numeric: tabular-nums;
+}
+.calendario-desplegable > summary::-webkit-details-marker { display: none; }
+.calendario-desplegable[open] > summary { border-color: var(--primary); color: var(--primary); }
+
+/* A la derecha de la cabecera, así que se ancla por ese lado: centrado se
+   saldría de la tarjeta. */
+.calendario-panel {
+    position: absolute;
+    top: calc(100% + .35rem);
+    right: 0;
+    z-index: 20;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: .75rem;
+}
+
+.calendario { width: 17rem; }
+.calendario-cabecera {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .5rem;
+    margin-bottom: .5rem;
+}
+.calendario-pie { margin-top: .5rem; text-align: center; }
+
+.calendario-rejilla {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
+}
+
+.calendario-dia-nombre {
+    text-align: center;
+    font-size: .7rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    padding-bottom: .2rem;
+}
+
+.calendario-celda {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    aspect-ratio: 1;
+    border-radius: var(--radius-sm);
+    background: #f8fafc;
+    border: 1px solid transparent;
+    color: var(--text);
+    text-decoration: none;
+    font-size: .78rem;
+    font-variant-numeric: tabular-nums;
+}
+.calendario-celda:hover { border-color: var(--primary); color: var(--text); }
+.calendario-celda.es-otro-mes { color: #cbd5e1; background: transparent; }
+
+/* Un día con gente: el tono se oscurece con la cuenta, y la cifra va dentro
+   porque «cuántos» es la pregunta que trae a alguien a este panel. */
+.calendario-celda.con-gente {
+    background: color-mix(in srgb, var(--viz-o3) calc(var(--peso, 1) * 100%), #eef4fb);
+    color: #fff;
+    font-weight: 600;
+}
+.calendario-celda.con-gente.es-otro-mes { opacity: .45; }
+
+.calendario-cuenta {
+    position: absolute;
+    top: 1px;
+    right: 3px;
+    font-size: .6rem;
+    font-weight: 700;
+    opacity: .85;
+}
+
+/* El día que el mapa está mostrando, y hoy, se señalan con el borde: el
+   relleno ya lo usa la cuenta y no puede decir dos cosas a la vez. */
+.calendario-celda.es-hoy { border-color: var(--text-muted); }
+.calendario-celda.es-elegido {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(13, 110, 253, .25);
+}

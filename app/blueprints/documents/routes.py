@@ -163,10 +163,30 @@ def review(document_id, document):
 @login_required
 @require_document_access(Permiso.SUBIR_DOCUMENTO)
 def reprocess(document_id, document):
-    """Retry a failed pipeline from the last good state."""
+    """Retry a failed pipeline, or read the document again from scratch.
+
+    Two different requests through one door. «Reintentar» resumes a document
+    that broke, from the last state it reached. «Volver a analizar» rewinds to
+    classification and reads it again -- what somebody wants after changing the
+    model, or when the extraction missed a field that is in the document.
+
+    Neither touches the itinerary. Extraction proposes and a manager approves,
+    so what comes out is a new version waiting for review, and whatever was
+    approved before stays exactly as it was until somebody approves the new one.
+    """
+    desde_el_principio = bool(request.form.get('desde_el_principio'))
     try:
-        document_service.reprocess(current_user._get_current_object(), document)
-        flash('Reproceso iniciado.', 'info')
+        document_service.reprocess(
+            current_user._get_current_object(), document,
+            from_start=desde_el_principio,
+        )
+        flash(
+            'Se está volviendo a analizar el documento. Cuando termine tendrá '
+            'datos nuevos que revisar; lo ya aprobado no cambia hasta que '
+            'apruebe los nuevos.'
+            if desde_el_principio else 'Reproceso iniciado.',
+            'info',
+        )
     except AppError as error:
         flash(error.mensaje, 'danger')
     return redirect(url_for('documents.detail', document_id=document.id))

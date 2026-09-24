@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Informes — {{ app_name }}{% endblock %}
 {% block breadcrumb_items %}
-<li class="breadcrumb-item"><a href="{{ url_for('dashboard.index') }}">Inicio</a></li>
 <li class="breadcrumb-item active">Informes</li>
 {% endblock %}
 
@@ -71,6 +70,58 @@
 </div>
 {% endmacro %}
 
+{# CALENDARIO — qué días hay gente fuera. Un solo tono, más oscuro cuanta
+   más: es una magnitud, no siete categorías. Cada día enlaza al mapa de ese
+   día, que es para lo que existe: el mapa contesta por uno solo y sin esto
+   había que ir probando fechas. #}
+{% macro calendario_mensual(cal) %}
+<div class="calendario">
+    <div class="calendario-cabecera">
+        <a class="btn btn-sm btn-outline-secondary"
+           href="{{ url_for('dashboard.reports', fecha=cal.anterior, cal=1) }}"
+           title="Mes anterior"><i class="bi bi-chevron-left"></i></a>
+        <strong>{{ cal.titulo }}</strong>
+        <a class="btn btn-sm btn-outline-secondary"
+           href="{{ url_for('dashboard.reports', fecha=cal.siguiente, cal=1) }}"
+           title="Mes siguiente"><i class="bi bi-chevron-right"></i></a>
+    </div>
+
+    <div class="calendario-rejilla">
+        {% for dia in cal.dias %}
+        <span class="calendario-dia-nombre">{{ dia }}</span>
+        {% endfor %}
+        {% for semana in cal.semanas %}
+        {% for celda in semana %}
+        {% set intensidad = (celda.total / cal.maximo) if cal.maximo else 0 %}
+        <a class="calendario-celda
+                  {{ 'es-otro-mes' if not celda.del_mes }}
+                  {{ 'es-hoy' if celda.es_hoy }}
+                  {{ 'es-elegido' if celda.es_el_elegido }}
+                  {{ 'con-gente' if celda.total }}"
+           href="{{ url_for('dashboard.reports', fecha=celda.fecha) }}"
+           {% if celda.total %}style="--peso: {{ (0.25 + 0.75 * intensidad) | round(2) }}"{% endif %}
+           title="{{ celda.fecha | fecha_larga }}: {{ celda.total }}
+                  {{ 'persona' if celda.total == 1 else 'personas' }} de viaje">
+            <span class="calendario-numero">{{ celda.fecha.day }}</span>
+            {% if celda.total %}
+            <span class="calendario-cuenta">{{ celda.total }}</span>
+            {% endif %}
+        </a>
+        {% endfor %}
+        {% endfor %}
+    </div>
+
+    <p class="calendario-pie text-muted small mb-0">
+        {% if cal.total_del_mes %}
+        {{ cal.total_del_mes }}
+        {{ 'día' if cal.total_del_mes == 1 else 'días' }} con gente de viaje
+        {% else %}
+        Ningún día con gente de viaje
+        {% endif %}
+    </p>
+</div>
+{% endmacro %}
+
 {% block content %}
 <div class="page-header">
     <h1>Informes</h1>
@@ -78,6 +129,216 @@
         Sobre los viajes que usted puede ver.
     </p>
 </div>
+
+{# MAPA — cuánta gente hay en cada ciudad. Es una magnitud, así que un solo
+   tono y el tamaño por área (radio ∝ √personas): doblar el radio cuadruplica
+   la mancha, y con el radio proporcional una ciudad con cuatro personas se lee
+   como si tuviera dieciséis. El fondo es un SVG del propio servidor: con
+   baldosas de un tercero este panel saldría en blanco en cualquier despliegue
+   sin internet, y además le contaría a ese tercero qué ciudades se miran. #}
+<div class="card mb-3 viz">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span><i class="bi bi-geo-alt me-2"></i>Dónde está la gente</span>
+        <div class="d-flex align-items-center gap-2">
+            {# «details» y no un desplegable con guion: no hace falta
+               JavaScript, y así no depende de la política de scripts. Cambiar
+               de mes recarga la página, y por eso los enlaces llevan «cal=1»:
+               sin eso el panel se cerraría en cada clic y habría que volver a
+               abrirlo para seguir buscando. #}
+            <details class="calendario-desplegable" {{ 'open' if calendario.abierto }}>
+                <summary class="btn btn-sm btn-outline-secondary">
+                    <i class="bi bi-calendar3 me-1"></i>{{ mapa.dia | fecha_larga }}
+                </summary>
+                <div class="calendario-panel">
+                    {{ calendario_mensual(calendario) }}
+                </div>
+            </details>
+            {% if mapa.dia != hoy %}
+            <a href="{{ url_for('dashboard.reports') }}" class="btn btn-sm btn-link">Hoy</a>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if mapa.total %}
+    <div class="card-body pt-3">
+        <div class="mapa">
+            <img class="mapa-fondo" alt=""
+                 src="{{ url_for('static', filename='img/mapa-mundi.svg') }}">
+            {% for ciudad in mapa.ciudades %}
+            {# Diámetro ∝ √personas, que es lo mismo que decir área ∝ personas:
+               el ojo compara manchas. Absoluto y no relativo al máximo, o el
+               día que solo haya una persona de viaje su burbuja sería la más
+               grande del mapa. Suelo de 18 px para poder apuntarla y techo de
+               46 para que una ciudad con mucha gente no tape media Europa. #}
+            {% set lado = [[16 * (ciudad.total ** 0.5), 18] | max, 46] | min %}
+            <div class="mapa-punto{{ ' es-mayor' if ciudad.total == mapa.maximo }}"
+                 style="left: {{ ciudad.x }}%; top: {{ ciudad.y }}%;
+                        width: {{ lado | round(1) }}px; height: {{ lado | round(1) }}px">
+                <span class="mapa-globo">
+                    <span class="mapa-globo-cifra">{{ ciudad.total }}</span>
+                    <strong>{{ ciudad.ciudad }}</strong>
+                    <span class="mapa-globo-lista">
+                        {% for persona in ciudad.personas[:6] %}
+                        {{ persona.nombre }} · {{ persona.viaje }}{%
+                            if persona.segun == 'en_transito' %} · de camino{%
+                            endif %}<br>
+                        {% endfor %}
+                        {% if ciudad.personas | length > 6 %}
+                        y {{ ciudad.personas | length - 6 }} más
+                        {% endif %}
+                    </span>
+                </span>
+            </div>
+            {% endfor %}
+        </div>
+
+        {# La tabla no es un extra: es la versión que se lee sin ratón, sin
+           color y en voz alta, y la que permite copiar una cifra. #}
+        <div class="mapa-ciudades">
+            {% for ciudad in mapa.ciudades %}
+            <span class="mapa-ciudad">
+                <span class="mapa-ciudad-punto"></span>
+                {{ ciudad.ciudad }}
+                <strong>{{ ciudad.total }}</strong>
+            </span>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="card-footer small text-muted">
+        <p class="mb-1">
+            {{ mapa.total }}
+            {{ 'persona' if mapa.total == 1 else 'personas' }} de viaje ese día.
+            Se sitúa a cada una por el alojamiento que cubre esa noche; si no
+            hay, por el destino del último trayecto que ya había llegado; si
+            tampoco, por el destino declarado del viaje; y en último lugar, por
+            dónde sale su siguiente trayecto. Sin alojamiento, quien ese día
+            volaba cuenta en la ciudad a la que iba, señalado como de camino.
+        </p>
+        {% if mapa.en_transito %}
+        {# Cuentan en su ciudad de destino —sin alojamiento, el vuelo es lo
+           único que dice a dónde van— pero decirlo y no decir que aún no
+           habían llegado sería afirmar que ya estaban allí. #}
+        <p class="mb-1">
+            <i class="bi bi-airplane-engines me-1"></i>
+            De esas, {{ mapa.en_transito | length }}
+            {{ 'iba' if mapa.en_transito | length == 1 else 'iban' }}
+            de camino y todavía no {{ 'había' if mapa.en_transito | length == 1
+                                      else 'habían' }} llegado:
+            {% for p in mapa.en_transito %}
+            {{ p.nombre }}{% if p.llega %} (llega el {{ p.llega | local_dt }}){% endif %}{{
+                '' if loop.last else '; ' }}
+            {% endfor %}
+        </p>
+        {% endif %}
+        {% if mapa.sin_situar or mapa.sin_ubicacion %}
+        {# Nunca se descartan en silencio: un mapa al que le faltan tres
+           personas contesta la pregunta con una seguridad que no tiene. #}
+        <p class="mb-0 text-warning-emphasis">
+            <i class="bi bi-exclamation-triangle me-1"></i>
+            {% if mapa.sin_situar %}
+            {{ mapa.sin_situar | length }} en ciudades que el catálogo no sabe
+            situar ({{ mapa.sin_situar | map(attribute='ciudad') | unique | join(', ') }}).
+            {% endif %}
+            {% if mapa.sin_ubicacion %}
+            {{ mapa.sin_ubicacion | length }} sin nada en el itinerario que diga
+            dónde estaban.
+            {% endif %}
+        </p>
+        {% endif %}
+    </div>
+    {% else %}
+    <div class="card-body pt-3 empty-state">
+        <i class="bi bi-geo"></i>
+        <p>Nadie de viaje el {{ mapa.dia | fecha_larga }}.
+           {% if calendario.total_del_mes %}
+           Elija arriba uno de los días marcados.
+           {% endif %}</p>
+    </div>
+    {% endif %}
+</div>
+
+{% if informe.gastos_por_proyecto %}
+{% set gastos = informe.gastos_por_proyecto %}
+<div class="card mb-3 viz">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span><i class="bi bi-kanban me-2"></i>Gasto por proyecto y mes</span>
+        {% if gastos.monedas_mezcladas %}
+        {# Sumar importes en monedas distintas da un número que no es nada. #}
+        <span class="chip chip-warning">
+            <i class="bi bi-exclamation-triangle"></i>Hay varias monedas</span>
+        {% endif %}
+    </div>
+    {% if gastos.proyectos %}
+    <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0 tabla-gastos">
+            <thead>
+                <tr>
+                    <th>Proyecto</th>
+                    {% for mes in gastos.meses %}
+                    <th class="text-end">{{ mes | mes_corto }}</th>
+                    {% endfor %}
+                    <th class="text-end">Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for proyecto in gastos.proyectos %}
+                <tr>
+                    <td>
+                        {{ proyecto.nombre }}
+                        {% if proyecto.sin_importe %}
+                        {# Sin esto, un proyecto a cero no se distingue de uno
+                           cuyos viajes nadie ha valorado todavía. #}
+                        <span class="chip chip-warning ms-1"
+                              title="Viajes de este proyecto sin ningún importe anotado">
+                            {{ proyecto.sin_importe }} sin importe</span>
+                        {% endif %}
+                    </td>
+                    {% for importe in proyecto.por_mes %}
+                    {# Un cero se escribe apagado: la fila se lee por dónde
+                       hay gasto, no por dónde no lo hay. #}
+                    <td class="text-end {{ 'text-muted opacity-50' if not importe }}">
+                        {{ importe | importe }}</td>
+                    {% endfor %}
+                    <td class="text-end fw-semibold">{{ proyecto.total | importe }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr>
+                    <th>Total</th>
+                    {% for i in range(gastos.meses | length) %}
+                    <th class="text-end">
+                        {{ gastos.proyectos | sum(attribute='por_mes.' ~ i) | importe }}</th>
+                    {% endfor %}
+                    <th class="text-end">{{ gastos.total | importe }}</th>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+    <div class="card-footer small text-muted">
+        Lo que dicen las reservas de cada viaje, por el mes en que empieza
+        {% if gastos.moneda %}, en {{ gastos.moneda }}{% endif %}.
+        Incluye los meses próximos: en viajes casi todo el gasto se compromete
+        antes de suceder.
+        {% if gastos.estimados %}
+        {# Una estimación y una factura no son la misma cifra, y un total que
+           mezcla las dos sin decirlo se lee como si todo estuviera facturado. #}
+        De ellos, {{ gastos.estimados }}
+        {{ 'viaje no tiene ningún importe en su itinerario y cuenta por su
+            coste estimado' if gastos.estimados == 1 else
+            'viajes no tienen ningún importe en su itinerario y cuentan por su
+             coste estimado' }}.
+        {% endif %}
+    </div>
+    {% else %}
+    <div class="card-body empty-state">
+        <i class="bi bi-kanban"></i>
+        <p>Ningún viaje con coste estimado en los últimos meses.</p>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
 
 <div class="row g-3 viz">
     <div class="col-lg-6">
@@ -196,7 +457,10 @@
                                  style="height: {{ (fila.total * 100 / maximo) if maximo else 0 }}%"
                                  role="img" aria-label="{{ fila.total }} viajes en {{ fila.mes }}"></div>
                         </div>
-                        <span class="viz-column-label">{{ fila.mes }}</span>
+                        {# «sep 26» y no «2026-09»: lo que fija el ancho de la
+                           columna es la etiqueta, y acortarla es lo que deja
+                           las barras juntas en vez de repartidas. #}
+                        <span class="viz-column-label">{{ fila.mes | mes_corto }}</span>
                     </div>
                     {% endfor %}
                 </div>
