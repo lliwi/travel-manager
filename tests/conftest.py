@@ -424,3 +424,42 @@ def documento_aprobado(app, gestor, documento_procesado):
     extraction_service.approve(gestor, extraction, comentario='Revisado y correcto.')
     _db.session.refresh(document)
     return document
+
+
+# ======================================================================
+# Corporate directory
+# ======================================================================
+@pytest.fixture
+def directorio(monkeypatch):
+    """Replace the real connection with ldap3's in-memory server.
+
+    Lives here and not in ``test_directorio`` because more than one module
+    needs a directory now -- a traveller provisioned from it, a passport
+    registered by somebody who signs in through it -- and importing a fixture
+    between test modules collides with the name of the parameter that receives
+    it.
+    """
+    from ldap3 import MOCK_SYNC, Connection, Server
+
+    from app.services.identity import ldap as ldap_module
+    from app.services.identity.ldap import LDAPIdentityProvider
+    from tests.test_directorio import _arbol
+
+    servidor = Server('directorio.test', get_info=None)
+
+    def _conectar(self, usuario=None, contrasena=None):
+        conf = ldap_module._conf()
+        usuario = usuario if usuario is not None else conf['usuario']
+        contrasena = contrasena if contrasena is not None else conf['contrasena']
+
+        conexion = Connection(
+            servidor, user=usuario, password=contrasena,
+            client_strategy=MOCK_SYNC,
+        )
+        # Por conexión: cada Connection en MOCK_SYNC tiene su propio árbol en
+        # memoria, así que sembrarlo una sola vez dejaría vacías a las demás.
+        _arbol(conexion)
+        return conexion if conexion.bind() else None
+
+    monkeypatch.setattr(LDAPIdentityProvider, '_conectar', _conectar)
+    return LDAPIdentityProvider()

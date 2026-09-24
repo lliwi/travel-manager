@@ -15,7 +15,7 @@ from app.services import audit_service
 from app.services.identity.base import IdentityProvider
 from app.services.identity.ldap import LDAPIdentityProvider
 from app.services.identity.local import LocalIdentityProvider
-from app.utils.errors import AccountLocked, AuthenticationFailed
+from app.utils.errors import AccountLocked, AuthenticationFailed, ValidationError
 from app.utils.timeutil import utcnow
 
 logger = logging.getLogger(__name__)
@@ -200,6 +200,115 @@ def _jit_permitido(provider):
     if provider.codigo == IdentityProviderCode.LDAP.value:
         return esta_configurado()
     return bool(current_app.config['IDENTITY_JIT_PROVISIONING'])
+
+
+def _proveedor_del_directorio():
+    """The corporate directory, or None when there is not one.
+
+    Asked for by name rather than through ``get_provider()``: that one answers
+    with whatever ``IDENTITY_PROVIDER`` says, which is the local provider in
+    every installation that did not switch it -- and the directory is chosen
+    per account, not globally. Asking the default here made the search return
+    nothing and look like an empty directory.
+    """
+    from app.services.identity.ldap import esta_configurado
+
+    if not esta_configurado():
+        return None
+    return get_provider(IdentityProviderCode.LDAP.value)
+
+
+def buscar_en_el_directorio(texto, limite=10):
+    """People the directory knows, whether or not they exist here yet.
+
+    Somebody who has never signed in has no local account, so they could not be
+    added to a trip at all -- and in an organisation where the directory is the
+    payroll, that is most of the staff on the day the system is installed.
+
+    Returns ``(record, user_or_None)`` pairs so the caller can tell «ya está»
+    from «habría que darle de alta» without asking twice.
+    """
+    from app.models.user import User
+
+    provider = _proveedor_del_directorio()
+    if provider is None:
+        return []
+
+    try:
+        registros = provider.search(texto, limit=limite) or []
+    except Exception:
+        # Un directorio caído no puede romper la pantalla de viajeros: lo que
+        # ya está en local se sigue pudiendo asignar.
+        logger.warning('No se pudo buscar «%s» en el directorio.', texto)
+        return []
+
+    salida = []
+    for record in registros:
+        local = User.query.filter_by(
+            identity_provider=provider.codigo, external_id=record.external_id,
+        ).first() if record.external_id else None
+        if local is None:
+            local = User.query.filter_by(username=record.username).first()
+        salida.append((record, local))
+    return salida
+
+
+def dar_de_alta_desde_el_directorio(texto_identificador):
+    """Create the local account for one person the directory knows.
+
+    Called when somebody is put on a trip, not when they are merely listed: a
+    search must not fill the user table with everybody who matched «gar».
+
+    Idempotent -- asked twice it returns the same account rather than a second
+    one, because two rows for one person split their trips in half.
+    """
+    from app.models.user import User
+
+    provider = _proveedor_del_directorio()
+    if provider is None:
+        raise ValidationError('No hay ningún directorio configurado.')
+
+    record = _registro_del_directorio(provider, texto_identificador)
+    if record is None:
+        raise ValidationError(
+            'El directorio ya no reconoce a esa persona. Vuelva a buscarla.'
+        )
+
+    existente = User.query.filter_by(
+        identity_provider=provider.codigo, external_id=record.external_id,
+    ).first() if record.external_id else None
+    if existente is None:
+        existente = User.query.filter_by(username=record.username).first()
+    if existente is not None:
+        return existente
+
+    user = provision_user(provider, record)
+    db.session.commit()
+    logger.info('Alta desde el directorio: %s', user.username)
+    return user
+
+
+def _registro_del_directorio(provider, identificador):
+    """Find one person again, by whatever the screen sent back.
+
+    The stable identifier first -- ``get_user`` looks a person up by the
+    directory's own GUID, and a login name can be changed there without
+    anything here noticing. But not every directory exposes one, so a search by
+    name is the fallback, accepted only on an exact match: «ana» must not
+    provision the first of eleven Anas.
+    """
+    if not identificador:
+        return None
+
+    record = provider.get_user(identificador)
+    if record is not None:
+        return record
+
+    texto = str(identificador).strip().lower()
+    for candidato in provider.search(identificador, limit=25) or []:
+        if (candidato.username or '').strip().lower() == texto:
+            return candidato
+    return None
 
 
 def provision_user(provider, record):

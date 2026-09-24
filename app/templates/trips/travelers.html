@@ -57,6 +57,69 @@
     </div>
 
     <div class="col-lg-5">
+        {# Buscar en el directorio, no solo entre quienes ya han entrado
+           alguna vez: el día que se instala esto la tabla de usuarios está
+           vacía y la plantilla entera está en el AD, así que la lista de
+           arriba no ofrecería a nadie. #}
+        <div class="card mb-3">
+            <div class="card-header">
+                <i class="bi bi-person-badge me-2"></i>Buscar en el directorio
+            </div>
+            <div class="card-body">
+                <form method="get" class="d-flex gap-2 mb-0">
+                    <input type="search" name="buscar" value="{{ busqueda }}"
+                           class="form-control form-control-sm"
+                           placeholder="Nombre, usuario o correo"
+                           aria-label="Buscar en el directorio">
+                    <button class="btn btn-sm btn-outline-secondary">Buscar</button>
+                </form>
+
+                {% if busqueda and busqueda | length < 3 %}
+                <p class="form-text mb-0 mt-2">Escriba al menos tres letras.</p>
+                {% elif busqueda and not encontrados %}
+                <p class="form-text mb-0 mt-2">
+                    El directorio no devuelve a nadie con «{{ busqueda }}», o no
+                    está configurado.
+                </p>
+                {% elif encontrados %}
+                <ul class="list-group list-group-flush mt-2">
+                    {% for record, local in encontrados %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center gap-2 px-0">
+                        <div>
+                            <strong>{{ record.nombre_completo or record.username }}</strong>
+                            <div class="text-muted small">{{ record.username }}{%
+                                if record.email %} · {{ record.email }}{% endif %}</div>
+                        </div>
+                        {% if local %}
+                        {# Ya existe aquí: se asigna con el desplegable de
+                           abajo, donde además se eligen fechas y rol. #}
+                        <span class="chip">ya está dado de alta</span>
+                        {% else %}
+                        <form method="post"
+                              action="{{ url_for('trips.add_traveler_from_directory',
+                                                 trip_id=trip.id) }}">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            {# El identificador del directorio y no el
+                               nombre de usuario: allí se puede renombrar a
+                               alguien sin que aquí se entere nadie. #}
+                            <input type="hidden" name="identificador"
+                                   value="{{ record.external_id or record.username }}">
+                            <button class="btn btn-sm btn-outline-primary text-nowrap">
+                                <i class="bi bi-person-plus me-1"></i>Dar de alta y asignar
+                            </button>
+                        </form>
+                        {% endif %}
+                    </li>
+                    {% endfor %}
+                </ul>
+                <p class="form-text mb-0 mt-2">
+                    Quien no tenga cuenta aquí se crea al asignarlo, con el rol
+                    básico. Buscar no da de alta a nadie.
+                </p>
+                {% endif %}
+            </div>
+        </div>
+
         <div class="card">
             <div class="card-header">Asignar persona</div>
             <div class="card-body">

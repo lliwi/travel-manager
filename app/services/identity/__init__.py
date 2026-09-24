@@ -8,6 +8,8 @@ from app.services.identity.local import (
 from app.services.identity.registry import (
     authenticate,
     available_providers,
+    buscar_en_el_directorio,
+    dar_de_alta_desde_el_directorio,
     get_provider,
     provision_user,
     register_provider,
@@ -17,5 +19,7 @@ __all__ = [
     'IdentityProvider', 'IdentityRecord', 'AuthResult',
     'LocalIdentityProvider', 'validate_password_strength', 'MIN_PASSWORD_LENGTH',
     'authenticate', 'get_provider', 'register_provider', 'available_providers',
+    'buscar_en_el_directorio',
+    'dar_de_alta_desde_el_directorio',
     'provision_user',
 ]

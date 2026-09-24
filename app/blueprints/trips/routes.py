@@ -308,8 +308,64 @@ def travelers(trip_id, trip):
         form.hasta_local.data = hasta
 
     return render_template(
-        'trips/travelers.html', trip=trip, form=form, origen_fechas=origen_fechas
+        'trips/travelers.html', trip=trip, form=form,
+        origen_fechas=origen_fechas,
+        busqueda=request.args.get('buscar', '').strip(),
+        encontrados=_buscar_personas(request.args.get('buscar', '').strip()),
     )
+
+
+def _buscar_personas(texto):
+    """People the directory knows, for a trip whose travellers are not here yet.
+
+    Somebody who has never signed in has no local account and could not be put
+    on a trip at all -- which on the day the system is installed is most of the
+    staff, because the directory is the payroll and this table is empty.
+    """
+    if not texto or len(texto) < 3:
+        return []
+
+    from app.services.identity import buscar_en_el_directorio
+
+    return buscar_en_el_directorio(texto)
+
+
+@trips_bp.route('/<trip_id>/viajeros/del-directorio', methods=['POST'])
+@login_required
+@require_trip_access(Permiso.GESTIONAR_VIAJEROS)
+def add_traveler_from_directory(trip_id, trip):
+    """Create the local account for somebody in the directory and assign them.
+
+    The account is created here and not while searching: a search must not fill
+    the user table with everybody who matched «gar».
+    """
+    from app.models.enums import TravelerRole
+    from app.services.identity import dar_de_alta_desde_el_directorio
+
+    identificador = request.form.get('identificador', '').strip()
+    if not identificador:
+        flash('No se ha indicado a quién dar de alta.', 'warning')
+        return redirect(url_for('trips.travelers', trip_id=trip.id))
+
+    try:
+        persona = dar_de_alta_desde_el_directorio(identificador)
+        trip_service.add_traveler(
+            current_user._get_current_object(), trip, persona.id,
+            rol_en_viaje=TravelerRole.VIAJERO,
+        )
+    except AppError as error:
+        flash(error.mensaje, 'danger')
+    except Exception:
+        logger.exception('Falló el alta desde el directorio')
+        flash('No se ha podido dar de alta a esa persona.', 'danger')
+    else:
+        flash(
+            f'{persona.nombre_completo} se ha dado de alta desde el directorio '
+            f'y se ha asignado al viaje.',
+            'success',
+        )
+
+    return redirect(url_for('trips.travelers', trip_id=trip.id))
 
 
 @trips_bp.route('/<trip_id>/viajeros/<user_id>/eliminar', methods=['POST'])

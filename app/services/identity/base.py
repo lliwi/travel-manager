@@ -42,6 +42,16 @@ class IdentityRecord:
     #: Provider-specific attributes kept for traceability.
     atributos: dict = field(default_factory=dict)
 
+    @property
+    def nombre_completo(self):
+        """How to call this person on screen, falling back to their login.
+
+        A directory that fills neither name field is unusual and not an error,
+        and showing an empty row would be worse than showing «alopez».
+        """
+        partes = [p for p in (self.nombre, self.apellidos) if p]
+        return ' '.join(partes) if partes else self.username
+
 
 @dataclass(frozen=True)
 class AuthResult:

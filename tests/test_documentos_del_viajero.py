@@ -273,3 +273,99 @@ class TestLosEnlacesDeLaPantallaLlevanAAlgunSitio:
             respuesta = client.get('/auth/usuarios/no-es-un-uuid/documentos')
 
         assert respuesta.status_code == 404
+
+
+class TestUnaCuentaDelDirectorioTambien:
+    """Una cuenta LDAP es de solo lectura, pero eso no alcanza aquí.
+
+    Lo que es de solo lectura es lo que el directorio refresca en cada inicio
+    de sesión -- nombre, correo, departamento -- porque editarlo aquí parecería
+    funcionar y revertiría al siguiente acceso. Un pasaporte no está en el
+    directorio: lo posee esta aplicación, como los roles o el segundo factor.
+    Negárselo a media plantilla porque se autentica contra el AD dejaría sin
+    avisos de caducidad justo a quien más viaja.
+
+    Se entra por el camino de verdad, contra el directorio simulado, y no con
+    la contraseña local de los fixtures: una cuenta del directorio no tiene, y
+    una prueba que entrara de otra forma no diría nada sobre el camino que
+    recorre una persona.
+    """
+
+    def _entrar(self, client, login):
+        from app.services.identity import authenticate
+        from tests.test_directorio import CLAVE, _configurar
+
+        _configurar()
+        usuario = authenticate('alopez', CLAVE)
+        login(usuario, CLAVE)
+        return usuario
+
+    def test_no_es_una_cuenta_local(self, app, seeded, directorio, client, login):
+        """Si esto deja de ser cierto, el resto de la clase no prueba nada."""
+        assert self._entrar(client, login).es_local is False
+
+    def test_puede_gestionar_los_suyos(self, habilitado, directorio, client, login):
+        usuario = self._entrar(client, login)
+
+        assert servicio.puede_gestionar(usuario, usuario) is True
+
+    def test_y_registrarlos(self, habilitado, directorio, client, login):
+        usuario = self._entrar(client, login)
+
+        doc = _pasaporte(usuario, usuario, numero='LDAP12345')
+
+        assert doc.numero_ultimos4 == '2345'
+        assert servicio.listar(usuario, usuario) == [doc]
+
+    def test_el_enlace_sale_en_su_perfil(self, habilitado, directorio, client, login):
+        """Su perfil se dibuja sin formulario por ser de solo lectura, y el
+        enlace vive fuera de ese bloque."""
+        self._entrar(client, login)
+
+        html = client.get('/auth/perfil').get_data(as_text=True)
+
+        assert 'se gestiona en el directorio corporativo' in html
+        assert '/auth/perfil/documentos' in html
+
+    def test_y_la_pantalla_deja_añadir(self, habilitado, directorio, client, login):
+        from app.models.settings import TravelerDocument
+
+        usuario = self._entrar(client, login)
+
+        client.post('/auth/perfil/documentos/nuevo', data={
+            'csrf_token': 'x', 'tipo': 'pasaporte', 'numero': 'LDAP99887',
+            'fecha_caducidad': '2031-03-01',
+        }, follow_redirects=True)
+
+        assert TravelerDocument.query.filter_by(user_id=usuario.id).count() == 1
+
+    def test_volver_a_entrar_no_se_los_lleva(self, habilitado, directorio,
+                                             client, login):
+        """El directorio refresca nombre y correo en cada acceso. Si además
+        arrastrara esto, el pasaporte desaparecería al día siguiente."""
+        from app.models.settings import TravelerDocument
+        from app.services.identity import authenticate
+        from tests.test_directorio import CLAVE
+
+        usuario = self._entrar(client, login)
+        _pasaporte(usuario, usuario)
+
+        authenticate('alopez', CLAVE)
+
+        assert TravelerDocument.query.filter_by(user_id=usuario.id).count() == 1
+
+    def test_la_alerta_lo_ve_igual(self, habilitado, directorio, client, login,
+                                   gestor, trip):
+        """Es lo que hace útil todo esto para una plantilla que entra por AD."""
+        from datetime import date, timedelta
+
+        from app.services import trip_service
+        from app.services.alerts import engine
+
+        usuario = self._entrar(client, login)
+        trip_service.add_traveler(gestor, trip, usuario)
+        _pasaporte(usuario, usuario, caduca=date.today() + timedelta(days=15))
+
+        contexto = engine.build_context(trip)
+
+        assert contexto.traveler_documents.get(usuario.id)

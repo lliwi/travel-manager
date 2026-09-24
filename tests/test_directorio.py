@@ -23,7 +23,6 @@ directory happened to be reachable.
 import json
 
 import pytest
-from ldap3 import MOCK_SYNC, Connection, Server
 
 from app.services import settings_service
 from app.services.identity import ldap as ldap_module
@@ -79,29 +78,6 @@ def _arbol(conexion):
     conexion.strategy.add_entry(GRUPO, {
         'objectClass': ['groupOfNames'], 'cn': 'viajes', 'member': [ANA],
     })
-
-
-@pytest.fixture
-def directorio(monkeypatch):
-    """Replace the real connection with ldap3's in-memory server."""
-    servidor = Server('directorio.test', get_info=None)
-
-    def _conectar(self, usuario=None, contrasena=None):
-        conf = ldap_module._conf()
-        usuario = usuario if usuario is not None else conf['usuario']
-        contrasena = contrasena if contrasena is not None else conf['contrasena']
-
-        conexion = Connection(
-            servidor, user=usuario, password=contrasena,
-            client_strategy=MOCK_SYNC,
-        )
-        # Por conexión: cada Connection en MOCK_SYNC tiene su propio árbol en
-        # memoria, así que sembrarlo una sola vez dejaría vacías a las demás.
-        _arbol(conexion)
-        return conexion if conexion.bind() else None
-
-    monkeypatch.setattr(LDAPIdentityProvider, '_conectar', _conectar)
-    return LDAPIdentityProvider()
 
 
 @pytest.mark.integration
