@@ -616,12 +616,19 @@ def fechas_por_defecto(ida, vuelta):
 # Resolving what somebody typed
 # ======================================================================
 def codigo_de_aeropuerto(texto):
-    """The IATA code for a place, or None when the catalogue does not know it.
+    """The airports to search, for a place somebody typed.
 
-    The flight engine takes codes, and people type «Barcelona». Resolved from
-    our own catalogue rather than guessed: an invented code silently searches
-    the wrong route, and a search that returns the wrong city's flights is
-    worse than one that returns nothing.
+    Several, comma-separated, when the city has more than one: the engine takes
+    a list, and answering with a single airport hid every flight from the
+    others -- a search for Londres showed only Gatwick and never said why.
+
+    Never a metropolitan code. «PAR» names the city in the catalogue and the
+    engine has no flights departing from it, so a journey from París came back
+    with lodging and no flights at all. It is expanded to its airports here.
+
+    Resolved from our own catalogue rather than guessed: an invented code
+    silently searches the wrong route, and flights from the wrong city are
+    worse than none.
     """
     from app.models.catalog import Location
     from app.models.enums import LocationKind
@@ -633,16 +640,53 @@ def codigo_de_aeropuerto(texto):
     if not limpio:
         return None
 
-    base = Location.query.filter(
+    aeropuertos = Location.query.filter(
         Location.activo.is_(True), Location.tipo == LocationKind.AEROPUERTO
     )
 
-    fila = (
-        base.filter(Location.codigo == limpio.upper()).first()
-        or base.filter(Location.ciudad.ilike(limpio)).first()
-        or base.filter(Location.nombre.ilike(f'%{limpio}%')).first()
-    )
-    return fila.codigo if fila else None
+    # An airport code typed literally means that airport and no other: asked
+    # for BCN nobody wants also-Girona.
+    exacto = aeropuertos.filter(Location.codigo == limpio.upper()).first()
+    if exacto is not None:
+        return exacto.codigo
+
+    ciudad, pais = _ciudad_del_texto(limpio)
+    if not ciudad:
+        return None
+
+    consulta = aeropuertos.filter(Location.ciudad == ciudad)
+    if pais:
+        consulta = consulta.filter(Location.pais_codigo == pais)
+
+    codigos = [f.codigo for f in consulta.order_by(Location.codigo) if f.codigo]
+    return ','.join(codigos) if codigos else None
+
+
+def _ciudad_del_texto(texto):
+    """The catalogue's own city and country for what somebody typed.
+
+    Goes through any entry, not only airports: a metropolitan code, a station
+    or a city row all name the same place, and which of them the text matched
+    says nothing about where its airports are.
+    """
+    from app.models.catalog import Location
+    from app.services.normalization_service import resolver_lugar
+
+    fila = Location.query.filter(
+        Location.activo.is_(True), Location.codigo == texto.upper()
+    ).first()
+    if fila is not None and fila.ciudad:
+        return fila.ciudad, fila.pais_codigo
+
+    _zona, pais, ciudad = resolver_lugar([texto], None)
+    if ciudad:
+        return ciudad, pais
+
+    fila = Location.query.filter(
+        Location.activo.is_(True), Location.ciudad.ilike(texto)
+    ).first()
+    return (fila.ciudad, fila.pais_codigo) if fila is not None else (None, None)
+
 
 
 def buscar_para(actor, origen, destino, ida, vuelta=None, viajeros=1):

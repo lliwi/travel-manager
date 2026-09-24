@@ -534,6 +534,22 @@ def register_template_helpers(app):
     app.jinja_env.filters['fecha_larga'] = timeutil.format_long_date
     app.jinja_env.filters['mes_corto'] = timeutil.format_short_month
     app.jinja_env.filters['importe'] = _formatear_importe
+    app.jinja_env.filters['from_json'] = _leer_json
+
+
+def _leer_json(texto):
+    """Read back a row the page sent itself, or None.
+
+    The search results travel through a hidden field so the next screen can
+    show them without paying for the search again. None on anything malformed:
+    the page must render without that row rather than fail whole.
+    """
+    import json
+
+    try:
+        return json.loads(texto)
+    except (TypeError, ValueError):
+        return None
 
 
 def _formatear_importe(valor):

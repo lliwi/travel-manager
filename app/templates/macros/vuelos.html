@@ -13,7 +13,7 @@
 
 {% macro lista_de_vuelos(vuelos, titulo, fecha, enlace, nota, precio_es_total=False,
                          accion_vueltas=None, csrf='', precios=None,
-                         seleccion=None) %}
+                         seleccion=None, alojamientos=None) %}
 {% set barato = vuelos | map(attribute='precio_valor') | select('number') | list | min %}
 {% set rapido = vuelos | map(attribute='duracion_minutos') | select('number') | list | min %}
 <div class="card mb-3">
@@ -87,7 +87,7 @@
                    otro es HTML inválido que el navegador descarta. #}
                 <input class="form-check-input vuelo-marca" type="checkbox"
                        form="{{ seleccion }}" name="vuelo"
-                       value="{{ vuelo | tojson }}"
+                       value="{{ vuelo | tojson | forceescape }}"
                        aria-label="Incluir este vuelo en el viaje">
                 {% endif %}
                 <div class="vuelo-horas">
@@ -183,6 +183,23 @@
                         {% endfor %}
                         <input type="hidden" name="resumen"
                                value="{{ vuelo.origen }} → {{ vuelo.destino }}, salida {{ vuelo.hora_salida }}">
+                        {# La ida viaja con la petición para poder volver a
+                           enviarla con la vuelta elegida: si no, al llegar a
+                           la otra pantalla ya no existe y habría que empezar
+                           de nuevo, o guardar la selección en la sesión, que
+                           es estado que caduca sin que nadie se entere. #}
+                        <input type="hidden" name="ida" value="{{ vuelo | tojson | forceescape }}">
+                        {# El alojamiento encontrado viaja también: si no, al
+                           llegar a la pantalla de vueltas ya no existe y
+                           habría que repetir la búsqueda —otra consulta
+                           facturada— o renunciar a marcarlo allí. #}
+                        {% for hotel in alojamientos or [] %}
+                        <input type="hidden" name="alojamiento"
+                               value="{{ hotel | tojson | forceescape }}">
+                        {% endfor %}
+                        {% if enlace %}
+                        <input type="hidden" name="enlace" value="{{ enlace }}">
+                        {% endif %}
                         <button type="submit" class="btn btn-sm btn-outline-secondary">
                             <i class="bi bi-arrow-left-right me-1"></i>Ver vueltas
                         </button>

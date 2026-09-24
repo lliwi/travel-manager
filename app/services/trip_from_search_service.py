@@ -51,10 +51,10 @@ CONFIANZA = 0.50
 CAMPOS_TRAMO = (
     'tipo', 'estado', 'numero', 'proveedor', 'origen_codigo', 'origen_ciudad',
     'destino_codigo', 'destino_ciudad', 'salida_local', 'llegada_local',
-    'importe', 'moneda',
+    'importe', 'moneda', 'observaciones',
 )
 CAMPOS_ALOJAMIENTO = ('nombre', 'ciudad', 'pais', 'check_in_local',
-                      'check_out_local', 'importe', 'moneda')
+                      'check_out_local', 'importe', 'moneda', 'observaciones')
 
 
 def _moneda():
@@ -108,13 +108,25 @@ def _anotar(entidad, kind, campos, actor):
     provenance_service.recalculate_rollup(entidad, kind)
 
 
-def _tramo(trip, bruto, actor, avisos, precio=None):
+def _observaciones(partes):
+    """Join what is worth saying about a row, dropping what is empty."""
+    return '\n'.join(p for p in partes if p) or None
+
+
+def _tramo(trip, bruto, actor, avisos, precio=None, enlace=None):
     """One leg of a selected flight.
 
     ``precio`` is the price of the whole option and is written on its first leg
     only. Repeating it on each one would make the trip's total a multiple of
     what was shown, and splitting it between legs would invent a fare per leg
     that nobody quoted -- so it goes once, and the leg says what it covers.
+
+    ``enlace`` is where this can be bought, or the search it came from when
+    there is no per-option link -- asking for one costs another billed search.
+    Written into the row because that is where somebody stands when they decide
+    to book: a link kept only on the planning screen is gone as soon as they
+    navigate away, and then the itinerary says a flight exists and nothing says
+    where it was found.
     """
     salida = _instante(bruto.get('salida'))
     llegada = _instante(bruto.get('llegada'))
@@ -134,10 +146,11 @@ def _tramo(trip, bruto, actor, avisos, precio=None):
         destino_ciudad=(bruto.get('destino_ciudad') or '')[:160] or None,
         importe=precio,
         moneda=_moneda() if precio is not None else None,
-        observaciones=(
+        observaciones=_observaciones([
             'Precio del trayecto completo según el buscador, orientativo.'
-            if precio is not None else None
-        ),
+            if precio is not None else None,
+            f'Buscado en: {enlace}' if enlace else None,
+        ]),
     )
     db.session.add(segmento)
     db.session.flush()
@@ -161,8 +174,13 @@ def _tramo(trip, bruto, actor, avisos, precio=None):
     return segmento
 
 
-def _alojamiento(trip, bruto, entrada, salida, actor, avisos):
-    """One selected hotel."""
+def _alojamiento(trip, bruto, entrada, salida, actor, avisos, enlace=None):
+    """One selected hotel.
+
+    Its own link when the connector gave one -- for lodging it usually does,
+    and it goes straight to the booking page -- and the search it came from
+    otherwise.
+    """
     hotel = Accommodation(
         trip_id=trip.id,
         nombre=(bruto.get('nombre') or 'Alojamiento')[:250],
@@ -170,6 +188,12 @@ def _alojamiento(trip, bruto, entrada, salida, actor, avisos):
         pais=(bruto.get('pais') or '')[:2] or None,
         importe=bruto.get('precio_total_valor'),
         moneda=_moneda() if bruto.get('precio_total_valor') is not None else None,
+        observaciones=_observaciones([
+            f'Reservar en: {bruto["enlace"]}' if bruto.get('enlace') else None,
+            f'Buscado en: {enlace}' if enlace and not bruto.get('enlace') else None,
+            f'{bruto["precio_noche"]} por noche según el buscador, orientativo.'
+            if bruto.get('precio_noche') else None,
+        ]),
     )
     db.session.add(hotel)
     db.session.flush()
@@ -188,7 +212,7 @@ def _alojamiento(trip, bruto, entrada, salida, actor, avisos):
 
 
 def crear_viaje(actor, titulo, vuelos=(), alojamientos=(), proyecto=None,
-                entrada=None, salida=None):
+                entrada=None, salida=None, enlace=None):
     """Create a draft trip from what somebody picked on the planning screen.
 
     Returns ``(trip, avisos)``. The warnings are not errors: the trip is
@@ -211,10 +235,11 @@ def crear_viaje(actor, titulo, vuelos=(), alojamientos=(), proyecto=None,
     for vuelo in vuelos:
         precio = vuelo.get('precio_valor')
         for indice, tramo in enumerate(vuelo.get('tramos') or ()):
-            _tramo(trip, tramo, actor, avisos, precio if indice == 0 else None)
+            _tramo(trip, tramo, actor, avisos,
+                   precio if indice == 0 else None, enlace)
 
     for hotel in alojamientos:
-        _alojamiento(trip, hotel, entrada, salida, actor, avisos)
+        _alojamiento(trip, hotel, entrada, salida, actor, avisos, enlace)
 
     # The trip's own dates follow what was selected rather than being asked
     # for twice: the itinerary already says when it starts and ends.

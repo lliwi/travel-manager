@@ -373,8 +373,20 @@ class PlanningForm(FlaskForm):
         'Hasta',
         validators=[DataRequired(message='Indique el destino.'), Length(max=120)],
     )
-    ida = DateTimeLocalField('Ida', format=DATETIME_FORMAT, validators=[Optional()])
-    vuelta = DateTimeLocalField('Vuelta', format=DATETIME_FORMAT, validators=[Optional()])
+    # La ida es obligatoria: sin ella el conector no busca nada y el asistente
+    # solo puede hablar de la ruta en abstracto, que es lo que hacía antes de
+    # que existiera el buscador.
+    ida = DateTimeLocalField(
+        'Ida', format=DATETIME_FORMAT,
+        validators=[DataRequired(message='Indique la fecha de ida.')],
+    )
+    # La vuelta no: hay viajes de solo ida, y exigirla obligaría a inventar una
+    # fecha. Sin ella la búsqueda pide un trayecto y no hay regreso que elegir,
+    # lo cual es correcto y la pantalla lo refleja.
+    vuelta = DateTimeLocalField(
+        'Vuelta', format=DATETIME_FORMAT, validators=[Optional()],
+        description='Opcional. Déjela en blanco para un viaje de solo ida.',
+    )
     viajeros = IntegerField(
         'Personas', validators=[Optional(), NumberRange(min=1, max=50)], default=1,
     )
@@ -383,3 +395,17 @@ class PlanningForm(FlaskForm):
         description='Por ejemplo: evitar escalas, llegar la víspera, tren si es viable.',
     )
     submit = SubmitField('Proponer opciones')
+
+    def validate(self, extra_validators=None):
+        """Refuse a return before the outbound.
+
+        La búsqueda la aceptaría y devolvería una lista vacía, que se lee como
+        «no hay vuelos» cuando lo que pasa es que las fechas están al revés.
+        """
+        if not super().validate(extra_validators):
+            return False
+
+        if self.ida.data and self.vuelta.data and self.vuelta.data < self.ida.data:
+            self.vuelta.errors.append('La vuelta no puede ser anterior a la ida.')
+            return False
+        return True

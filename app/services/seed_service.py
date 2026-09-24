@@ -420,11 +420,15 @@ LOCATION_DEFINITIONS = (
     ('SYD', 'Sydney Kingsford Smith', 'Sídney', 'AU', 'Australia/Sydney'),
     ('AKL', 'Auckland', 'Auckland', 'NZ', 'Pacific/Auckland'),
 
-    # --- Metropolitan codes -------------------------------------------
-    # IATA codes for a city with several airports. A booking made «to London»
-    # rather than to one terminal arrives as LON, which matched nothing and
-    # left the traveller unplaced -- the catalogue held four London airports
-    # and not London.
+)
+
+
+#: IATA codes for a city with several airports. They are cities and are filed
+#: as such: a booking made «to London» rather than to one terminal arrives as
+#: LON, and the catalogue has to know what that is -- but handing «PAR» to the
+#: flight engine as a departure airport returns nothing at all, which is how a
+#: search for París came back with lodging and no flights.
+CITY_CODE_DEFINITIONS = (
     ('LON', 'Londres (todos los aeropuertos)', 'Londres', 'GB', 'Europe/London'),
     ('PAR', 'París (todos los aeropuertos)', 'París', 'FR', 'Europe/Paris'),
     ('NYC', 'Nueva York (todos los aeropuertos)', 'Nueva York', 'US', 'America/New_York'),
@@ -468,7 +472,11 @@ def seed_catalogs(commit=True):
     """
     countries_created = _seed_countries()
     locations_created = _seed_locations()
-    if commit and (countries_created or locations_created):
+    # Sin condición: sembrar no es solo crear filas, también refresca los
+    # alias y la clase de las que ya están, y condicionar el commit a haber
+    # creado algo descartaba esos cambios en silencio en toda instalación que
+    # ya tuviera el catálogo.
+    if commit:
         db.session.commit()
     return countries_created, locations_created
 
@@ -507,6 +515,7 @@ def _seed_locations():
 
     for definiciones, tipo in (
         (LOCATION_DEFINITIONS, LocationKind.AEROPUERTO),
+        (CITY_CODE_DEFINITIONS, LocationKind.CIUDAD),
         (STATION_DEFINITIONS, LocationKind.ESTACION_TREN),
     ):
         for codigo, nombre, ciudad, pais, tz in definiciones:
@@ -527,6 +536,13 @@ def _seed_locations():
             esperados = list(CITY_ALIASES.get(fila.ciudad or ciudad, ())) or None
             if fila.alias != esperados:
                 fila.alias = esperados
+
+            # También la clase, no solo los alias: los códigos metropolitanos
+            # se sembraron como aeropuertos y hay instalaciones con esas filas
+            # ya creadas. Mientras lo sigan siendo, el buscador de vuelos les
+            # pedirá vuelos a una ciudad y no habrá ninguno.
+            if str(fila.tipo) != str(tipo):
+                fila.tipo = tipo
 
     return created
 

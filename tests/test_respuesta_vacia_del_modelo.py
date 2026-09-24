@@ -79,7 +79,8 @@ class TestQueElErrorLlegaAlUsuario:
         with as_user(gestor) as client:
             html = client.post('/trips/planificar', data={
                 'origen': 'BCN', 'destino': 'LON',
-                'ida': '2026-11-01T09:00', 'viajeros': 1,
+                'ida': '2026-11-01T09:00', 'vuelta': '2026-11-05T18:00',
+                'viajeros': 1,
             }).get_data(as_text=True)
 
         assert 'Máximo de tokens' in html

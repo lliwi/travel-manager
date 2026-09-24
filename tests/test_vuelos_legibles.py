@@ -226,11 +226,19 @@ def _pintar(app, opciones, precios=None, precio_es_total=True):
 class TestLaListaSeLeeComparando:
     def test_la_fecha_sale_una_vez_en_la_cabecera(self, app, seeded):
         """Not four times per row: it is the same day for every option, and
-        repeating it buries the one thing that tells them apart."""
+        repeating it buries the one thing that tells them apart.
+
+        Counted on the visible text and not on the markup: the row travels as
+        JSON inside a hidden field so the return search can re-post it, and
+        that JSON carries the raw timestamps. Nobody reads those.
+        """
+        import re
+
         html = _pintar(app, [DIRECTO, IDA_Y_VUELTA])
+        visible = re.sub(r'<[^>]+>', ' ', html)
 
         assert 'lunes, 28 sep 2026' in html
-        assert html.count('2026-09-28') == 0
+        assert visible.count('2026-09-28') == 0
 
     def test_la_hora_se_muestra_sola(self, app, seeded):
         html = _pintar(app, [DIRECTO])
@@ -370,3 +378,80 @@ class TestLaPantallaDeVueltas:
             respuesta = client.post('/trips/planificar/vueltas', data={'token': 'X'})
 
         assert respuesta.status_code == 403
+
+
+@pytest.mark.unit
+class TestQueAeropuertosSeBuscan:
+    """Un viaje desde París volvía con alojamiento y sin un solo vuelo.
+
+    El catálogo tiene «PAR» para poder nombrar la ciudad cuando una reserva
+    dice «a París» y no a una terminal, pero el motor de vuelos no tiene nada
+    saliendo de «PAR»: devolvía cero y la pantalla lo enseñaba como si no
+    hubiera vuelos. Y al mirarlo apareció lo de al lado: una ciudad con varios
+    aeropuertos se resolvía a uno solo, así que buscar «Londres» enseñaba los
+    vuelos de Gatwick y ninguno de Heathrow, sin decir por qué.
+    """
+
+    def test_un_codigo_de_ciudad_se_expande_a_sus_aeropuertos(self, app, seeded):
+        assert buscador.codigo_de_aeropuerto('PAR') == 'CDG,ORY'
+
+    def test_una_ciudad_con_varios_los_busca_todos(self, app, seeded):
+        assert buscador.codigo_de_aeropuerto('Londres') == 'LGW,LHR,STN'
+
+    def test_tambien_escrita_en_otro_idioma(self, app, seeded):
+        assert buscador.codigo_de_aeropuerto('London') == 'LGW,LHR,STN'
+
+    def test_un_aeropuerto_escrito_a_pelo_manda(self, app, seeded):
+        """Quien pide CDG no quiere además Orly."""
+        assert buscador.codigo_de_aeropuerto('CDG') == 'CDG'
+
+    def test_una_ciudad_con_uno_solo_sigue_igual(self, app, seeded):
+        assert buscador.codigo_de_aeropuerto('Madrid') == 'MAD'
+
+    def test_lo_desconocido_no_se_inventa(self, app, seeded):
+        """Vuelos de la ciudad equivocada son peores que ninguno."""
+        assert buscador.codigo_de_aeropuerto('Ciudad Inexistente') is None
+
+    def test_los_codigos_metropolitanos_no_son_aeropuertos(self, app, seeded):
+        """Mientras lo sean, el buscador les pedirá vuelos y no habrá."""
+        from app.models.catalog import Location
+        from app.models.enums import LocationKind
+
+        metropolitanos = Location.query.filter(
+            Location.codigo.in_(['PAR', 'LON', 'NYC', 'MIL', 'ROM'])
+        ).all()
+
+        assert metropolitanos
+        for fila in metropolitanos:
+            assert fila.tipo == LocationKind.CIUDAD, fila.codigo
+
+    def test_siguen_sirviendo_para_nombrar_la_ciudad(self, app, seeded):
+        """Que no sean aeropuertos no puede romper el itinerario: un tramo con
+        destino «LON» tiene que seguir situándose en Londres."""
+        from app.services import map_service
+
+        assert map_service.ciudad_del_catalogo(codigo='LON') == ('Londres', 'GB')
+
+
+@pytest.mark.unit
+class TestSembrarRefrescaLoQueYaEstaba:
+    def test_se_guarda_aunque_no_se_cree_ninguna_fila(self, app, seeded):
+        """«seed_catalogs» solo confirmaba si había creado algo, así que los
+        refrescos de filas existentes se descartaban en silencio en cualquier
+        instalación que ya tuviera el catálogo."""
+        from app.extensions import db
+        from app.models.catalog import Location
+        from app.models.enums import LocationKind
+        from app.services import seed_service
+
+        fila = Location.query.filter_by(codigo='PAR').first()
+        fila.tipo = LocationKind.AEROPUERTO
+        fila.alias = None
+        db.session.commit()
+
+        creadas = seed_service.seed_catalogs()[1]
+        db.session.expire_all()
+
+        assert creadas == 0, 'este test no vale si además crea filas'
+        assert Location.query.filter_by(codigo='PAR').first().tipo \
+            == LocationKind.CIUDAD

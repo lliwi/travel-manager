@@ -209,3 +209,56 @@
 
     document.querySelectorAll('.js-dropzone').forEach(conectar);
 })();
+
+
+/* El aviso de un campo obligatorio lo dibuja el servidor y se queda quieto: se
+   envía el formulario en blanco, salen los mensajes, se rellenan los campos y
+   los mensajes siguen ahí hasta el siguiente envío. Leído desde fuera eso dice
+   que lo que acabas de escribir tampoco vale.
+
+   Así que el aviso se retira en cuanto el campo deja de estar vacío. No es
+   validar en el navegador —quien decide sigue siendo el servidor al enviar—,
+   es dejar de afirmar algo que ya no es cierto. */
+(function () {
+    'use strict';
+
+    function tieneValor(campo) {
+        if (campo.type === 'checkbox' || campo.type === 'radio') {
+            return campo.checked;
+        }
+        if (campo.type === 'file') {
+            return campo.files && campo.files.length > 0;
+        }
+        return (campo.value || '').trim() !== '';
+    }
+
+    function repasar(campo) {
+        if (!campo.classList || !campo.classList.contains('is-invalid')) { return; }
+        if (!tieneValor(campo)) { return; }
+
+        campo.classList.remove('is-invalid');
+
+        /* Quitar «is-invalid» basta para los mensajes normales, que Bootstrap
+           solo muestra junto a un campo inválido. No para los de la zona de
+           arrastre: llevan «d-block», que es «display: block !important», y
+           contra eso ni el atributo «hidden» ni un estilo en línea sin
+           «important» pueden nada. */
+        var padre = campo.parentNode;
+        if (!padre) { return; }
+        Array.prototype.forEach.call(
+            padre.querySelectorAll('.invalid-feedback'),
+            function (aviso) {
+                aviso.style.setProperty('display', 'none', 'important');
+            },
+        );
+    }
+
+    /* Delegado en el documento: los formularios se dibujan enteros en el
+       servidor, pero la zona de arrastre añade campos después, y engancharlos
+       uno a uno dejaría fuera los que aún no existen. */
+    ['input', 'change'].forEach(function (evento) {
+        document.addEventListener(evento, function (e) {
+            if (e.target) { repasar(e.target); }
+        }, true);
+    });
+})();

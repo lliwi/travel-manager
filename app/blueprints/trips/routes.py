@@ -530,6 +530,7 @@ def create_from_search():
             alojamientos=alojamientos,
             entrada=entrada,
             salida=salida,
+            enlace=(request.form.get('enlace') or '').strip() or None,
         )
     except AppError as error:
         flash(error.mensaje, 'danger')
@@ -616,6 +617,14 @@ def return_flights():
         enlace=enlace,
         fecha=fecha,
         resumen=request.form.get('resumen') or 'la ida seleccionada',
+        # La ida vuelve tal cual llegó, para poder enviarse junto a la vuelta
+        # que se elija aquí.
+        ida=request.form.get('ida') or None,
+        # El alojamiento encontrado llega igual que la ida, sin repetir la
+        # búsqueda: otra consulta facturada y, además, podría dar otro precio.
+        alojamientos=request.form.getlist('alojamiento'),
+        enlace_busqueda=request.form.get('enlace') or enlace,
+        busqueda=busqueda,
     )
 
 

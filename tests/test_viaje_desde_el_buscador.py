@@ -31,6 +31,16 @@ VUELO = {
 HOTEL = {'nombre': 'Zedwell Piccadilly Circus', 'ciudad': 'London', 'pais': 'GB',
          'precio_noche': '148 €'}
 
+#: Tal y como lo devuelve SerpApi, para las pruebas que pasan por la pantalla.
+DIRECTO_BRUTO = {
+    'flights': [{
+        'departure_airport': {'id': 'LHR', 'time': '2026-10-18 18:30'},
+        'arrival_airport': {'id': 'BCN', 'time': '2026-10-18 21:45'},
+        'duration': 135, 'airline': 'Vueling', 'flight_number': 'VY 8251',
+    }],
+    'layovers': [], 'total_duration': 135, 'price': 222,
+}
+
 
 class TestElViajeQueSeCrea:
     def test_nace_en_borrador(self, app, seeded, gestor):
@@ -201,3 +211,148 @@ class TestLaPantalla:
                                     data={'vuelo': json.dumps(VUELO)})
 
         assert respuesta.status_code == 403
+
+
+@pytest.mark.unit
+class TestLosEnlacesQuedanEnElItinerario:
+    """Dónde se compra esto es lo que hace falta cuando se decide reservar, y
+    es justo lo que se pierde al salir de la pantalla del buscador: el
+    itinerario diría que existe un vuelo y nada diría dónde se encontró.
+    """
+
+    ENLACE = 'https://www.google.com/travel/flights/search?tfs=ABC'
+
+    def test_el_tramo_guarda_donde_se_busco(self, app, seeded, gestor):
+        trip, _ = desde_buscador.crear_viaje(
+            gestor, 'x', vuelos=[VUELO], enlace=self.ENLACE,
+        )
+        tramo = TravelSegment.query.filter_by(trip_id=trip.id).one()
+
+        assert self.ENLACE in tramo.observaciones
+
+    def test_el_alojamiento_prefiere_su_propio_enlace(self, app, seeded, gestor):
+        """Para alojamiento el conector suele dar uno, y va a la página de
+        reserva: eso vale más que la búsqueda de la que salió."""
+        from datetime import datetime
+
+        hotel = {**HOTEL, 'enlace': 'https://hotel.test/reservar'}
+        trip, _ = desde_buscador.crear_viaje(
+            gestor, 'x', alojamientos=[hotel], enlace=self.ENLACE,
+            entrada=datetime(2026, 10, 15), salida=datetime(2026, 10, 18),
+        )
+        fila = Accommodation.query.filter_by(trip_id=trip.id).one()
+
+        assert 'https://hotel.test/reservar' in fila.observaciones
+        assert self.ENLACE not in fila.observaciones
+
+    def test_y_cae_a_la_busqueda_cuando_no_lo_hay(self, app, seeded, gestor):
+        from datetime import datetime
+
+        trip, _ = desde_buscador.crear_viaje(
+            gestor, 'x', alojamientos=[HOTEL], enlace=self.ENLACE,
+            entrada=datetime(2026, 10, 15), salida=datetime(2026, 10, 18),
+        )
+        fila = Accommodation.query.filter_by(trip_id=trip.id).one()
+
+        assert self.ENLACE in fila.observaciones
+
+    def test_sin_enlace_no_se_escribe_una_linea_vacia(self, app, seeded, gestor):
+        trip, _ = desde_buscador.crear_viaje(gestor, 'x', vuelos=[VUELO])
+        tramo = TravelSegment.query.filter_by(trip_id=trip.id).one()
+
+        assert 'Buscado en' not in (tramo.observaciones or '')
+
+    def test_las_observaciones_tienen_procedencia_como_todo_lo_demas(
+        self, app, seeded, gestor,
+    ):
+        """Un campo sin fila de procedencia parece tecleado por una persona."""
+        from app.models.itinerary import FieldProvenance
+
+        trip, _ = desde_buscador.crear_viaje(
+            gestor, 'x', vuelos=[VUELO], enlace=self.ENLACE,
+        )
+        tramo = TravelSegment.query.filter_by(trip_id=trip.id).one()
+        campos = {f.campo for f in FieldProvenance.query.filter_by(entidad_id=tramo.id)}
+
+        assert 'observaciones' in campos
+
+
+@pytest.mark.integration
+class TestLaVueltaTambienSeSelecciona:
+    """La ida se elige en una pantalla y la vuelta en otra, así que la primera
+    tiene que viajar con la petición. Guardarla en la sesión sería estado que
+    caduca sin que nadie se entere.
+    """
+
+    @staticmethod
+    def _preparar(monkeypatch, payload):
+        """Conector encendido y un cliente HTTP que responde sin socket."""
+        import httpx
+
+        from tests.test_vuelos_legibles import _preparar as preparar
+
+        preparar(monkeypatch, payload)
+        assert httpx.Client  # el monkeypatch ya está puesto
+
+    def _ver_vueltas(self, client, monkeypatch):
+        import json
+
+        return client.post('/trips/planificar/vueltas', data={
+            'token': 'UN-TOKEN', 'departure_id': 'BCN', 'arrival_id': 'LHR',
+            'outbound_date': '2026-10-15', 'return_date': '2026-10-18',
+            'type': '1', 'ida': json.dumps(VUELO),
+            'enlace': 'https://google.test/vuelos',
+        }).get_data(as_text=True)
+
+    def test_la_pantalla_ofrece_marcar_la_vuelta(self, as_user, gestor, seeded,
+                                                 monkeypatch):
+        self._preparar(monkeypatch, {'best_flights': [DIRECTO_BRUTO], 'other_flights': []})
+
+        with as_user(gestor) as client:
+            html = self._ver_vueltas(client, monkeypatch)
+
+        assert 'Crear viaje con ida y vuelta' in html
+        assert 'name="vuelo"' in html
+
+    def test_la_ida_llega_entera_a_esa_pantalla(self, as_user, gestor, seeded,
+                                                monkeypatch):
+        """Si no viajara, al crear el viaje solo habría vuelta."""
+        self._preparar(monkeypatch, {'best_flights': [DIRECTO_BRUTO], 'other_flights': []})
+
+        with as_user(gestor) as client:
+            html = self._ver_vueltas(client, monkeypatch)
+
+        assert 'VY 8250' in html
+
+    def test_sin_ida_no_se_ofrece_crear_nada(self, as_user, gestor, seeded,
+                                             monkeypatch):
+        """Llegar aquí sin la ida es llegar por un enlace suelto; crear un
+        viaje solo con la vuelta sería peor que no ofrecerlo."""
+        self._preparar(monkeypatch, {'best_flights': [DIRECTO_BRUTO], 'other_flights': []})
+
+        with as_user(gestor) as client:
+            html = client.post('/trips/planificar/vueltas', data={
+                'token': 'UN-TOKEN', 'departure_id': 'BCN',
+            }).get_data(as_text=True)
+
+        assert 'Crear viaje con ida y vuelta' not in html
+
+    def test_crea_el_viaje_con_los_dos_vuelos(self, as_user, gestor, seeded):
+        import json
+
+        vuelta = {**VUELO, 'tramos': [{
+            **VUELO['tramos'][0], 'numero': 'VY 8251',
+            'origen': 'LHR', 'destino': 'BCN',
+            'salida': '2026-10-18 18:30', 'llegada': '2026-10-18 21:45',
+        }]}
+
+        with as_user(gestor) as client:
+            client.post('/trips/planificar/crear', data={
+                'csrf_token': 'x', 'titulo': 'BCN → LHR',
+                'vuelo': [json.dumps(VUELO), json.dumps(vuelta)],
+                'enlace': 'https://google.test/vuelos',
+            }, follow_redirects=True)
+
+        numeros = {t.numero for t in TravelSegment.query.all()}
+
+        assert numeros == {'VY 8250', 'VY 8251'}

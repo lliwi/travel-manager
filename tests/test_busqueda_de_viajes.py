@@ -337,11 +337,15 @@ class TestLaPantallaDePlanificacion:
         with as_user(gestor) as client:
             html = client.post('/trips/planificar', data={
                 'origen': 'BCN', 'destino': 'LHR',
-                'ida': '2026-10-01T07:00', 'viajeros': 1,
+                'ida': '2026-10-01T07:00', 'vuelta': '2026-10-05T18:00',
+                'viajeros': 1,
             }).get_data(as_text=True)
 
         assert 'BA 477' in html
-        assert 'Vuelos encontrados' in html
+        # «Ida» y no «Vuelos encontrados»: con la fecha de vuelta obligatoria,
+        # toda búsqueda desde esta pantalla es de ida y vuelta, y el precio que
+        # devuelve el motor es el del viaje entero.
+        assert 'Ida' in html
 
     def test_sin_conector_la_pantalla_sigue_funcionando(
         self, as_user, gestor, seeded,
@@ -353,7 +357,8 @@ class TestLaPantallaDePlanificacion:
         with as_user(gestor) as client:
             respuesta = client.post('/trips/planificar', data={
                 'origen': 'BCN', 'destino': 'LHR',
-                'ida': '2026-10-01T07:00', 'viajeros': 1,
+                'ida': '2026-10-01T07:00', 'vuelta': '2026-10-05T18:00',
+                'viajeros': 1,
             })
 
         assert respuesta.status_code == 200
@@ -589,7 +594,8 @@ class TestLosEnlacesAlVuelo:
         with as_user(gestor) as client:
             html = client.post('/trips/planificar', data={
                 'origen': 'BCN', 'destino': 'LHR',
-                'ida': '2026-10-01T07:00', 'viajeros': 1,
+                'ida': '2026-10-01T07:00', 'vuelta': '2026-10-05T18:00',
+                'viajeros': 1,
             }).get_data(as_text=True)
 
         assert 'Dónde comprarlo' in html
@@ -684,7 +690,8 @@ class TestElPrecioSeVeConSuMoneda:
         with as_user(gestor) as client:
             html = client.post('/trips/planificar', data={
                 'origen': 'BCN', 'destino': 'LHR',
-                'ida': '2026-10-01T07:00', 'viajeros': 1,
+                'ida': '2026-10-01T07:00', 'vuelta': '2026-10-05T18:00',
+                'viajeros': 1,
             }).get_data(as_text=True)
 
         assert '187 €' in html
