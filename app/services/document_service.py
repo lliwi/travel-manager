@@ -258,6 +258,11 @@ def upload(actor, trip, file_storage, tipo=DocumentType.OTRO,
     document.objeto_cuarentena = key
     document.retencion_hasta = _retention_deadline()
 
+    # Adjuntar una reserva es decir que el viaje ya no es un boceto.
+    from app.services import trip_service
+
+    trip_service.marcar_actividad(document.trip or trip, actor, commit=False)
+
     # Audited whether or not this call commits: an upload that the caller
     # commits as part of a larger transaction is still an upload.
     audit_service.record(

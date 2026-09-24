@@ -348,6 +348,12 @@ def create_item(actor, trip, kind, instants=None, commit=True, **campos):
         item, kind, campos.keys(), actor, commit=False
     )
     trip.touch_itinerary()
+    # Escribir un tramo es decir que esto ya no es un boceto. Pedir además que
+    # alguien se acuerde de mover el estado es como una lista se llena de
+    # borradores que en realidad están en marcha.
+    from app.services import trip_service
+
+    trip_service.marcar_actividad(trip, actor, commit=False)
 
     if commit:
         db.session.commit()

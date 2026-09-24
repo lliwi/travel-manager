@@ -100,8 +100,11 @@ def update_trip(actor, trip, commit=True, **campos):
         raise ConflictError('Un viaje cancelado no puede modificarse.')
 
     cambios = {}
+    # «estado» no está aquí a propósito: lo escribe «change_status», que es
+    # quien conoce las transiciones. Escribirlo también desde aquí dejaría al
+    # formulario de edición saltándose todas las reglas.
     simple_fields = (
-        'titulo', 'finalidad', 'finalidad_detalle', 'observaciones', 'estado',
+        'titulo', 'finalidad', 'finalidad_detalle', 'observaciones',
         'gestor_id', 'proyecto', 'coste_estimado', 'moneda',
     )
     for field in simple_fields:
@@ -146,8 +149,97 @@ def update_trip(actor, trip, commit=True, **campos):
     return trip
 
 
-def change_status(actor, trip, nuevo_estado, motivo=None, commit=True):
-    """Move a trip to another state."""
+#: Which state a trip may move to from each one. Everything absent is refused.
+#:
+#: Before this map every transition was accepted -- «finalizado» back to
+#: «borrador», «cancelado» to «confirmado» -- because the edit form offered the
+#: six states in a free select and nothing looked at the one it came from. A
+#: state that can be set to anything describes nothing, and this application
+#: already decides real things from it: the alert engine and the advisories
+#: skip closed trips, so marking one finished turns off its watch.
+TRANSICIONES = {
+    TripStatus.BORRADOR: (
+        TripStatus.EN_PREPARACION, TripStatus.CONFIRMADO, TripStatus.CANCELADO,
+    ),
+    TripStatus.EN_PREPARACION: (
+        TripStatus.BORRADOR, TripStatus.CONFIRMADO,
+        # Por fecha, desde la tarea programada: un viaje cuya ventana pasó está
+        # terminado aunque nadie llegara a confirmarlo.
+        TripStatus.EN_CURSO, TripStatus.FINALIZADO,
+        TripStatus.CANCELADO,
+    ),
+    TripStatus.CONFIRMADO: (
+        # Hacia atrás solo aquí: se cayó una reserva y vuelve a prepararse.
+        TripStatus.EN_PREPARACION,
+        TripStatus.EN_CURSO, TripStatus.FINALIZADO, TripStatus.CANCELADO,
+    ),
+    TripStatus.EN_CURSO: (TripStatus.FINALIZADO, TripStatus.CANCELADO),
+    #: Terminal. Un viaje que ya ocurrió no vuelve a ocurrir.
+    TripStatus.FINALIZADO: (),
+    #: Cancelar es una decisión, no una etapa, y se puede deshacer: vuelve a
+    #: prepararse, nunca directamente a confirmado, porque lo que hubiera
+    #: reservado hay que volver a mirarlo.
+    TripStatus.CANCELADO: (TripStatus.EN_PREPARACION,),
+}
+
+#: Reactivar exige decir por qué: es lo que distingue un cambio de opinión de
+#: un clic equivocado cuando alguien lo lea dentro de seis meses.
+ESTADOS_QUE_EXIGEN_MOTIVO = (TripStatus.CANCELADO,)
+
+
+def requisitos_pendientes(trip, destino):
+    """What a trip still lacks before it may reach ``destino``.
+
+    Only «confirmado» asks for anything, and it asks for the three things the
+    word claims: when it is, who goes, and how they get there. Without them
+    «confirmado» would not mean anything and no report could lean on it.
+
+    Returns a list of sentences to show, empty when there is nothing missing.
+    """
+    if TripStatus.coerce(destino) is not TripStatus.CONFIRMADO:
+        return []
+
+    faltan = []
+    if not trip.inicio_utc or not trip.fin_utc:
+        faltan.append('indicar las fechas de inicio y fin')
+    if not trip.active_travelers:
+        faltan.append('asignar al menos una persona viajera')
+    if not _tiene_itinerario(trip):
+        faltan.append('registrar algún trayecto, alojamiento o servicio')
+    return faltan
+
+
+def _tiene_itinerario(trip):
+    """Whether anything at all has been planned for this trip."""
+    return any(
+        any(not item.is_deleted for item in coleccion)
+        for coleccion in (trip.segments, trip.accommodations,
+                          trip.vehicle_rentals, trip.other_services)
+    )
+
+
+def estados_posibles(trip):
+    """The states this trip may be moved to right now, for a select field."""
+    return [
+        destino for destino in TRANSICIONES.get(trip.estado, ())
+        # Los que llegan solos por fecha no se ofrecen a mano: ponerlos antes
+        # de tiempo diría que un viaje ha empezado cuando no ha empezado.
+        if destino is not TripStatus.EN_CURSO
+    ]
+
+
+def change_status(actor, trip, nuevo_estado, motivo=None, commit=True,
+                  automatico=False):
+    """Move a trip to another state, if it may go there.
+
+    The single door: ``update_trip`` routes here rather than writing the column,
+    because a rule that the edit form can walk around is not a rule.
+
+    ``automatico`` is for the changes nobody decides -- the dates passing, the
+    first document arriving -- which are not held to the manual requirements:
+    a trip whose window has passed is over whether or not anybody filled in its
+    itinerary.
+    """
     nuevo_estado = TripStatus.coerce(nuevo_estado)
     if nuevo_estado is None:
         raise ValidationError('El estado indicado no es válido.')
@@ -155,6 +247,24 @@ def change_status(actor, trip, nuevo_estado, motivo=None, commit=True):
     anterior = trip.estado
     if anterior is nuevo_estado:
         return trip
+
+    if nuevo_estado not in TRANSICIONES.get(anterior, ()):
+        raise ConflictError(
+            f'Un viaje «{anterior.label}» no puede pasar a '
+            f'«{nuevo_estado.label}».'
+        )
+
+    if not automatico:
+        faltan = requisitos_pendientes(trip, nuevo_estado)
+        if faltan:
+            raise ValidationError(
+                f'Para confirmar el viaje falta {", y ".join(faltan)}.'
+            )
+
+        if anterior in ESTADOS_QUE_EXIGEN_MOTIVO and not (motivo or '').strip():
+            raise ValidationError(
+                'Indique por qué se reactiva un viaje cancelado.'
+            )
 
     trip.estado = nuevo_estado
     if commit:
@@ -171,6 +281,27 @@ def change_status(actor, trip, nuevo_estado, motivo=None, commit=True):
             },
         )
     return trip
+
+
+def marcar_actividad(trip, actor=None, motivo=None, commit=True):
+    """Leave «borrador» behind the moment somebody starts working on the trip.
+
+    Attaching a booking, assigning a traveller or writing a leg are all the
+    same statement: this is no longer a sketch. Asking somebody to *also*
+    remember to move the state is how a list fills with drafts that are
+    actually under way, and a state nobody trusts is a state nobody reads.
+
+    Does nothing outside «borrador» -- it cannot pull a cancelled trip back to
+    life, and it cannot undo a confirmation.
+    """
+    if trip is None or trip.estado is not TripStatus.BORRADOR:
+        return trip
+
+    return change_status(
+        actor, trip, TripStatus.EN_PREPARACION, automatico=True,
+        motivo=motivo or 'Se ha empezado a trabajar en el viaje.',
+        commit=commit,
+    )
 
 
 #: States a trip advances out of on its own. A draft is deliberately not one:
@@ -207,7 +338,7 @@ def advance_states(ahora=None, commit=True):
         # that changed itself is exactly the kind a reader will later want
         # explained.
         change_status(
-            None, trip, TripStatus.FINALIZADO,
+            None, trip, TripStatus.FINALIZADO, automatico=True,
             motivo='La fecha de fin del viaje ya ha pasado.', commit=commit,
         )
         aplicados['finalizado'] += 1
@@ -220,7 +351,7 @@ def advance_states(ahora=None, commit=True):
     ).all()
     for trip in empezados:
         change_status(
-            None, trip, TripStatus.EN_CURSO,
+            None, trip, TripStatus.EN_CURSO, automatico=True,
             motivo='La fecha de inicio del viaje ya ha llegado.', commit=commit,
         )
         aplicados['en_curso'] += 1
@@ -286,6 +417,7 @@ def add_traveler(actor, trip, user, rol_en_viaje=None, desde_local=None,
     if revived is None:
         db.session.add(traveler)
     trip.touch_itinerary()
+    marcar_actividad(trip, actor, commit=False)
 
     if commit:
         db.session.commit()

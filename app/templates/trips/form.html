@@ -43,6 +43,9 @@
                     {{ render_field(form.titulo, placeholder='Reunión de coordinación en Berlín') }}
                     <div class="row">
                         <div class="col-md-6">{{ render_field(form.estado) }}</div>
+                        {% if trip and trip.estado.value == 'cancelado' %}
+                        <div class="col-md-6">{{ render_field(form.motivo_estado) }}</div>
+                        {% endif %}
                         <div class="col-md-6">{{ render_field(form.gestor_id) }}</div>
                         <div class="col-md-6">{{ render_field(form.finalidad) }}</div>
                         <div class="col-md-6">{{ render_field(form.finalidad_detalle) }}</div>

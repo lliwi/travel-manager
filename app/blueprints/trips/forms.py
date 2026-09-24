@@ -42,6 +42,10 @@ class TripForm(FlaskForm):
         validators=[DataRequired(message='Indique un título.'), Length(max=300)],
     )
     estado = SelectField('Estado', choices=TripStatus.choices(), validators=[DataRequired()])
+    motivo_estado = StringField(
+        'Motivo del cambio de estado', validators=[Optional(), Length(max=300)],
+        description='Obligatorio al reactivar un viaje cancelado.',
+    )
     finalidad = SelectField(
         'Finalidad', choices=_optional_choices(TripPurpose), validators=[Optional()]
     )

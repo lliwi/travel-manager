@@ -209,6 +209,11 @@ def detail(trip_id, trip):
 def edit(trip_id, trip):
     """Edit a trip."""
     form = TripForm(obj=trip)
+    # Solo lo alcanzable: ofrecer un destino y negarlo después es peor que no
+    # ofrecerlo, y el desplegable es donde se lee qué se puede hacer.
+    form.estado.choices = [(str(trip.estado), trip.estado.label)] + [
+        (str(e), e.label) for e in trip_service.estados_posibles(trip)
+    ]
     form.gestor_id.choices = [('', '— Sin cambios —')] + _user_choices(
         (RoleCode.GESTOR, RoleCode.ADMINISTRADOR)
     )
@@ -217,7 +222,6 @@ def edit(trip_id, trip):
         actor = current_user._get_current_object()
         campos = {
             'titulo': form.titulo.data,
-            'estado': TripStatus.coerce(form.estado.data, trip.estado),
             'finalidad': TripPurpose.coerce(form.finalidad.data),
             'finalidad_detalle': form.finalidad_detalle.data or None,
             'observaciones': form.observaciones.data or None,
@@ -238,6 +242,15 @@ def edit(trip_id, trip):
 
         try:
             trip_service.update_trip(actor, trip, **campos)
+            # El estado va aparte porque tiene reglas propias: qué transiciones
+            # existen y qué le falta al viaje para poder darlas. Mezclarlo con
+            # el resto de campos es lo que permitía llevar un viaje finalizado
+            # de vuelta a borrador desde un desplegable.
+            destino = TripStatus.coerce(form.estado.data, trip.estado)
+            if destino is not trip.estado:
+                trip_service.change_status(
+                    actor, trip, destino, motivo=form.motivo_estado.data or None,
+                )
         except AppError as error:
             flash(error.mensaje, 'danger')
             return render_template('trips/form.html', form=form, trip=trip)

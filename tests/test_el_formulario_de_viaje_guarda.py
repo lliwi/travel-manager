@@ -30,6 +30,9 @@ APARTE = {
     'titulo', 'gestor_id', 'documentos', 'submit', 'csrf_token',
     'inicio_local', 'inicio_tz', 'fin_local', 'fin_tz',
     'estado', 'finalidad',
+    # No es una columna: es el porqué de un cambio de estado, y va a la
+    # auditoría con él. Sus reglas están en «test_estados_de_viaje».
+    'motivo_estado',
 }
 
 #: Un valor plausible para cada campo simple del formulario.
