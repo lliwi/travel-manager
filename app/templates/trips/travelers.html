@@ -90,7 +90,12 @@
                             <div class="text-muted small">{{ record.username }}{%
                                 if record.email %} · {{ record.email }}{% endif %}</div>
                         </div>
-                        {% if local %}
+                        {% if local and local.estado.value != 'activo' %}
+                        {# Desactivada por un administrador: asignar un viaje
+                           no es el sitio para deshacer esa decisión. #}
+                        <span class="chip" title="Un administrador puede reactivarla en Administración → Usuarios">
+                            cuenta desactivada</span>
+                        {% elif local %}
                         {# Ya existe aquí: se asigna con el desplegable de
                            abajo, donde además se eligen fechas y rol. #}
                         <span class="chip">ya está dado de alta</span>

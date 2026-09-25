@@ -165,3 +165,94 @@ class TestDesdeLaPantallaDeViajeros:
 
         assert respuesta.status_code in (403, 404)
         assert User.query.filter_by(username='alopez').first() is None
+
+
+class TestQuienSeBorroSePuedeVolverAAsignar:
+    """Found in production: after deleting a directory account, the search
+    said «ya está dado de alta» and the dropdown -- rightly -- left the
+    deleted account out, so there was no way to put that person on a trip.
+    """
+
+    @pytest.fixture
+    def borrada(self, app, seeded, directorio, admin):
+        from app.models.user import Role
+        from app.services import user_service
+
+        _configurar()
+        usuario = dar_de_alta_desde_el_directorio('alopez')
+        usuario.roles.append(Role.get('administrador'))
+        from app.extensions import db
+
+        db.session.commit()
+        user_service.delete_user(admin, usuario)
+        return usuario
+
+    def test_la_busqueda_ya_no_la_da_por_dada_de_alta(self, borrada):
+        (_record, local), = buscar_en_el_directorio('alopez')
+
+        assert local is None
+
+    def test_dar_de_alta_reactiva_la_misma_cuenta(self, borrada):
+        """Not a second row: the username is unique and the history is hers."""
+        from app.models.enums import UserStatus
+
+        usuario = dar_de_alta_desde_el_directorio('alopez')
+
+        assert usuario.id == borrada.id
+        assert not usuario.is_deleted
+        assert usuario.estado is UserStatus.ACTIVO
+        assert User.query.filter_by(username='alopez').count() == 1
+
+    def test_vuelve_con_el_rol_basico(self, borrada):
+        """A manager assigning a trip must not bring back an administrator."""
+        usuario = dar_de_alta_desde_el_directorio('alopez')
+
+        assert usuario.role_codes == ['usuario']
+
+    def test_queda_auditado_con_lo_que_tenia(self, borrada):
+        from app.models.audit import AuditEvent
+
+        dar_de_alta_desde_el_directorio('alopez')
+
+        evento = AuditEvent.query.filter_by(
+            accion='user.reactivated_from_directory').one()
+        assert 'administrador' in evento.metadatos['roles_anteriores']
+
+    def test_desde_la_pantalla_queda_en_el_viaje(self, borrada, as_user, gestor, trip):
+        with as_user(gestor) as client:
+            html = client.get(
+                f'/trips/{trip.id}/viajeros?buscar=alopez').get_data(as_text=True)
+            assert 'Dar de alta y asignar' in html
+            client.post(f'/trips/{trip.id}/viajeros/del-directorio',
+                        data={'csrf_token': 'x', 'identificador': 'alopez'})
+
+        assert trip.traveler_for(borrada.id) is not None
+
+
+class TestUnaCuentaDesactivadaNoLaReactivaUnGestor:
+    """Deactivated, not deleted: an administrator's decision stands."""
+
+    @pytest.fixture
+    def desactivada(self, app, seeded, directorio):
+        from app.extensions import db
+        from app.models.enums import UserStatus
+
+        _configurar()
+        usuario = dar_de_alta_desde_el_directorio('alopez')
+        usuario.estado = UserStatus.INACTIVO
+        db.session.commit()
+        return usuario
+
+    def test_asignarla_se_niega_y_dice_por_que(self, desactivada):
+        from app.utils.errors import ValidationError
+
+        with pytest.raises(ValidationError, match='desactivada'):
+            dar_de_alta_desde_el_directorio('alopez')
+
+    def test_la_busqueda_lo_dice(self, desactivada, as_user, gestor, trip):
+        with as_user(gestor) as client:
+            html = client.get(
+                f'/trips/{trip.id}/viajeros?buscar=alopez').get_data(as_text=True)
+
+        assert 'cuenta desactivada' in html
+        assert 'Dar de alta y asignar' not in html

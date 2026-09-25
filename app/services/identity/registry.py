@@ -9,7 +9,13 @@ import logging
 from flask import current_app
 
 from app.extensions import db
-from app.models.enums import AuditResourceType, AuditResult, IdentityProviderCode, RoleCode
+from app.models.enums import (
+    AuditResourceType,
+    AuditResult,
+    IdentityProviderCode,
+    RoleCode,
+    UserStatus,
+)
 from app.models.user import Role, User
 from app.services import audit_service
 from app.services.identity.base import IdentityProvider
@@ -228,8 +234,6 @@ def buscar_en_el_directorio(texto, limite=10):
     Returns ``(record, user_or_None)`` pairs so the caller can tell «ya está»
     from «habría que darle de alta» without asking twice.
     """
-    from app.models.user import User
-
     provider = _proveedor_del_directorio()
     if provider is None:
         return []
@@ -244,13 +248,25 @@ def buscar_en_el_directorio(texto, limite=10):
 
     salida = []
     for record in registros:
-        local = User.query.filter_by(
-            identity_provider=provider.codigo, external_id=record.external_id,
-        ).first() if record.external_id else None
-        if local is None:
-            local = User.query.filter_by(username=record.username).first()
+        local = _cuenta_local(provider, record)
+        # A deleted account does not exist as far as this screen is
+        # concerned: it can be given a place again, which is what «dar de
+        # alta» now does. Listing it as «ya está» left no way to assign the
+        # person, since the dropdown rightly leaves deleted accounts out.
+        if local is not None and local.is_deleted:
+            local = None
         salida.append((record, local))
     return salida
+
+
+def _cuenta_local(provider, record):
+    """The local row for a directory identity, deleted or not."""
+    local = User.query.filter_by(
+        identity_provider=provider.codigo, external_id=record.external_id,
+    ).first() if record.external_id else None
+    if local is None:
+        local = User.query.filter_by(username=record.username).first()
+    return local
 
 
 def dar_de_alta_desde_el_directorio(texto_identificador):
@@ -262,8 +278,6 @@ def dar_de_alta_desde_el_directorio(texto_identificador):
     Idempotent -- asked twice it returns the same account rather than a second
     one, because two rows for one person split their trips in half.
     """
-    from app.models.user import User
-
     provider = _proveedor_del_directorio()
     if provider is None:
         raise ValidationError('No hay ningún directorio configurado.')
@@ -274,17 +288,51 @@ def dar_de_alta_desde_el_directorio(texto_identificador):
             'El directorio ya no reconoce a esa persona. Vuelva a buscarla.'
         )
 
-    existente = User.query.filter_by(
-        identity_provider=provider.codigo, external_id=record.external_id,
-    ).first() if record.external_id else None
-    if existente is None:
-        existente = User.query.filter_by(username=record.username).first()
+    existente = _cuenta_local(provider, record)
+    if existente is not None and existente.is_deleted:
+        return _reactivar(provider, existente, record)
+    if existente is not None and existente.estado is not UserStatus.ACTIVO:
+        # Deactivated, not deleted: an administrator decided this account may
+        # not be used, and assigning a trip is not the place to undo that.
+        raise ValidationError(
+            f'La cuenta de {existente.nombre_completo} está desactivada. Un '
+            f'administrador puede reactivarla en Administración → Usuarios.'
+        )
     if existente is not None:
         return existente
 
     user = provision_user(provider, record)
     db.session.commit()
     logger.info('Alta desde el directorio: %s', user.username)
+    return user
+
+
+def _reactivar(provider, user, record):
+    """Bring back a deleted directory account instead of creating a second one.
+
+    The same row, not a new one: the username is unique, and the person's
+    earlier trips and audit trail point at this id. But with the basic role
+    only -- a deleted administrator re-added to a trip by a manager must not
+    come back an administrator. Whatever was above that is granted again by
+    hand, like on any first provisioning.
+    """
+    roles_previos = sorted(str(r.codigo) for r in user.roles)
+    user.restore()
+    user.estado = UserStatus.ACTIVO
+    user.roles = [r for r in [Role.get(RoleCode.USUARIO.value)] if r is not None]
+    _sync_attributes(provider, user, record)
+    db.session.commit()
+
+    audit_service.record(
+        'user.reactivated_from_directory',
+        recurso_tipo=AuditResourceType.USUARIO,
+        recurso_id=str(user.id),
+        metadatos={
+            'proveedor': provider.codigo, 'username': user.username,
+            'roles_anteriores': roles_previos,
+        },
+    )
+    logger.info('Cuenta del directorio reactivada: %s', user.username)
     return user
 
 
