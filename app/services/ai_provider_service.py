@@ -9,14 +9,16 @@ changing a model would mean a redeploy and where a key would sit in plain text.
 import logging
 
 from app.extensions import db
-from app.models.ai import AIProviderConfig, AITaskBinding
+from app.models.ai import AIParameterProfile, AIProviderConfig, AITaskBinding
 from app.models.enums import (
     EXTERNAL_AI_PROVIDERS,
+    AIParameterOrigin,
     AIProviderCode,
     AITask,
     AuditResourceType,
 )
 from app.services import audit_service
+from app.services.ai import parametros as catalogo
 from app.utils.crypto import decrypt_secret, encrypt_secret, secret_hint
 from app.utils.errors import ConflictError, ResourceNotFound, ValidationError
 
@@ -91,7 +93,8 @@ def default_provider():
 
 def create(actor, nombre, proveedor, base_url=None, modelo=None, api_key=None,
            activo=True, por_defecto=False, timeout=120, max_tokens=2048,
-           temperatura=0.1, sin_razonamiento=False, commit=True):
+           temperatura=0.1, sin_razonamiento=False, parametros_avanzados=None,
+           commit=True):
     """Configure a new provider."""
     proveedor = AIProviderCode.coerce(proveedor)
     if proveedor is None:
@@ -117,6 +120,7 @@ def create(actor, nombre, proveedor, base_url=None, modelo=None, api_key=None,
         max_tokens=max_tokens,
         temperatura=temperatura,
         sin_razonamiento=bool(sin_razonamiento),
+        parametros_avanzados=_avanzados(parametros_avanzados, proveedor),
         creado_por_id=getattr(actor, 'id', None),
     )
     _set_api_key(config, api_key)
@@ -137,7 +141,8 @@ def create(actor, nombre, proveedor, base_url=None, modelo=None, api_key=None,
 
 def update(actor, config, nombre=None, base_url=None, modelo=None, api_key=None,
            activo=None, por_defecto=None, timeout=None, max_tokens=None,
-           temperatura=None, sin_razonamiento=None, commit=True):
+           temperatura=None, sin_razonamiento=None, parametros_avanzados=None,
+           commit=True):
     """Change a provider's configuration.
 
     ``api_key`` left empty keeps the stored one: the form never renders the
@@ -171,6 +176,12 @@ def update(actor, config, nombre=None, base_url=None, modelo=None, api_key=None,
     if api_key:
         _set_api_key(config, api_key)
         cambios.append('api_key')
+
+    if parametros_avanzados is not None:
+        nuevos = _avanzados(parametros_avanzados, config.proveedor)
+        if nuevos != (config.parametros_avanzados or None):
+            config.parametros_avanzados = nuevos
+            cambios.append('parametros_avanzados')
 
     if sin_razonamiento is not None and bool(sin_razonamiento) != config.sin_razonamiento:
         config.sin_razonamiento = bool(sin_razonamiento)
@@ -308,8 +319,96 @@ def set_binding(actor, tarea, config, modelo=None, activo=True, commit=True):
 
 
 # ======================================================================
+# Parameter profiles: per model, for every task or for one
+# ======================================================================
+def list_profiles(config):
+    """This provider's profiles, grouped by model, «every task» first."""
+    perfiles = AIParameterProfile.query.filter_by(provider_config_id=config.id).all()
+    return sorted(perfiles, key=lambda p: (p.modelo, p.tarea is not None, str(p.tarea or '')))
+
+
+def get_profile_or_404(config, profile_id):
+    import uuid
+
+    try:
+        perfil = db.session.get(AIParameterProfile, uuid.UUID(str(profile_id)))
+    except (ValueError, TypeError):
+        perfil = None
+    if perfil is None or perfil.provider_config_id != config.id:
+        raise ResourceNotFound('El perfil indicado no existe.')
+    return perfil
+
+
+def save_profile(actor, config, modelo, tarea, parametros, commit=True):
+    """Create or replace the profile for a model, for one task or all.
+
+    An empty set of parameters removes the profile: «nothing set» and «no
+    profile» must not be two states that behave the same and look different.
+    """
+    modelo = (modelo or '').strip()
+    if not modelo:
+        raise ValidationError('Indique el modelo.')
+    tarea = AITask.coerce(tarea) if tarea else None
+    limpios = catalogo.validar(parametros, config.proveedor)
+
+    query = AIParameterProfile.query.filter_by(
+        provider_config_id=config.id, modelo=modelo,
+    )
+    query = (query.filter(AIParameterProfile.tarea.is_(None)) if tarea is None
+             else query.filter_by(tarea=str(tarea)))
+    perfil = query.first()
+
+    if not limpios:
+        if perfil is not None:
+            delete_profile(actor, perfil, commit=commit)
+        return None
+
+    antes = dict(perfil.parametros or {}) if perfil is not None else None
+    if perfil is None:
+        perfil = AIParameterProfile(
+            provider_config_id=config.id, modelo=modelo, tarea=tarea,
+        )
+        db.session.add(perfil)
+    perfil.parametros = limpios
+    perfil.origen = AIParameterOrigin.MANUAL
+    perfil.autotune_run_id = None
+    perfil.actualizado_por_id = getattr(actor, 'id', None)
+
+    if commit:
+        db.session.commit()
+        _audit(actor, 'ai_profile.saved', config, {
+            'perfil_modelo': modelo, 'tarea': str(tarea) if tarea else None,
+            'antes': antes, 'despues': limpios,
+        })
+    return perfil
+
+
+def delete_profile(actor, perfil, commit=True):
+    config = perfil.provider_config
+    datos = {
+        'perfil_modelo': perfil.modelo,
+        'tarea': str(perfil.tarea) if perfil.tarea else None,
+        'antes': dict(perfil.parametros or {}),
+    }
+    db.session.delete(perfil)
+    if commit:
+        db.session.commit()
+        _audit(actor, 'ai_profile.deleted', config, datos)
+    return True
+
+
+# ======================================================================
 # Helpers
 # ======================================================================
+def _avanzados(parametros, proveedor):
+    """Validate the provider-wide layer. Temperature and the token limit
+    have their own columns, so they are not accepted twice."""
+    limpios = catalogo.validar(parametros, proveedor)
+    for clave in ('temperatura', 'max_tokens'):
+        limpios.pop(clave, None)
+    return limpios or None
+
+
 def available_models(config):
     """The models this provider's endpoint currently offers.
 

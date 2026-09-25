@@ -17,9 +17,9 @@ from flask import (
 from flask_login import current_user, login_required
 
 from app.blueprints.admin import admin_bp
-from app.extensions import db
+from app.extensions import db, limiter
 from app.models.alert import AlertRuleSetting
-from app.models.enums import AuditResourceType, AuditResult, UserStatus
+from app.models.enums import AIProviderCode, AuditResourceType, AuditResult, UserStatus
 from app.models.user import Role, User
 from app.services import audit_service, settings_service
 from app.utils.decorators import require_admin
@@ -473,18 +473,47 @@ def create_ai_provider():
                 max_tokens=form.max_tokens.data or 2048,
                 temperatura=form.temperatura.data,
                 sin_razonamiento=form.sin_razonamiento.data,
+                parametros_avanzados=_avanzados_del_formulario(),
             )
         except AppError as error:
             flash(error.mensaje, 'danger')
-            return render_template('admin/ai_provider_form.html', form=form,
-                                   provider=None,
-                                   sugerencias=ai_provider_service.SUGERENCIAS)
+            return _formulario_de_proveedor(form, None, _avanzados_del_formulario())
 
         flash(f'Proveedor «{config.nombre}» configurado.', 'success')
         return redirect(url_for('admin.ai_providers'))
 
-    return render_template('admin/ai_provider_form.html', form=form, provider=None,
-                           sugerencias=ai_provider_service.SUGERENCIAS)
+    return _formulario_de_proveedor(form, None)
+
+
+def _avanzados_del_formulario():
+    from app.services.ai import parametros as catalogo
+
+    return {
+        clave: valor for clave, valor in catalogo.desde_formulario(request.form).items()
+        if clave not in ('temperatura', 'max_tokens')
+    }
+
+
+def _formulario_de_proveedor(form, config, avanzados=None):
+    """Render the provider form with the catalogue of advanced parameters."""
+    from app.services import ai_provider_service
+    from app.services.ai import parametros as catalogo
+
+    if avanzados is None:
+        avanzados = (config.parametros_avanzados or {}) if config is not None else {}
+    rechazados = {}
+    if config is not None:
+        rechazados = (config.parametros or {}).get('no_admitidos') or {}
+    return render_template(
+        'admin/ai_provider_form.html', form=form, provider=config,
+        sugerencias=ai_provider_service.SUGERENCIAS,
+        parametros_catalogo=[
+            p for p in catalogo.CATALOGO if p.clave not in ('temperatura', 'max_tokens')
+        ],
+        avanzados=avanzados,
+        rechazados=rechazados if isinstance(rechazados, dict) else {},
+        familias={c.value: catalogo.familia(c.value) for c in AIProviderCode},
+    )
 
 
 @admin_bp.route('/ajustes/proveedores/<provider_id>/editar', methods=['GET', 'POST'])
@@ -515,12 +544,12 @@ def edit_ai_provider(provider_id):
                 max_tokens=form.max_tokens.data,
                 temperatura=form.temperatura.data,
                 sin_razonamiento=form.sin_razonamiento.data,
+                parametros_avanzados=_avanzados_del_formulario(),
             )
         except AppError as error:
+            db.session.rollback()
             flash(error.mensaje, 'danger')
-            return render_template('admin/ai_provider_form.html', form=form,
-                                   provider=config,
-                                   sugerencias=ai_provider_service.SUGERENCIAS)
+            return _formulario_de_proveedor(form, config, _avanzados_del_formulario())
 
         flash('Proveedor actualizado.', 'success')
         return redirect(url_for('admin.ai_providers'))
@@ -529,8 +558,7 @@ def edit_ai_provider(provider_id):
         form.proveedor.data = str(config.proveedor)
         form.es_por_defecto.data = config.es_por_defecto
 
-    return render_template('admin/ai_provider_form.html', form=form, provider=config,
-                           sugerencias=ai_provider_service.SUGERENCIAS)
+    return _formulario_de_proveedor(form, config)
 
 
 @admin_bp.route('/ajustes/proveedores/<provider_id>/eliminar', methods=['POST'])
@@ -625,6 +653,226 @@ def set_ai_binding():
         flash(error.mensaje, 'danger')
 
     return redirect(url_for('admin.ai_providers'))
+
+
+# ======================================================================
+# AI parameters: per model and task, and the tuner
+# ======================================================================
+@admin_bp.route('/ajustes/proveedores/<provider_id>/parametros')
+@login_required
+@require_admin
+def ai_profiles(provider_id):
+    """The parameter profiles of one provider's models."""
+    from app.models.enums import AITask
+    from app.services import ai_provider_service
+    from app.services.ai import parametros as catalogo
+    from app.services.ai.selector import _del_proveedor
+
+    config = ai_provider_service.get_or_404(provider_id)
+    editando = None
+    if request.args.get('perfil'):
+        editando = ai_provider_service.get_profile_or_404(config, request.args['perfil'])
+
+    return render_template(
+        'admin/ai_profiles.html',
+        provider=config,
+        perfiles=ai_provider_service.list_profiles(config),
+        editando=editando,
+        del_proveedor=catalogo.describir(_del_proveedor(config)),
+        parametros_catalogo=catalogo.aplicables(config.proveedor),
+        tareas=list(AITask),
+        describir=catalogo.describir,
+    )
+
+
+@admin_bp.route('/ajustes/proveedores/<provider_id>/parametros', methods=['POST'])
+@login_required
+@require_admin
+def save_ai_profile(provider_id):
+    """Create or replace a model's profile."""
+    from app.services import ai_provider_service
+    from app.services.ai import parametros as catalogo
+
+    config = ai_provider_service.get_or_404(provider_id)
+    try:
+        perfil = ai_provider_service.save_profile(
+            current_user._get_current_object(), config,
+            modelo=request.form.get('modelo'),
+            tarea=request.form.get('tarea') or None,
+            parametros=catalogo.desde_formulario(request.form),
+        )
+    except AppError as error:
+        db.session.rollback()
+        flash(error.mensaje, 'danger')
+        return redirect(url_for('admin.ai_profiles', provider_id=config.id))
+
+    flash('Perfil guardado.' if perfil else
+          'El perfil no tenía ningún valor y se ha eliminado.', 'success')
+    return redirect(url_for('admin.ai_profiles', provider_id=config.id))
+
+
+@admin_bp.route('/ajustes/proveedores/<provider_id>/parametros/<profile_id>/eliminar',
+                methods=['POST'])
+@login_required
+@require_admin
+def delete_ai_profile(provider_id, profile_id):
+    from app.services import ai_provider_service
+
+    config = ai_provider_service.get_or_404(provider_id)
+    perfil = ai_provider_service.get_profile_or_404(config, profile_id)
+    ai_provider_service.delete_profile(current_user._get_current_object(), perfil)
+    flash('Perfil eliminado.', 'info')
+    return redirect(url_for('admin.ai_profiles', provider_id=config.id))
+
+
+@admin_bp.route('/ajustes/ia/autoajuste')
+@login_required
+@require_admin
+def ai_autotune():
+    """What each task is sent, and the parameter searches."""
+    from app.models.enums import AITask
+    from app.services import ai_provider_service, autotune_service
+    from app.services.ai import explicar
+    from app.services.ai import parametros as catalogo
+
+    ajustables = [p for p in catalogo.CATALOGO if p.rejilla]
+    return render_template(
+        'admin/ai_autotune.html',
+        efectivos=[(tarea, explicar(tarea)) for tarea in AITask],
+        evaluables=autotune_service.tareas_evaluables(),
+        proveedores=ai_provider_service.list_providers(),
+        ajustables=ajustables,
+        familias={c.value: catalogo.familia(c.value) or '' for c in AIProviderCode},
+        ajustes=autotune_service.recientes(),
+        presupuesto_por_defecto=autotune_service.PRESUPUESTO_POR_DEFECTO,
+        presupuesto_maximo=autotune_service.PRESUPUESTO_MAXIMO,
+        repeticiones_maximas=autotune_service.REPETICIONES_MAXIMAS,
+        mejora_minima=autotune_service.MEJORA_MINIMA_PARA_APLICAR,
+    )
+
+
+@admin_bp.route('/ajustes/ia/autoajuste', methods=['POST'])
+@login_required
+@require_admin
+def launch_ai_autotune():
+    from app.services import ai_provider_service, autotune_service
+    from app.services.ai import parametros as catalogo
+
+    provider_id = request.form.get('provider_config_id') or None
+    try:
+        config = ai_provider_service.get_or_404(provider_id) if provider_id else None
+        claves = request.form.getlist('claves') or None
+        if config is not None and claves:
+            # The form offers every tunable parameter; the ones this provider
+            # does not take are hidden there and ignored here.
+            admitidos = {p.clave for p in catalogo.aplicables(config.proveedor)}
+            claves = [c for c in claves if c in admitidos] or None
+        ajuste = autotune_service.lanzar(
+            current_user._get_current_object(),
+            request.form.get('tarea'),
+            config=config,
+            modelo=request.form.get('modelo') or None,
+            claves=claves,
+            presupuesto=request.form.get('presupuesto', type=int),
+            repeticiones=request.form.get('repeticiones', type=int),
+            aplicar_si_mejora=bool(request.form.get('aplicar_si_mejora')),
+        )
+    except AppError as error:
+        db.session.rollback()
+        flash(error.mensaje, 'danger')
+        return redirect(url_for('admin.ai_autotune'))
+
+    flash('Autoajuste lanzado. Esta página muestra su progreso.', 'success')
+    return redirect(url_for('admin.ai_autotune_detail', ajuste_id=ajuste.id))
+
+
+@admin_bp.route('/ajustes/ia/autoajuste/<ajuste_id>')
+@login_required
+@require_admin
+def ai_autotune_detail(ajuste_id):
+    from app.services import autotune_service
+    from app.services.ai import parametros as catalogo
+
+    ajuste = autotune_service.get_or_404(ajuste_id)
+    return render_template(
+        'admin/ai_autotune_detail.html',
+        ajuste=ajuste,
+        parado=autotune_service.parece_parado(ajuste),
+        parado_minutos=autotune_service.PARADO_TRAS_MINUTOS,
+        describir=catalogo.describir,
+        mejora_minima=autotune_service.MEJORA_MINIMA_PARA_APLICAR,
+    )
+
+
+@admin_bp.route('/ajustes/ia/autoajuste/<ajuste_id>/estado')
+@login_required
+@require_admin
+@limiter.limit('600 per hour')
+def ai_autotune_status(ajuste_id):
+    """How far a search has got, for the detail page to poll.
+
+    Its own limit because the page asks every 15 seconds while a search runs
+    -- 240 requests an hour, against a default allowance of 100 per route.
+    Reloading the whole page on that schedule got the administrator a 429
+    half an hour into a search; asking this instead, the page only reloads
+    when there is a new trial to show.
+    """
+    from app.services import autotune_service
+
+    ajuste = autotune_service.get_or_404(ajuste_id)
+    return jsonify({
+        'estado': str(ajuste.estado),
+        'activo': ajuste.activo,
+        'ensayos': len(ajuste.ensayos or []),
+        'parado': autotune_service.parece_parado(ajuste),
+    })
+
+
+def _accion_de_autoajuste(ajuste_id, accion, mensaje):
+    from app.services import autotune_service
+
+    ajuste = autotune_service.get_or_404(ajuste_id)
+    try:
+        getattr(autotune_service, accion)(current_user._get_current_object(), ajuste)
+        flash(mensaje, 'success')
+    except AppError as error:
+        db.session.rollback()
+        flash(error.mensaje, 'danger')
+    return redirect(url_for('admin.ai_autotune_detail', ajuste_id=ajuste.id))
+
+
+@admin_bp.route('/ajustes/ia/autoajuste/<ajuste_id>/aplicar', methods=['POST'])
+@login_required
+@require_admin
+def apply_ai_autotune(ajuste_id):
+    return _accion_de_autoajuste(
+        ajuste_id, 'aplicar', 'Aplicado: la tarea usa ya estos parámetros con este modelo.',
+    )
+
+
+@admin_bp.route('/ajustes/ia/autoajuste/<ajuste_id>/revertir', methods=['POST'])
+@login_required
+@require_admin
+def revert_ai_autotune(ajuste_id):
+    return _accion_de_autoajuste(
+        ajuste_id, 'revertir', 'Revertido: se ha restaurado el perfil anterior.',
+    )
+
+
+@admin_bp.route('/ajustes/ia/autoajuste/<ajuste_id>/reanudar', methods=['POST'])
+@login_required
+@require_admin
+def resume_ai_autotune(ajuste_id):
+    return _accion_de_autoajuste(
+        ajuste_id, 'reanudar', 'Reanudado desde el último ensayo guardado.',
+    )
+
+
+@admin_bp.route('/ajustes/ia/autoajuste/<ajuste_id>/cancelar', methods=['POST'])
+@login_required
+@require_admin
+def cancel_ai_autotune(ajuste_id):
+    return _accion_de_autoajuste(ajuste_id, 'cancelar', 'Autoajuste cancelado.')
 
 
 # ======================================================================

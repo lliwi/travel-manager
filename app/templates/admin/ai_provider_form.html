@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "macros/forms.html" import render_field %}
+{% from "macros/parametros_ia.html" import campos_de_parametros %}
 {% block title %}{{ 'Editar proveedor' if provider else 'Nuevo proveedor de IA' }} — {{ app_name }}{% endblock %}
 {% block breadcrumb_items %}
 <li class="breadcrumb-item"><a href="{{ url_for('admin.index') }}">Administración</a></li>
@@ -88,6 +89,33 @@
                 </div>
             </div>
 
+            <div class="card mb-3">
+                <div class="card-header">
+                    Parámetros avanzados
+                    <small class="text-muted ms-2">para todos los modelos y tareas</small>
+                </div>
+                <div class="card-body">
+                    <p class="form-text mt-0">
+                        Deje en blanco lo que no quiera fijar: se usará lo que
+                        el endpoint haga por defecto. Lo que se ajuste para un
+                        modelo o una tarea concretos, en
+                        {% if provider %}<a href="{{ url_for('admin.ai_profiles', provider_id=provider.id) }}">Parámetros por modelo y tarea</a>{% else %}«Parámetros por modelo y tarea»{% endif %},
+                        prevalece sobre esto. Solo se muestran los que admite
+                        el tipo de proveedor elegido.
+                    </p>
+                    {{ campos_de_parametros(parametros_catalogo, avanzados) }}
+                    {% if rechazados %}
+                    <p class="form-text text-warning-emphasis mb-0">
+                        <i class="bi bi-info-circle me-1"></i>
+                        El endpoint ya rechazó
+                        {% for modelo, nombres in rechazados.items() %}
+                        <code>{{ nombres | join(', ') }}</code> con <code>{{ modelo }}</code>{{ '; ' if not loop.last }}
+                        {% endfor %}, así que no se le vuelven a enviar.
+                    </p>
+                    {% endif %}
+                </div>
+            </div>
+
             <div class="d-flex gap-2">
                 {{ form.submit }}
                 <a href="{{ url_for('admin.ai_providers') }}"
@@ -143,6 +171,28 @@
         if (url && !url.value) { url.value = s.base_url || ''; }
         if (modelo && !modelo.value) { modelo.value = s.modelo || ''; }
     });
+})();
+
+// Cada tipo de proveedor admite unos parámetros: los que no admite se ocultan
+// y se desactivan, para que un valor escrito antes de cambiar de tipo no se
+// envíe y acabe rechazado.
+(function () {
+    var familias = {{ familias | tojson }};
+    var proveedor = document.getElementById('proveedor');
+    if (!proveedor) { return; }
+
+    function filtrar() {
+        var familia = familias[proveedor.value];
+        Array.prototype.forEach.call(document.querySelectorAll('.js-parametro'), function (bloque) {
+            var admite = !familia || bloque.dataset.familias.split(' ').indexOf(familia) >= 0;
+            bloque.hidden = !admite;
+            Array.prototype.forEach.call(bloque.querySelectorAll('input, textarea'), function (campo) {
+                campo.disabled = !admite;
+            });
+        });
+    }
+    proveedor.addEventListener('change', filtrar);
+    filtrar();
 })();
 
 // Preguntar al endpoint qué modelos tiene, en vez de fiarse de un nombre

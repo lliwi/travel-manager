@@ -25,6 +25,7 @@ def register_commands(app):
     app.cli.add_command(openapi)
     app.cli.add_command(evaluar)
     app.cli.add_command(ai_stats)
+    app.cli.add_command(autoajustar)
     app.cli.add_command(mfa_reset)
 
 
@@ -598,6 +599,50 @@ def evaluar(modelo, como_json):
         f"en {resultado['duracion_s']}s",
         fg='green' if resultado['porcentaje'] >= 90 else 'yellow',
     ))
+
+
+@click.command('autoajustar')
+@click.option('--tarea', required=True, help='Tarea que ajustar, p. ej. extract_document.')
+@click.option('--modelo', default=None, help='Otro modelo del mismo proveedor.')
+@click.option('--parametro', 'claves', multiple=True,
+              help='Parámetro que ajustar; repetible. Por defecto, los habituales.')
+@click.option('--ensayos', default=12, show_default=True, help='Ensayos como máximo.')
+@click.option('--repeticiones', default=1, show_default=True, help='Repeticiones por caso.')
+@click.option('--aplicar', is_flag=True, help='Aplicar si mejora lo bastante.')
+@with_appcontext
+def autoajustar(tarea, modelo, claves, ensayos, repeticiones, aplicar):
+    """Search for better sampling parameters for a task, and say what it found."""
+    from app.services import autotune_service
+    from app.services.ai import parametros as catalogo
+    from app.utils.errors import AppError
+
+    click.echo(f'Estimación: hasta {autotune_service.estimar_llamadas(tarea, ensayos, repeticiones)} '
+               f'llamadas al modelo.')
+    try:
+        # Inline: whoever runs this from a shell wants the answer on the shell.
+        ajuste = autotune_service.lanzar(
+            None, tarea, modelo=modelo, claves=list(claves) or None,
+            presupuesto=ensayos, repeticiones=repeticiones,
+            aplicar_si_mejora=aplicar, en_linea=True,
+        )
+    except AppError as error:
+        click.echo(click.style(error.mensaje, fg='red'))
+        raise SystemExit(1) from None
+
+    for i, ensayo in enumerate(ajuste.ensayos or []):
+        parametros = ', '.join(f'{e}={v}' for e, v in catalogo.describir(ensayo['parametros']))
+        marca = '*' if ensayo['parametros'] == ajuste.parametros_mejores else ' '
+        click.echo(f"{marca} {i:2} {ensayo['calidad']:5.1f}  {ensayo['duracion_ms'] / 1000:6.1f}s  "
+                   f"{ensayo['errores']} err  {parametros or '(los actuales)'}")
+
+    if ajuste.error:
+        click.echo(click.style(f'Error: {ajuste.error}', fg='red'))
+        raise SystemExit(1)
+    click.echo()
+    click.echo(f'Calidad: {ajuste.calidad_base} → {ajuste.calidad_mejor}. '
+               + ('Aplicado.' if ajuste.aplicado else
+                  'Propuesta pendiente en Administración → Autoajuste.' if ajuste.hay_propuesta
+                  else 'Nada mejor que lo actual.'))
 
 
 @click.command('ai-stats')

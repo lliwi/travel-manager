@@ -21,7 +21,8 @@ GRUPOS = (
     ('correo', 'Correo', 'Servidor de salida para las notificaciones.'),
     ('documentos', 'Documentos', 'Extracción, revisión y reconocimiento de texto.'),
     ('itinerario', 'Itinerario', 'Cómo se interpreta lo que compone un viaje.'),
-    ('ia', 'Inteligencia artificial', 'Qué se registra de cada ejecución.'),
+    ('ia', 'Inteligencia artificial',
+     'Qué se registra de cada ejecución y cuándo se reajustan los modelos.'),
     ('recomendaciones', 'Recomendaciones de seguridad',
      'Generación, validación y vigilancia de las fuentes.'),
     ('investigacion', 'Investigación pública',
@@ -357,6 +358,20 @@ DEFAULTS = {
     'IA_LIMITE_CONSULTAS_USUARIO_HORA': (
         30, 'int', 'ia', 'Límite de consultas por usuario y hora',
         'Protege los recursos de inferencia frente a un uso desproporcionado.',
+        False,
+    ),
+    'IA_AUTOAJUSTE_PERIODICO': (
+        False, 'bool', 'ia', 'Autoajuste semanal',
+        'Cada domingo de madrugada busca mejores parámetros para cada tarea '
+        'que tenga casos de evaluación, con el proveedor y el modelo que la '
+        'atienden. Son decenas de llamadas al modelo por tarea: en un '
+        'proveedor externo, cuestan dinero.',
+        False,
+    ),
+    'IA_AUTOAJUSTE_APLICAR': (
+        False, 'bool', 'ia', 'Aplicar el autoajuste semanal sin revisión',
+        'Solo si mejora la calidad en al menos dos puntos. Desactivado, el '
+        'resultado queda como propuesta en Administración → Autoajuste.',
         False,
     ),
     # --- Web research (section 2.6) -----------------------------------

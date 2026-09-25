@@ -1,0 +1,244 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import badge %}
+{% from "macros/parametros_ia.html" import resumen_de_parametros %}
+{% block title %}Autoajuste de la IA — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('admin.index') }}">Administración</a></li>
+<li class="breadcrumb-item"><a href="{{ url_for('admin.settings') }}">Ajustes</a></li>
+<li class="breadcrumb-item"><a href="{{ url_for('admin.ai_providers') }}">Proveedores de IA</a></li>
+<li class="breadcrumb-item active">Autoajuste</li>
+{% endblock %}
+
+{% macro estado_badge(a) %}
+{% set colores = {'pendiente': 'light', 'en_curso': 'primary', 'completado': 'success',
+                  'error': 'danger', 'cancelado': 'secondary'} %}
+{{ badge(a.estado.label, colores.get(a.estado.value, 'secondary')) }}
+{% endmacro %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Parámetros y autoajuste de la IA</h1>
+    <p class="text-muted mb-0">
+        Qué recibe cada tarea, y la búsqueda de parámetros que la hagan mejor.
+    </p>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header">
+        <i class="bi bi-list-check me-2"></i>Qué recibe cada tarea ahora
+        <small class="text-muted ms-2">y de dónde sale cada valor</small>
+    </div>
+    <div class="table-responsive">
+        <table class="table align-middle mb-0 small">
+            <thead><tr><th style="width:22%">Tarea</th><th style="width:22%">Proveedor y modelo</th>
+                <th>Parámetros</th></tr></thead>
+            <tbody>
+            {% for tarea, efectivo in efectivos %}
+            <tr>
+                <td>{{ tarea.label }}</td>
+                {% if efectivo %}
+                <td>
+                    {% if efectivo.config %}
+                    <a href="{{ url_for('admin.ai_profiles', provider_id=efectivo.config.id) }}">{{ efectivo.proveedor }}</a>
+                    {% else %}{{ efectivo.proveedor }}{% endif %}
+                    <div><code>{{ efectivo.modelo or '—' }}</code></div>
+                </td>
+                <td>
+                    {% for clave, etiqueta, valor, origen in efectivo.parametros %}
+                    <span class="text-nowrap me-2">{{ etiqueta }}
+                        <code>{{ valor | join(', ') if valor is iterable and valor is not string else valor }}</code>
+                        <span class="text-muted">({{ origen | lower }})</span></span>
+                    {% endfor %}
+                </td>
+                {% else %}
+                <td colspan="2" class="text-muted">Sin proveedor configurado.</td>
+                {% endif %}
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-xl-5">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-magic me-2"></i>Lanzar un autoajuste</div>
+            <div class="card-body">
+                <p class="small text-muted">
+                    Mide la tarea con los parámetros actuales y prueba, uno a
+                    uno, los valores de cada parámetro elegido, quedándose con
+                    un cambio solo si mejora la calidad —o, a igual calidad, si
+                    responde claramente más rápido—. Cada ensayo ejecuta todos
+                    los casos de evaluación de la tarea contra el modelo real.
+                </p>
+                <form method="post" action="{{ url_for('admin.launch_ai_autotune') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3">
+                        <label class="form-label" for="tarea">Tarea</label>
+                        <select class="form-select" id="tarea" name="tarea" required>
+                            {% for tarea, descripcion, n in evaluables %}
+                            <option value="{{ tarea.value }}" data-casos="{{ n }}" {{ 'disabled' if not n }}>
+                                {{ tarea.label }} — {{ n }} caso{{ '' if n == 1 else 's' }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">
+                            Solo aparecen las tareas que se pueden medir. Los casos
+                            están en <code>data/evaluacion</code>.
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label" for="provider_config_id">Proveedor</label>
+                            <select class="form-select" id="provider_config_id" name="provider_config_id">
+                                <option value="">El que atiende la tarea</option>
+                                {% for p in proveedores if p.activo %}
+                                <option value="{{ p.id }}" data-familia="{{ familias.get(p.proveedor.value, '') }}"
+                                        data-modelos="{{ url_for('admin.ai_provider_models', provider_id=p.id) }}">
+                                    {{ p.nombre }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label" for="modelo">Modelo</label>
+                            <input type="text" class="form-control" id="modelo" name="modelo"
+                                   placeholder="el que la atiende">
+                        </div>
+                    </div>
+                    <fieldset class="mb-3">
+                        <legend class="form-label fs-6">Parámetros que ajustar</legend>
+                        {% for p in ajustables %}
+                        <div class="form-check js-parametro" data-familias="{{ p.familias | join(' ') }}">
+                            <input class="form-check-input" type="checkbox" name="claves"
+                                   value="{{ p.clave }}" id="clave-{{ p.clave }}"
+                                   {{ 'checked' if p.ajustar_por_defecto }}>
+                            <label class="form-check-label" for="clave-{{ p.clave }}">
+                                {{ p.etiqueta }}
+                                <span class="text-muted small">
+                                    ({{ p.rejilla | join(', ') }})</span>
+                            </label>
+                        </div>
+                        {% endfor %}
+                        <div class="form-text">
+                            Los que el proveedor no admite se ignoran.
+                        </div>
+                    </fieldset>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label" for="presupuesto">Ensayos como máximo</label>
+                            <input type="number" class="form-control" id="presupuesto" name="presupuesto"
+                                   min="2" max="{{ presupuesto_maximo }}" value="{{ presupuesto_por_defecto }}">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label" for="repeticiones">Repeticiones por caso</label>
+                            <input type="number" class="form-control" id="repeticiones" name="repeticiones"
+                                   min="1" max="{{ repeticiones_maximas }}" value="1">
+                        </div>
+                    </div>
+                    <p class="form-text" id="estimacion"></p>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" name="aplicar_si_mejora"
+                               value="1" id="aplicar_si_mejora">
+                        <label class="form-check-label" for="aplicar_si_mejora">
+                            Aplicar al terminar si mejora al menos {{ mejora_minima }} puntos
+                        </label>
+                        <div class="form-text">
+                            Si no lo marca, el resultado queda como propuesta
+                            para revisarlo y aplicarlo usted.
+                        </div>
+                    </div>
+                    <button class="btn btn-primary"><i class="bi bi-play-fill me-1"></i>Lanzar</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-7">
+        <div class="card">
+            <div class="card-header"><i class="bi bi-clock-history me-2"></i>Historial</div>
+            {% if ajustes %}
+            <div class="table-responsive">
+                <table class="table align-middle mb-0 small">
+                    <thead><tr><th>Fecha</th><th>Tarea</th><th>Modelo</th>
+                        <th>Estado</th><th class="text-end">Calidad</th><th></th></tr></thead>
+                    <tbody>
+                    {% for a in ajustes %}
+                    <tr>
+                        <td class="text-nowrap">{{ a.created_at | local_dt }}</td>
+                        <td>{{ a.tarea.label }}
+                            {% if a.automatico %}<span class="text-muted">(semanal)</span>{% endif %}</td>
+                        <td>{{ a.provider_config.nombre if a.provider_config else '—' }}
+                            <div><code>{{ a.modelo }}</code></div></td>
+                        <td>
+                            {{ estado_badge(a) }}
+                            {% if a.aplicado %}{{ badge('aplicado', 'info', 'check2') }}{% endif %}
+                        </td>
+                        <td class="text-end text-nowrap">
+                            {% if a.calidad_base is not none %}
+                            {{ '%.1f' | format(a.calidad_base) }}
+                            {% if a.calidad_mejor is not none %}
+                            → <strong>{{ '%.1f' | format(a.calidad_mejor) }}</strong>
+                            {% endif %}
+                            {% else %}—{% endif %}
+                        </td>
+                        <td class="text-end">
+                            <a href="{{ url_for('admin.ai_autotune_detail', ajuste_id=a.id) }}"
+                               class="btn btn-sm btn-outline-secondary">Ver</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="card-body text-muted small">Todavía no se ha lanzado ninguno.</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/modelos.js') }}"></script>
+<script nonce="{{ csp_nonce() }}">
+(function () {
+    'use strict';
+    var tarea = document.getElementById('tarea');
+    var proveedor = document.getElementById('provider_config_id');
+    var modelo = document.getElementById('modelo');
+    var presupuesto = document.getElementById('presupuesto');
+    var repeticiones = document.getElementById('repeticiones');
+    var estimacion = document.getElementById('estimacion');
+
+    // Lo que va a costar, dicho antes de pulsar: en un proveedor externo cada
+    // llamada se paga.
+    function estimar() {
+        var op = tarea.selectedOptions[0];
+        var casos = op ? parseInt(op.dataset.casos || '0', 10) : 0;
+        var total = casos * (parseInt(presupuesto.value, 10) || 0) * (parseInt(repeticiones.value, 10) || 1);
+        estimacion.textContent = 'Como máximo ' + total + ' llamadas al modelo.';
+    }
+    [tarea, presupuesto, repeticiones].forEach(function (c) { c.addEventListener('input', estimar); });
+    estimar();
+
+    function filtrar() {
+        var op = proveedor.selectedOptions[0];
+        var familia = op && op.dataset.familia;
+        Array.prototype.forEach.call(document.querySelectorAll('.js-parametro'), function (b) {
+            b.hidden = !!familia && b.dataset.familias.split(' ').indexOf(familia) < 0;
+        });
+    }
+
+    var selector = window.SelectorDeModelo && window.SelectorDeModelo.enlazar({
+        input: modelo, url: '', vacio: '— el que la atiende —'
+    });
+    proveedor.addEventListener('change', function () {
+        var op = proveedor.selectedOptions[0];
+        modelo.value = '';
+        if (selector) { selector.cargar((op && op.dataset.modelos) || ''); }
+        filtrar();
+    });
+    filtrar();
+})();
+</script>
+{% endblock %}

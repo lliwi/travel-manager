@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import badge %}
+{% from "macros/parametros_ia.html" import campos_de_parametros, resumen_de_parametros %}
+{% block title %}Parámetros de {{ provider.nombre }} — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('admin.index') }}">Administración</a></li>
+<li class="breadcrumb-item"><a href="{{ url_for('admin.settings') }}">Ajustes</a></li>
+<li class="breadcrumb-item"><a href="{{ url_for('admin.ai_providers') }}">Proveedores de IA</a></li>
+<li class="breadcrumb-item active">Parámetros de {{ provider.nombre }}</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+    <div>
+        <h1>Parámetros por modelo y tarea</h1>
+        <p class="text-muted mb-0">{{ provider.nombre }} · {{ provider.proveedor.label }}</p>
+    </div>
+    <a href="{{ url_for('admin.ai_autotune') }}" class="btn btn-outline-primary">
+        <i class="bi bi-magic me-1"></i>Autoajuste</a>
+</div>
+
+<div class="alert alert-light border small">
+    <i class="bi bi-layers me-1"></i>
+    <strong>Qué prevalece.</strong> De menos a más: lo fijado para todo el
+    proveedor, el perfil del modelo para todas las tareas, lo que pide cada
+    tarea en el código (extraer datos pide temperatura 0) y, por encima de
+    todo, el perfil del modelo <em>para esa tarea</em>, que es el que escribe
+    el autoajuste. Un perfil para todas las tareas no deshace, por tanto, la
+    temperatura 0 de la extracción; uno para la extracción sí.
+</div>
+
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span>Todo el proveedor</span>
+        <a href="{{ url_for('admin.edit_ai_provider', provider_id=provider.id) }}"
+           class="btn btn-sm btn-outline-secondary"><i class="bi bi-pencil me-1"></i>Editar</a>
+    </div>
+    <div class="card-body small">{{ resumen_de_parametros(del_proveedor) }}</div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header">Perfiles</div>
+    {% if perfiles %}
+    <div class="table-responsive">
+        <table class="table align-middle mb-0">
+            <thead><tr><th>Modelo</th><th>Alcance</th><th>Parámetros</th>
+                <th>Origen</th><th class="text-end">Acciones</th></tr></thead>
+            <tbody>
+            {% for p in perfiles %}
+            <tr {% if editando and editando.id == p.id %}class="table-active"{% endif %}>
+                <td><code>{{ p.modelo }}</code></td>
+                <td>{{ p.alcance_label }}</td>
+                <td class="small">{{ resumen_de_parametros(describir(p.parametros)) }}</td>
+                <td>
+                    {% if p.origen.value == 'autoajuste' %}
+                        {% if p.autotune_run_id %}
+                        <a href="{{ url_for('admin.ai_autotune_detail', ajuste_id=p.autotune_run_id) }}">
+                            {{ badge('autoajuste', 'info', 'magic') }}</a>
+                        {% else %}{{ badge('autoajuste', 'info', 'magic') }}{% endif %}
+                    {% else %}
+                        {{ badge('manual', 'secondary') }}
+                    {% endif %}
+                    <div class="text-muted small">{{ p.updated_at | local_dt }}</div>
+                </td>
+                <td class="text-end text-nowrap">
+                    <a href="{{ url_for('admin.ai_profiles', provider_id=provider.id, perfil=p.id) }}"
+                       class="btn btn-sm btn-outline-secondary" title="Editar">
+                        <i class="bi bi-pencil"></i></a>
+                    <form method="post" class="d-inline js-confirmar"
+                          data-mensaje="¿Eliminar el perfil de «{{ p.modelo }}» ({{ p.alcance_label }})?"
+                          action="{{ url_for('admin.delete_ai_profile', provider_id=provider.id, profile_id=p.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="btn btn-sm btn-outline-danger" title="Eliminar">
+                            <i class="bi bi-trash"></i></button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="card-body text-muted small">
+        Ningún modelo de este proveedor tiene parámetros propios: todos usan
+        los del proveedor.
+    </div>
+    {% endif %}
+</div>
+
+<div class="card">
+    <div class="card-header">
+        {{ 'Editar perfil' if editando else 'Nuevo perfil' }}
+    </div>
+    <div class="card-body">
+        <form method="post" action="{{ url_for('admin.save_ai_profile', provider_id=provider.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label class="form-label" for="modelo">Modelo</label>
+                    <input type="text" class="form-control" id="modelo" name="modelo" required
+                           value="{{ editando.modelo if editando else provider.modelo_por_defecto or '' }}"
+                           data-url="{{ url_for('admin.ai_provider_models', provider_id=provider.id) }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                    <label class="form-label" for="tarea">Alcance</label>
+                    <select class="form-select" id="tarea" name="tarea">
+                        <option value="">Todas las tareas</option>
+                        {% for t in tareas %}
+                        <option value="{{ t.value }}"
+                            {{ 'selected' if editando and editando.tarea and editando.tarea.value == t.value }}>
+                            {{ t.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            {{ campos_de_parametros(parametros_catalogo, editando.parametros if editando else {}) }}
+            <p class="form-text">
+                Guardar un perfil sin ningún valor lo elimina: el modelo vuelve
+                a usar lo del proveedor.
+            </p>
+            <div class="d-flex gap-2">
+                <button class="btn btn-primary"><i class="bi bi-save me-1"></i>Guardar perfil</button>
+                {% if editando %}
+                <a href="{{ url_for('admin.ai_profiles', provider_id=provider.id) }}"
+                   class="btn btn-outline-secondary">Nuevo en su lugar</a>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/modelos.js') }}"></script>
+<script nonce="{{ csp_nonce() }}">
+(function () {
+    'use strict';
+    var campo = document.getElementById('modelo');
+    if (campo && window.SelectorDeModelo) {
+        window.SelectorDeModelo.enlazar({
+            input: campo, url: campo.dataset.url, vacio: '— elija un modelo —'
+        });
+    }
+    // Sin «onsubmit» en línea: la política de contenido lo bloquearía y el
+    // formulario se enviaría sin preguntar.
+    Array.prototype.forEach.call(document.querySelectorAll('.js-confirmar'), function (f) {
+        f.addEventListener('submit', function (e) {
+            if (!window.confirm(f.dataset.mensaje)) { e.preventDefault(); }
+        });
+    });
+})();
+</script>
+{% endblock %}

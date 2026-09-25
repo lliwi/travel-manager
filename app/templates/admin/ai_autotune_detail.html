@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import badge %}
+{% from "macros/parametros_ia.html" import resumen_de_parametros %}
+{% block title %}Autoajuste de {{ ajuste.tarea.label }} — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('admin.index') }}">Administración</a></li>
+<li class="breadcrumb-item"><a href="{{ url_for('admin.settings') }}">Ajustes</a></li>
+<li class="breadcrumb-item"><a href="{{ url_for('admin.ai_providers') }}">Proveedores de IA</a></li>
+<li class="breadcrumb-item"><a href="{{ url_for('admin.ai_autotune') }}">Autoajuste</a></li>
+<li class="breadcrumb-item active">{{ ajuste.tarea.label }}</li>
+{% endblock %}
+
+{% block content %}
+
+<div class="page-header d-flex justify-content-between align-items-start">
+    <div>
+        <h1>Autoajuste de «{{ ajuste.tarea.label }}»</h1>
+        <p class="text-muted mb-0">
+            {{ ajuste.provider_config.nombre if ajuste.provider_config else '—' }} ·
+            <code>{{ ajuste.modelo }}</code> · {{ ajuste.estado.label }}
+            {% if ajuste.aplicado %} · aplicado el {{ ajuste.aplicado_en | local_dt }}{% endif %}
+            {% if ajuste.revertido_en %} · revertido el {{ ajuste.revertido_en | local_dt }}{% endif %}
+        </p>
+    </div>
+    <div class="d-flex gap-2">
+        {% if ajuste.activo %}
+        <form method="post" action="{{ url_for('admin.cancel_ai_autotune', ajuste_id=ajuste.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-outline-danger"><i class="bi bi-stop-fill me-1"></i>Cancelar</button>
+        </form>
+        {% endif %}
+        {% if ajuste.hay_propuesta and not ajuste.aplicado %}
+        <form method="post" action="{{ url_for('admin.apply_ai_autotune', ajuste_id=ajuste.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-primary"><i class="bi bi-check2 me-1"></i>Aplicar</button>
+        </form>
+        {% endif %}
+        {% if ajuste.aplicado %}
+        <form method="post" action="{{ url_for('admin.revert_ai_autotune', ajuste_id=ajuste.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn btn-outline-secondary"><i class="bi bi-arrow-counterclockwise me-1"></i>Revertir</button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+
+{% if ajuste.error %}
+<div class="alert alert-danger"><i class="bi bi-exclamation-triangle me-1"></i>{{ ajuste.error }}</div>
+{% endif %}
+
+{% if parado %}
+<div class="alert alert-warning d-flex justify-content-between align-items-center gap-3">
+    <div>
+        <i class="bi bi-hourglass-split me-1"></i>
+        Lleva más de {{ parado_minutos }} minutos sin terminar ningún ensayo.
+        Si el trabajador se reinició o se cayó, la búsqueda puede seguir desde
+        el último ensayo guardado. Si solo va lenta, reanudarla descarta el
+        ensayo en curso.
+    </div>
+    <form method="post" action="{{ url_for('admin.resume_ai_autotune', ajuste_id=ajuste.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn btn-warning text-nowrap"><i class="bi bi-play-fill me-1"></i>Reanudar</button>
+    </form>
+</div>
+{% endif %}
+
+<div class="stat-grid mb-4">
+    <div class="stat-card"><span class="stat-label">Calidad de partida</span>
+        <span class="stat-value">{{ '%.1f' | format(ajuste.calidad_base) if ajuste.calidad_base is not none else '—' }}</span></div>
+    <div class="stat-card"><span class="stat-label">Mejor calidad</span>
+        <span class="stat-value">{{ '%.1f' | format(ajuste.calidad_mejor) if ajuste.calidad_mejor is not none else '—' }}</span></div>
+    <div class="stat-card"><span class="stat-label">Ensayos</span>
+        <span class="stat-value">{{ (ajuste.ensayos or []) | length }} / {{ ajuste.presupuesto }}</span></div>
+    <div class="stat-card"><span class="stat-label">Casos × repeticiones</span>
+        <span class="stat-value">{{ ajuste.casos or '—' }} × {{ ajuste.repeticiones }}</span></div>
+</div>
+
+{% if ajuste.estado.value == 'completado' %}
+<div class="card mb-4">
+    <div class="card-header">Resultado</div>
+    <div class="card-body">
+        {% if ajuste.hay_propuesta %}
+        <dl class="row mb-0 small">
+            <dt class="col-sm-3">Perfil de la tarea antes</dt>
+            <dd class="col-sm-9">{{ resumen_de_parametros(describir(ajuste.parametros_base), 'ninguno: lo del proveedor y la tarea') }}</dd>
+            <dt class="col-sm-3">Propuesto</dt>
+            <dd class="col-sm-9">{{ resumen_de_parametros(describir(ajuste.parametros_mejores)) }}</dd>
+        </dl>
+        {% if not ajuste.aplicado and ajuste.mejora is not none and ajuste.mejora < mejora_minima %}
+        <p class="small text-warning-emphasis mt-3 mb-0">
+            <i class="bi bi-info-circle me-1"></i>
+            La mejora ({{ '%.1f' | format(ajuste.mejora) }} puntos) es pequeña
+            frente a lo que varía una misma medida entre dos ejecuciones.
+            Antes de aplicarlo, conviene repetirlo con más repeticiones por caso.
+        </p>
+        {% endif %}
+        {% else %}
+        <p class="mb-0">
+            Ninguna combinación probada mejoró lo que ya había: se queda como está.
+        </p>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+<div class="card">
+    <div class="card-header">Ensayos</div>
+    {% if ajuste.ensayos %}
+    <div class="table-responsive">
+        <table class="table align-middle mb-0 small">
+            <thead><tr><th>#</th><th>Parámetros probados</th><th class="text-end">Calidad</th>
+                <th class="text-end">Tiempo medio</th><th class="text-end">Tokens</th>
+                <th class="text-end">Errores</th></tr></thead>
+            <tbody>
+            {% for e in ajuste.ensayos %}
+            {% set es_mejor = ajuste.parametros_mejores is not none and e.parametros == ajuste.parametros_mejores %}
+            <tr class="{{ 'table-success' if es_mejor }}">
+                <td>{{ loop.index }}{% if loop.first %} <span class="text-muted">(partida)</span>{% endif %}</td>
+                <td>{{ resumen_de_parametros(describir(e.parametros), 'los actuales') }}
+                    {% set fallidos = e.casos | selectattr('error') | list %}
+                    {% if fallidos %}
+                    <div class="text-danger">
+                        {% for c in fallidos %}{{ c.caso }}: {{ c.error }}{% if not loop.last %}<br>{% endif %}{% endfor %}
+                    </div>
+                    {% endif %}
+                </td>
+                <td class="text-end"><strong>{{ '%.1f' | format(e.calidad) }}</strong></td>
+                <td class="text-end text-nowrap">{{ '%.1f' | format(e.duracion_ms / 1000) }} s</td>
+                <td class="text-end">{{ e.tokens }}</td>
+                <td class="text-end">{{ e.errores }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="card-body text-muted small">
+        {{ 'Esperando al primer ensayo…' if ajuste.activo else 'No llegó a hacerse ningún ensayo.' }}
+    </div>
+    {% endif %}
+    <div class="card-footer small text-muted">
+        Espacio de búsqueda:
+        {% for clave, valores in ajuste.espacio %}<code>{{ clave }}</code> ({{ valores | join(', ') }}){{ ' · ' if not loop.last }}{% endfor %}.
+        Lanzado {% if ajuste.lanzado_por %}por {{ ajuste.lanzado_por.nombre_completo }}{% else %}automáticamente{% endif %}
+        el {{ ajuste.created_at | local_dt }}.
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% if ajuste.activo %}
+<script nonce="{{ csp_nonce() }}">
+// Mientras la búsqueda corre, se pregunta por su estado y la página solo se
+// recarga cuando hay un ensayo nuevo o cambia el estado. Recargarla entera
+// cada 15 s agotaba el límite de peticiones a mitad de una búsqueda larga.
+(function () {
+    'use strict';
+    var url = {{ url_for('admin.ai_autotune_status', ajuste_id=ajuste.id) | tojson }};
+    var visto = {estado: {{ ajuste.estado.value | tojson }}, ensayos: {{ (ajuste.ensayos or []) | length }},
+                 parado: {{ parado | tojson }}};
+
+    function preguntar() {
+        // En segundo plano no hace falta estar al día: se pregunta al volver.
+        if (document.hidden) { return programar(); }
+        fetch(url, {headers: {'Accept': 'application/json'}, credentials: 'same-origin'})
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (d) {
+                if (d && (d.estado !== visto.estado || d.ensayos !== visto.ensayos
+                          || d.parado !== visto.parado)) {
+                    window.location.reload();
+                    return;
+                }
+                programar();
+            })
+            .catch(programar);
+    }
+    function programar() { window.setTimeout(preguntar, 15000); }
+    document.addEventListener('visibilitychange', function () {
+        if (!document.hidden) { preguntar(); }
+    });
+    programar();
+})();
+</script>
+{% endif %}
+{% endblock %}

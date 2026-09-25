@@ -538,6 +538,21 @@ class AIRunState(LabeledEnum):
     BLOQUEADA = ('bloqueada', 'Bloqueada por política')
 
 
+class AIParameterOrigin(LabeledEnum):
+    """Who wrote a parameter profile: a person, or the tuner on their behalf."""
+
+    MANUAL = ('manual', 'Manual')
+    AUTOAJUSTE = ('autoajuste', 'Autoajuste')
+
+
+class AIAutotuneState(LabeledEnum):
+    PENDIENTE = ('pendiente', 'En cola')
+    EN_CURSO = ('en_curso', 'En curso')
+    COMPLETADO = ('completado', 'Completado')
+    ERROR = ('error', 'Error')
+    CANCELADO = ('cancelado', 'Cancelado')
+
+
 # ======================================================================
 # Audit
 # ======================================================================

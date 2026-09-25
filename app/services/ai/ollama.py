@@ -10,6 +10,11 @@ import httpx
 
 from app.models.enums import AIProviderCode
 from app.services.ai.base import AIProvider, AIResponse
+from app.services.ai.parametros import (
+    MAX_TOKENS_POR_DEFECTO,
+    TEMPERATURA_POR_DEFECTO,
+    en_el_cable,
+)
 from app.services.ai.schemas import esquema_de_generacion
 from app.utils import http
 from app.utils.errors import AIError, TransientError
@@ -44,14 +49,21 @@ class OllamaProvider(AIProvider):
 
     def complete(self, request):
         """Run a chat completion."""
+        max_tokens = request.max_tokens or MAX_TOKENS_POR_DEFECTO
+        temperatura = (TEMPERATURA_POR_DEFECTO if request.temperatura is None
+                       else request.temperatura)
+        opciones = en_el_cable(
+            request.parametros or {}, self.codigo, excluir=('max_tokens', 'temperatura'),
+        )
+        opciones.update({
+            'temperature': float(temperatura),
+            'num_predict': int(max_tokens),
+        })
         payload = {
             'model': self._modelo,
             'messages': request.build_messages(),
             'stream': False,
-            'options': {
-                'temperature': float(request.temperatura),
-                'num_predict': int(request.max_tokens),
-            },
+            'options': opciones,
         }
         if request.esquema:
             # Ollama constrains decoding to a JSON schema, not merely to valid
@@ -105,9 +117,10 @@ class OllamaProvider(AIProvider):
             if data.get('done_reason') == 'length':
                 raise AIError(
                     f'El modelo «{self._modelo}» se quedó sin espacio para '
-                    f'responder: agotó los {request.max_tokens} tokens de '
+                    f'responder: agotó los {max_tokens} tokens de '
                     f'salida. Suba «Máximo de tokens» en Administración → '
-                    f'Proveedores de IA.'
+                    f'Proveedores de IA, en el proveedor o en el perfil de '
+                    f'la tarea.'
                 )
             raise AIError(
                 f'El modelo «{self._modelo}» no devolvió contenido'

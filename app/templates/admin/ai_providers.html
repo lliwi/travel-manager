@@ -15,9 +15,14 @@
             Toda la configuración de IA se hace aquí, no en el despliegue.
         </p>
     </div>
-    <a href="{{ url_for('admin.create_ai_provider') }}" class="btn btn-primary">
-        <i class="bi bi-plus-lg me-1"></i>Nuevo proveedor
-    </a>
+    <div class="d-flex gap-2">
+        <a href="{{ url_for('admin.ai_autotune') }}" class="btn btn-outline-primary">
+            <i class="bi bi-magic me-1"></i>Parámetros y autoajuste
+        </a>
+        <a href="{{ url_for('admin.create_ai_provider') }}" class="btn btn-primary">
+            <i class="bi bi-plus-lg me-1"></i>Nuevo proveedor
+        </a>
+    </div>
 </div>
 
 <div class="alert alert-info">
@@ -97,6 +102,9 @@
                             <i class="bi bi-star"></i></button>
                     </form>
                     {% endif %}
+                    <a href="{{ url_for('admin.ai_profiles', provider_id=p.id) }}"
+                       class="btn btn-sm btn-outline-secondary" title="Parámetros por modelo y tarea">
+                        <i class="bi bi-sliders"></i></a>
                     <a href="{{ url_for('admin.edit_ai_provider', provider_id=p.id) }}"
                        class="btn btn-sm btn-outline-secondary" title="Editar">
                         <i class="bi bi-pencil"></i></a>

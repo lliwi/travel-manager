@@ -12,7 +12,10 @@ venv/
 .ruff_cache/
 htmlcov/
 .coverage
-data/
+# El conjunto de evaluación sí entra: sin él, «flask evaluar» y el autoajuste
+# no tienen nada que medir dentro del contenedor.
+data/*
+!data/evaluacion/
 logs/
 volumes/
 *.pem

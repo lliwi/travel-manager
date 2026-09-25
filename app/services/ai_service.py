@@ -29,12 +29,15 @@ from app.services import audit_service
 from app.services.ai import (
     AIRequest,
     UntrustedBlock,
+    componer,
     enforce_egress,
+    forzado_para,
     looks_injected,
     resolve,
     validate_references,
     validate_schema,
 )
+from app.services.ai.parametros import MAX_TOKENS_POR_DEFECTO, TEMPERATURA_POR_DEFECTO
 from app.services.ai.prompts import PROMPTS
 from app.services.ai.schemas import SCHEMAS
 from app.utils.errors import AIContractError, AIError, AIPolicyBlocked
@@ -60,10 +63,22 @@ def _run(tarea, request, actor=None, trip=None, document=None, finalidad=None,
     tarea = AITask.coerce(tarea)
     provider, modelo, params, _binding = resolve(tarea)
 
-    request.max_tokens = request.max_tokens or params['max_tokens']
-    request.temperatura = (
-        params['temperatura'] if request.temperatura is None else request.temperatura
+    pedidos = dict(request.parametros or {})
+    if request.max_tokens is not None:
+        pedidos['max_tokens'] = request.max_tokens
+    if request.temperatura is not None:
+        pedidos['temperatura'] = request.temperatura
+    efectivos, _origen = componer(
+        tarea, getattr(provider, 'config', None), modelo, provider.codigo,
+        generales=params, pedidos=pedidos,
     )
+    request.max_tokens = int(efectivos.pop('max_tokens', MAX_TOKENS_POR_DEFECTO))
+    request.temperatura = float(efectivos.pop('temperatura', TEMPERATURA_POR_DEFECTO))
+    request.parametros = efectivos
+
+    forzado = forzado_para(tarea)
+    if forzado is not None and forzado.etiqueta:
+        finalidad = f'{forzado.etiqueta}: {finalidad or tarea.label}'[:300]
 
     run = AIRun(
         usuario_id=getattr(actor, 'id', None),
@@ -76,6 +91,11 @@ def _run(tarea, request, actor=None, trip=None, document=None, finalidad=None,
         finalidad=finalidad,
         referencias_fuentes=referencias or {},
         fuentes_web=fuentes_web or [],
+        parametros={
+            'max_tokens': request.max_tokens,
+            'temperatura': request.temperatura,
+            **request.parametros,
+        },
         correlation_id=getattr(g, 'correlation_id', None) if has_request_context() else None,
     )
     db.session.add(run)
@@ -304,7 +324,6 @@ def extract_document(document, clasificacion=None, actor=None):
         esquema=esquema,
         contiene_documentos=True,
         contiene_pii=True,
-        temperatura=0.0,
     )
 
     response, run = _run(
@@ -601,8 +620,6 @@ def classify_document(document, actor=None):
         bloques=blocks[:1],
         esquema=esquema,
         contiene_documentos=True,
-        max_tokens=256,
-        temperatura=0.0,
     )
 
     response, run = _run(
@@ -619,17 +636,13 @@ def classify_document(document, actor=None):
 # ======================================================================
 # 3. answer_trip_question
 # ======================================================================
-def answer_trip_question(actor, trip, pregunta):
-    """Answer a question about a trip (specification flow 5.4).
+def peticion_de_consulta(datos, referencia, pregunta):
+    """The request behind a question about a trip.
 
-    The context is built from what *this actor* may see. A traveller's question
-    is answered from their own itinerary; another traveller's segments are not in
-    the context at all, so they cannot appear in the answer.
+    Separate from :func:`answer_trip_question` so the evaluation cases send
+    exactly what production sends, from data that is not in the database.
     """
-    contexto = build_ai_context(actor, trip)
-    esquema = SCHEMAS['answer_trip_question']
-
-    request = AIRequest(
+    return AIRequest(
         tarea=AITask.ANSWER_TRIP_QUESTION.value,
         sistema=PROMPTS['answer_trip_question'],
         instruccion=(
@@ -640,14 +653,25 @@ def answer_trip_question(actor, trip, pregunta):
             f'Pregunta: {pregunta}'
         ),
         bloques=[UntrustedBlock(
-            contenido=json.dumps(contexto['datos'], ensure_ascii=False, indent=2),
-            referencia=str(trip.id),
+            contenido=json.dumps(datos, ensure_ascii=False, indent=2),
+            referencia=referencia,
             tipo='datos_del_viaje',
         )],
-        esquema=esquema,
+        esquema=SCHEMAS['answer_trip_question'],
         contiene_pii=True,
-        temperatura=0.1,
     )
+
+
+def answer_trip_question(actor, trip, pregunta):
+    """Answer a question about a trip (specification flow 5.4).
+
+    The context is built from what *this actor* may see. A traveller's question
+    is answered from their own itinerary; another traveller's segments are not in
+    the context at all, so they cannot appear in the answer.
+    """
+    contexto = build_ai_context(actor, trip)
+    esquema = SCHEMAS['answer_trip_question']
+    request = peticion_de_consulta(contexto['datos'], str(trip.id), pregunta)
 
     response, run = _run(
         AITask.ANSWER_TRIP_QUESTION,
@@ -682,12 +706,9 @@ def answer_trip_question(actor, trip, pregunta):
 # ======================================================================
 # 4. summarize_trip
 # ======================================================================
-def summarize_trip(actor, trip):
-    """Produce an executive summary and a readable itinerary (section 2.5)."""
-    contexto = build_ai_context(actor, trip)
-    esquema = SCHEMAS['summarize_trip']
-
-    request = AIRequest(
+def peticion_de_resumen(datos, referencia):
+    """The request behind a trip summary. See :func:`peticion_de_consulta`."""
+    return AIRequest(
         tarea=AITask.SUMMARIZE_TRIP.value,
         sistema=PROMPTS['summarize_trip'],
         instruccion=(
@@ -696,14 +717,20 @@ def summarize_trip(actor, trip):
             'falte en lugar de completarlo por tu cuenta.'
         ),
         bloques=[UntrustedBlock(
-            contenido=json.dumps(contexto['datos'], ensure_ascii=False, indent=2),
-            referencia=str(trip.id),
+            contenido=json.dumps(datos, ensure_ascii=False, indent=2),
+            referencia=referencia,
             tipo='datos_del_viaje',
         )],
-        esquema=esquema,
+        esquema=SCHEMAS['summarize_trip'],
         contiene_pii=True,
-        temperatura=0.2,
     )
+
+
+def summarize_trip(actor, trip):
+    """Produce an executive summary and a readable itinerary (section 2.5)."""
+    contexto = build_ai_context(actor, trip)
+    esquema = SCHEMAS['summarize_trip']
+    request = peticion_de_resumen(contexto['datos'], str(trip.id))
 
     response, run = _run(
         AITask.SUMMARIZE_TRIP,
@@ -780,7 +807,6 @@ def analyze_risks(actor, trip, contexto_publico=None, lugares=None):
         bloques=bloques,
         esquema=esquema,
         contiene_pii=True,
-        temperatura=0.2,
     )
 
     response, run = _run(
@@ -847,7 +873,6 @@ def research_public_info(actor, trip, consulta, categoria=None):
         # Public web content carries neither our documents nor personal data.
         contiene_documentos=False,
         contiene_pii=False,
-        temperatura=0.2,
     )
 
     response, run = _run(
@@ -884,11 +909,9 @@ def research_public_info(actor, trip, consulta, categoria=None):
 # ======================================================================
 # 7. explain_alert
 # ======================================================================
-def explain_alert(actor, alert):
-    """Explain an alert and propose corrective actions (section 2.5)."""
-    esquema = SCHEMAS['explain_alert']
-
-    request = AIRequest(
+def peticion_de_explicacion(alerta, referencia):
+    """The request behind an alert explanation. See :func:`peticion_de_consulta`."""
+    return AIRequest(
         tarea=AITask.EXPLAIN_ALERT.value,
         sistema=PROMPTS['explain_alert'],
         instruccion=(
@@ -898,21 +921,26 @@ def explain_alert(actor, alert):
             'aportada.'
         ),
         bloques=[UntrustedBlock(
-            contenido=json.dumps({
-                'tipo': alert.tipo,
-                'regla': alert.regla,
-                'severidad': str(alert.severidad),
-                'titulo': alert.titulo,
-                'mensaje': alert.mensaje,
-                'evidencia': alert.evidencia,
-            }, ensure_ascii=False, indent=2),
-            referencia=str(alert.id),
+            contenido=json.dumps(alerta, ensure_ascii=False, indent=2),
+            referencia=referencia,
             tipo='alerta',
         )],
-        esquema=esquema,
+        esquema=SCHEMAS['explain_alert'],
         contiene_pii=True,
-        temperatura=0.2,
     )
+
+
+def explain_alert(actor, alert):
+    """Explain an alert and propose corrective actions (section 2.5)."""
+    esquema = SCHEMAS['explain_alert']
+    request = peticion_de_explicacion({
+        'tipo': alert.tipo,
+        'regla': alert.regla,
+        'severidad': str(alert.severidad),
+        'titulo': alert.titulo,
+        'mensaje': alert.mensaje,
+        'evidencia': alert.evidencia,
+    }, str(alert.id))
 
     response, run = _run(
         AITask.EXPLAIN_ALERT,
@@ -1144,7 +1172,6 @@ def plan_trip(actor, origen, destino, ida=None, vuelta=None, viajeros=1,
         # Nothing here is about a person: a place, two dates and a headcount.
         contiene_documentos=False,
         contiene_pii=False,
-        temperatura=0.3,
     )
 
     response, run = _run(

@@ -1,0 +1,26 @@
+{
+  "descripcion": "Una alerta de margen corto entre la llegada y el check-in.",
+  "referencia": "ejemplo-alerta",
+  "alerta": {
+    "tipo": "margen_insuficiente",
+    "regla": "llegada_antes_de_check_in",
+    "severidad": "media",
+    "titulo": "Llegada al hotel antes de la hora de entrada",
+    "mensaje": "El vuelo VY7604 llega a LGW a las 09:20 y la entrada en Hotel Ejemplo Centro es a partir de las 15:00.",
+    "evidencia": {
+      "llegada_local": "2026-10-31T09:20",
+      "check_in_local": "2026-10-31T15:00",
+      "espera_minutos": 340
+    }
+  },
+  "criterios": {
+    "debe_mencionar": [
+      "15:00",
+      "Hotel Ejemplo Centro"
+    ],
+    "no_debe_mencionar": [
+      "cancelado",
+      "overbooking"
+    ]
+  }
+}

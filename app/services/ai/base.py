@@ -86,8 +86,13 @@ class AIRequest:
     bloques: list = field(default_factory=list)
     #: JSON schema the answer must satisfy.
     esquema: dict = None
-    max_tokens: int = 2048
-    temperatura: float = 0.1
+    #: None means «whatever the configuration says»: the selector fills them
+    #: in. A number here is what the task itself asks for, and a profile
+    #: written for the task still overrides it -- see ``ai/parametros.py``.
+    max_tokens: int = None
+    temperatura: float = None
+    #: Every other sampling parameter, by catalogue key, already layered.
+    parametros: dict = field(default_factory=dict)
     #: Marks the payload as containing documents or personal data, which the
     #: egress guard keys off.
     contiene_documentos: bool = False

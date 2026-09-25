@@ -199,7 +199,10 @@ necesita_build() {
     touch -d "${creada}" "${marca}" 2>/dev/null || { rm -f "${marca}"; return 0; }
 
     local cambios
-    cambios="$(find "${ROOT}/app" "${ROOT}/requirements.txt" "${ROOT}/docker" \
+    # Las migraciones y el conjunto de evaluación también van dentro de la
+    # imagen: una migración nueva sin reconstruir no se aplica nunca.
+    cambios="$(find "${ROOT}/app" "${ROOT}/migrations" "${ROOT}/data/evaluacion" \
+        "${ROOT}/requirements.txt" "${ROOT}/docker" \
         -newer "${marca}" -print -quit 2>/dev/null || true)"
     rm -f "${marca}"
 

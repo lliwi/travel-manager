@@ -56,6 +56,7 @@ def make_celery():
             'app.tasks.document_tasks',
             'app.tasks.alert_tasks',
             'app.tasks.maintenance_tasks',
+            'app.tasks.ai_tasks',
         ],
         task_cls=FlaskTask,
     )
@@ -114,6 +115,13 @@ def make_celery():
             },
             # A verifiable audit trail that nobody verifies is a trail nobody
             # trusts. Tampering only counts as detected if something looks.
+            # Semanal y de madrugada: cada búsqueda son decenas de llamadas al
+            # modelo, y no hay razón para que compitan con las de la gente. La
+            # tarea no hace nada mientras no se active en Ajustes.
+            'autoajuste-de-la-ia': {
+                'task': 'app.tasks.ai.periodic_autotune',
+                'schedule': crontab(day_of_week=0, hour=2, minute=0),
+            },
             'verificar-cadena-de-auditoria': {
                 'task': 'app.tasks.maintenance.verify_audit_chain',
                 'schedule': crontab(hour=5, minute=0),

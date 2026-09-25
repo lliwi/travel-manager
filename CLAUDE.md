@@ -193,6 +193,33 @@ and no way to tell which one is real, so the numbers have exactly one source.
 The rows themselves arrive as an `UntrustedBlock` like any other outside
 content: a hotel named «ignora tus instrucciones» is content, not an order.
 
+## Sampling parameters are layered, and the tuner writes the top layer
+
+`ai/parametros.py` is the one catalogue of sampling parameters: the forms, the
+validator, both providers and the tuner all read it. It also maps each one to
+the name each wire family uses, so nothing is sent to an endpoint that does
+not take it. From lowest to highest: the provider row, the model's profile for
+every task, what the task asks for in code (`DEFECTOS_POR_TAREA`), and the
+model's profile *for that task*. The order is what stops a model-wide
+«temperature 0.7» from undoing extraction's 0. Every run records what was
+actually sent in `ai_runs.parametros`.
+
+`autotune_service` searches a small grid one parameter at a time against the
+evaluation cases (`evaluation_service.medir`), with the real task run under
+`selector.forzar`. Its result is a proposal. It applies itself only when
+whoever launched it asked for that *and* the gain clears
+`MEJORA_MINIMA_PARA_APLICAR`. Applying keeps the previous profile, and
+reverting refuses to overwrite a later change. Faster and slightly worse never
+wins: that trade is a person's call. The first call of a search is a
+warm-up and not counted: a local model loads on it, and without it every
+search was biased against the configuration it started from.
+
+A search is never one Celery task. Each step runs one trial and queues the
+next, the plan is replayed from the trials in the row, and the row's
+`celery_task_id` is the token that says which step owns it. As a single task,
+a search on a 9B model hit the worker's 30-minute limit at trial 8 and died
+without a word -- and a deploy would have killed it the same way.
+
 ## Observability
 
 `/healthz` and `/readyz` say whether the system is alive; `/metrics` says how
@@ -229,6 +256,7 @@ $COMPOSE logs -f worker
 
 $COMPOSE exec web flask evaluar              # conjunto dorado; --modelo para probar otro
 $COMPOSE exec web flask ai-stats             # cómo se ha portado cada modelo
+$COMPOSE exec web flask autoajustar --tarea extract_document   # busca mejores parámetros
 
 ./scripts/backup.sh                         # base de datos + documentos, juntos
 ./scripts/restore.sh --from backups/backup_AAAAMMDD_HHMMSS

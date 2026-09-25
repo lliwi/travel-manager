@@ -1,0 +1,35 @@
+{# Los campos de los parámetros de muestreo, generados del catálogo
+   (app/services/ai/parametros.py) para que un parámetro nuevo aparezca en
+   todas las pantallas a la vez. Vacío significa «lo que diga el endpoint»,
+   que no es lo mismo que ningún valor concreto. #}
+{% macro campos_de_parametros(specs, valores, prefijo='p_', col='col-md-6') %}
+<div class="row">
+    {% for p in specs %}
+    {% set valor = (valores or {}).get(p.clave) %}
+    <div class="{{ col }} mb-3 js-parametro" data-familias="{{ p.familias | join(' ') }}">
+        <label class="form-label" for="{{ prefijo }}{{ p.clave }}">{{ p.etiqueta }}</label>
+        {% if p.tipo == 'lista' %}
+        <textarea class="form-control form-control-sm" rows="2"
+                  id="{{ prefijo }}{{ p.clave }}" name="{{ prefijo }}{{ p.clave }}"
+                  placeholder="ninguna">{{ (valor or []) | join('\n') }}</textarea>
+        {% else %}
+        <input type="number" class="form-control form-control-sm"
+               id="{{ prefijo }}{{ p.clave }}" name="{{ prefijo }}{{ p.clave }}"
+               value="{{ valor if valor is not none else '' }}"
+               {% if p.minimo is not none %}min="{{ p.minimo }}"{% endif %}
+               {% if p.maximo is not none %}max="{{ p.maximo }}"{% endif %}
+               step="{{ p.paso or 'any' }}" placeholder="por defecto">
+        {% endif %}
+        <div class="form-text">{{ p.ayuda }}</div>
+    </div>
+    {% endfor %}
+</div>
+{% endmacro %}
+
+{# Una lista compacta de parámetros ya fijados: «Temperatura 0.2 · Top-p 0.9». #}
+{% macro resumen_de_parametros(pares, vacio='—') %}
+{% if pares %}
+{% for etiqueta, valor in pares %}<span class="text-nowrap">{{ etiqueta }}
+<code>{{ valor | join(', ') if valor is iterable and valor is not string else valor }}</code></span>{% if not loop.last %} · {% endif %}{% endfor %}
+{% else %}<span class="text-muted">{{ vacio }}</span>{% endif %}
+{% endmacro %}

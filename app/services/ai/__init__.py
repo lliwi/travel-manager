@@ -20,14 +20,23 @@ from app.services.ai.guard import (
 )
 from app.services.ai.ollama import OllamaProvider
 from app.services.ai.openai_compatible import OpenAICompatibleProvider, StubProvider
-from app.services.ai.selector import build_provider, fallback_for, resolve
+from app.services.ai.selector import (
+    build_provider,
+    componer,
+    explicar,
+    fallback_for,
+    forzado_para,
+    forzar,
+    resolve,
+)
 
 logger = logging.getLogger(__name__)
 
 __all__ = [
     'AIProvider', 'AIRequest', 'AIResponse', 'UntrustedBlock',
     'OllamaProvider', 'OpenAICompatibleProvider', 'StubProvider',
-    'resolve', 'build_provider', 'fallback_for',
+    'resolve', 'build_provider', 'fallback_for', 'componer', 'explicar',
+    'forzar', 'forzado_para',
     'check_egress', 'enforce_egress', 'validate_schema', 'validate_references',
     'looks_injected', 'health_check', 'health_check_all',
 ]

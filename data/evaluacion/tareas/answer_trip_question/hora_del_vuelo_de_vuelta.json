@@ -1,0 +1,87 @@
+{
+  "descripcion": "Un dato que está en el viaje: debe darlo, con su hora local.",
+  "referencia": "ejemplo-vuelta",
+  "datos": {
+    "viaje": {
+      "id": "viaje-ejemplo-1",
+      "referencia": "VJ-EJEMPLO-001",
+      "titulo": "Visita a cliente de ejemplo en Londres",
+      "estado": "Confirmado",
+      "finalidad": "Reunión con cliente",
+      "inicio": "2026-10-31T07:55",
+      "inicio_zona": "Europe/Madrid",
+      "fin": "2026-11-02T21:30",
+      "fin_zona": "Europe/Madrid",
+      "observaciones": null
+    },
+    "destinos": [
+      {
+        "ciudad": "Londres",
+        "pais": "GB"
+      }
+    ],
+    "viajeros": [
+      {
+        "id": "viajero-ejemplo-1",
+        "nombre": "Persona Ejemplo",
+        "rol": "viajero"
+      }
+    ],
+    "segmentos": [
+      {
+        "id": "seg-ejemplo-ida",
+        "tipo": "vuelo",
+        "numero": "VY7604",
+        "operador": "Vueling",
+        "origen": "BCN",
+        "destino": "LGW",
+        "salida_local": "2026-10-31T07:55",
+        "salida_tz": "Europe/Madrid",
+        "llegada_local": "2026-10-31T09:20",
+        "llegada_tz": "Europe/London",
+        "localizador": "QWERTY"
+      },
+      {
+        "id": "seg-ejemplo-vuelta",
+        "tipo": "vuelo",
+        "numero": "VY7607",
+        "operador": "Vueling",
+        "origen": "LGW",
+        "destino": "BCN",
+        "salida_local": "2026-11-02T18:05",
+        "salida_tz": "Europe/London",
+        "llegada_local": "2026-11-02T21:30",
+        "llegada_tz": "Europe/Madrid",
+        "localizador": "QWERTY"
+      }
+    ],
+    "alojamientos": [
+      {
+        "id": "aloj-ejemplo-1",
+        "nombre": "Hotel Ejemplo Centro",
+        "ciudad": "Londres",
+        "check_in_local": "2026-10-31T15:00",
+        "check_out_local": "2026-11-02T10:00",
+        "zona_horaria": "Europe/London",
+        "localizador": "750959"
+      }
+    ],
+    "vehiculos": [],
+    "servicios": [],
+    "alertas": [],
+    "recomendaciones": []
+  },
+  "pregunta": "¿A qué hora sale el vuelo de vuelta?",
+  "criterios": {
+    "debe_mencionar": [
+      "18:05",
+      "VY7607"
+    ],
+    "no_debe_mencionar": [
+      "07:55"
+    ],
+    "campos": {
+      "datos_insuficientes": false
+    }
+  }
+}

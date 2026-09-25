@@ -5,7 +5,13 @@ is what both ``db.create_all()`` and Alembic autogenerate rely on. The
 application factory imports it once inside an app context.
 """
 from app.models.advisory import DISCLAIMER, SecurityAdvisory, WebFetch, WebSource
-from app.models.ai import AIProviderConfig, AIRun, AITaskBinding
+from app.models.ai import (
+    AIAutotuneRun,
+    AIParameterProfile,
+    AIProviderConfig,
+    AIRun,
+    AITaskBinding,
+)
 from app.models.alert import Alert, AlertRuleSetting, AlertRun, AlertTransition
 from app.models.audit import GENESIS_HASH, AuditEvent
 from app.models.base import (
@@ -66,7 +72,7 @@ __all__ = [
     # Advisories and research
     'SecurityAdvisory', 'WebSource', 'WebFetch', 'DISCLAIMER',
     # AI
-    'AIProviderConfig', 'AITaskBinding', 'AIRun',
+    'AIProviderConfig', 'AITaskBinding', 'AIRun', 'AIParameterProfile', 'AIAutotuneRun',
     # Catalogues and settings
     'Country', 'Location', 'SystemSetting', 'TravelerDocument',
     # Audit

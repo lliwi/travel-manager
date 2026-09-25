@@ -6,12 +6,18 @@ specification section 2.5 asks for when it calls vLLM "compatible con APIs tipo
 OpenAI".
 """
 import logging
+import re
 import time
 
 import httpx
 
 from app.models.enums import EXTERNAL_AI_PROVIDERS, AIProviderCode
 from app.services.ai.base import AIProvider, AIResponse
+from app.services.ai.parametros import (
+    MAX_TOKENS_POR_DEFECTO,
+    TEMPERATURA_POR_DEFECTO,
+    en_el_cable,
+)
 from app.utils import http
 from app.utils.errors import AIError, TransientError
 
@@ -28,9 +34,16 @@ _OTRO_PARAMETRO = {
     'max_completion_tokens': 'max_tokens',
 }
 
-#: Parameters an endpoint may refuse, and what to do about each. Order matters
-#: only in that each is tried once.
-_CORRECCIONES = ('max_tokens', 'temperature')
+#: Attempts at correcting one request before giving up: the token limit, the
+#: temperature, and each optional parameter an administrator may have set.
+_MAX_CORRECCIONES = 10
+
+#: Payload keys that are the request itself, never an optional parameter an
+#: endpoint may be allowed to drop.
+_ESENCIALES = frozenset((
+    'model', 'messages', 'response_format', 'max_tokens', 'max_completion_tokens',
+    'temperature', 'reasoning_effort',
+))
 
 
 def _corregir(payload, detalle, token_param):
@@ -47,6 +60,15 @@ def _corregir(payload, detalle, token_param):
         if alternativa and token_param in payload:
             payload[alternativa] = payload.pop(token_param)
             return {'token_param': alternativa}
+
+    # Optional parameters before temperature: «top_p is not supported with
+    # temperature» names both, and the one to drop is the one we added.
+    for nombre in sorted(set(payload) - _ESENCIALES, key=len, reverse=True):
+        # Whole words only: «stop» must not match «stopped», nor «seed» a
+        # sentence about something that «exceeded» a limit.
+        if re.search(rf'(?<![a-z_]){re.escape(nombre.lower())}(?![a-z_])', texto):
+            payload.pop(nombre)
+            return {'no_admitidos': [nombre]}
 
     if 'temperature' in texto and 'temperature' in payload:
         # Dropped rather than set to the value it demands: the default is the
@@ -112,13 +134,25 @@ class OpenAICompatibleProvider(AIProvider):
                 f'No hay clave API configurada para el proveedor «{self.codigo}».'
             )
 
+        max_tokens = request.max_tokens or MAX_TOKENS_POR_DEFECTO
+        temperatura = (TEMPERATURA_POR_DEFECTO if request.temperatura is None
+                       else request.temperatura)
+        rechazados = set(self.rechazados())
         payload = {
+            nombre: valor
+            for nombre, valor in en_el_cable(
+                request.parametros or {}, self.codigo,
+                excluir=('max_tokens', 'temperatura'),
+            ).items()
+            if nombre not in rechazados and nombre not in _ESENCIALES
+        }
+        payload.update({
             'model': self._modelo,
             'messages': request.build_messages(),
-            self._token_param(): int(request.max_tokens),
-        }
+            self._token_param(): int(max_tokens),
+        })
         if not self._ajustes().get('sin_temperatura'):
-            payload['temperature'] = float(request.temperatura)
+            payload['temperature'] = float(temperatura)
         if request.esquema:
             payload['response_format'] = {'type': 'json_object'}
         if self._pedir_sin_razonar():
@@ -247,6 +281,10 @@ class OpenAICompatibleProvider(AIProvider):
         """What this endpoint has already told us it will not accept."""
         return getattr(self.config, 'parametros', None) or {}
 
+    def rechazados(self):
+        """Wire names of the optional parameters this model has refused."""
+        return list((self._ajustes().get('no_admitidos') or {}).get(self._modelo) or ())
+
     def _token_param(self):
         """Which name this endpoint gives the output-length limit.
 
@@ -269,7 +307,7 @@ class OpenAICompatibleProvider(AIProvider):
         url = f'{self.base_url}/chat/completions'
         aprendido = {}
 
-        for _ in range(len(_CORRECCIONES) + 1):
+        for _ in range(_MAX_CORRECCIONES + 1):
             response = client.post(url, json=payload, headers=headers)
             if response.status_code != 400:
                 if aprendido:
@@ -280,6 +318,10 @@ class OpenAICompatibleProvider(AIProvider):
             arreglo = _corregir(payload, detalle, self._token_param())
             if not arreglo:
                 return response
+            if 'no_admitidos' in arreglo:
+                arreglo['no_admitidos'] = sorted(
+                    set(aprendido.get('no_admitidos', ())) | set(arreglo['no_admitidos'])
+                )
             aprendido.update(arreglo)
             logger.info(
                 'El endpoint %s rechazó un parámetro (%s); se reintenta.',
@@ -296,6 +338,17 @@ class OpenAICompatibleProvider(AIProvider):
             from app.extensions import db
 
             parametros = dict(self.config.parametros or {})
+            if 'no_admitidos' in ajustes:
+                # Per model: one endpoint serves several, and what o3 refuses
+                # gpt-4o-mini may take. Now that a task's model is the one
+                # actually sent, sharing the list would silently strip a
+                # setting from the model that accepts it.
+                por_modelo = dict(parametros.get('no_admitidos') or {})
+                por_modelo[self._modelo] = sorted(
+                    set(por_modelo.get(self._modelo) or ())
+                    | set(ajustes['no_admitidos'])
+                )
+                ajustes = dict(ajustes, no_admitidos=por_modelo)
             parametros.update(ajustes)
             self.config.parametros = parametros
             db.session.commit()
@@ -369,8 +422,9 @@ def _explicar_respuesta_vacia(codigo, modelo, choice, usage):
             gasto = f' Agotó los {gastados} tokens de salida.'
         raise AIError(
             f'El modelo «{modelo}» se quedó sin espacio para responder.{gasto} '
-            f'Suba «Máximo de tokens» en Administración → Proveedores de IA, o '
-            f'asigne esta tarea a un modelo que no razone.'
+            f'Suba «Máximo de tokens» en Administración → Proveedores de IA '
+            f'(en el proveedor o en el perfil de la tarea), o asigne esta '
+            f'tarea a un modelo que no razone.'
         )
 
     if motivo == 'content_filter':
