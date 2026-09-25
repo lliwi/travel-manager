@@ -58,11 +58,37 @@ def _conf():
         'puerto': settings_service.get_int('LDAP_PUERTO', 389),
         'ssl': settings_service.get_bool('LDAP_SSL', False),
         'starttls': settings_service.get_bool('LDAP_STARTTLS', False),
-        'usuario': settings_service.get('LDAP_USUARIO', ''),
+        'usuario': normalizar_dn(settings_service.get('LDAP_USUARIO', '')),
         'contrasena': settings_service.get('LDAP_CONTRASENA', ''),
-        'ruta': (settings_service.get('LDAP_RUTA', '') or '').strip(),
+        'ruta': normalizar_dn(settings_service.get('LDAP_RUTA', '')),
         'atributo': settings_service.get('LDAP_ATRIBUTO_USUARIO', 'sAMAccountName'),
     }
+
+
+def normalizar_dn(valor):
+    """A DN as ldap3 accepts it: no spaces around the separators.
+
+    Active Directory's own tools write «OU=IDB, DC=local, DC=private», and
+    that is what gets copied into the form. AD accepts it; ldap3 refuses it
+    before sending anything -- «character ' ' not allowed in attribute type»
+    -- which reached the screen as a server error on the connection test.
+
+    Only the separators are touched: a space inside a value («CN=viajero 1
+    uno») is part of the name, and an escaped comma («CN=López\\, Ana») is
+    not a separator. Anything without «=» -- «usuario@dominio» -- is not a
+    DN and comes back as it was.
+    """
+    import re
+
+    texto = (valor or '').strip()
+    if '=' not in texto:
+        return texto
+    partes = re.split(r'(?<!\\),', texto)
+    limpias = []
+    for parte in partes:
+        atributo, igual, resto = parte.strip().partition('=')
+        limpias.append(f'{atributo.strip()}{igual}{resto.strip()}' if igual else parte.strip())
+    return ','.join(limpias)
 
 
 def esta_configurado():

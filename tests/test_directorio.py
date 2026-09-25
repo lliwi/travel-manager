@@ -166,6 +166,27 @@ class TestLaRutaPuedeSerUnaOuOUnGrupo:
         assert directorio.authenticate('alopez', CLAVE).exito is True
         assert directorio.authenticate('dperez', CLAVE).exito is False
 
+    def test_la_ruta_se_acepta_con_espacios_tras_las_comas(
+        self, app, seeded, directorio,
+    ):
+        """As Active Directory's own tools write it, and as it gets copied.
+
+        ldap3 refused it before sending anything, and the connection test
+        answered with a server error.
+        """
+        _configurar(ruta=OU.replace(',', ', '))
+
+        assert directorio.authenticate('alopez', CLAVE).exito is True
+
+    def test_solo_se_tocan_los_separadores(self):
+        assert ldap_module.normalizar_dn(' CN = viajero 1 uno , OU=IDB, DC=local ') == (
+            'CN=viajero 1 uno,OU=IDB,DC=local'
+        )
+        assert ldap_module.normalizar_dn('CN=López\\, Ana, DC=x') == 'CN=López\\, Ana,DC=x'
+        assert ldap_module.normalizar_dn('Administrator@local.private') == (
+            'Administrator@local.private'
+        )
+
     def test_la_raiz_se_deduce_de_la_ruta(self):
         """Members of a group live wherever they live, so the search widens to
         the domain -- which is already inside the path somebody typed."""
