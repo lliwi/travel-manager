@@ -31,8 +31,8 @@
                     {{ render_field(form.notas, rows=3) }}
                 </div>
             </div>
-            <div class="d-flex gap-2">
-                {{ form.submit }}
+            <div class="form-actions">
+                {{ form.submit(class='btn btn-primary') }}
                 <a href="{{ url_for('auth.traveler_documents', user_id=user_id) }}"
                    class="btn btn-outline-secondary">Cancelar</a>
             </div>

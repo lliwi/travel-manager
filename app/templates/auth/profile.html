@@ -23,7 +23,7 @@
                         <div class="col-md-6">{{ render_field(form.departamento) }}</div>
                         <div class="col-md-6">{{ render_field(form.zona_horaria) }}</div>
                     </div>
-                    {{ form.submit }}
+                    {{ form.submit(class='btn btn-primary') }}
                 </form>
                 {% else %}
                 {# Cuenta del directorio: se muestra lo que hay, no se edita.

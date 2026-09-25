@@ -1,5 +1,4 @@
 """Trip forms."""
-from flask_wtf import FlaskForm
 from wtforms import (
     BooleanField,
     DateTimeLocalField,
@@ -20,6 +19,7 @@ from app.models.enums import (
     TripPurpose,
     TripStatus,
 )
+from app.utils.forms import Formulario
 
 #: HTML datetime-local inputs submit this format.
 DATETIME_FORMAT = '%Y-%m-%dT%H:%M'
@@ -29,7 +29,8 @@ def _optional_choices(enum_cls, blank='— Sin especificar —'):
     return [('', blank)] + enum_cls.choices()
 
 
-class TripForm(FlaskForm):
+
+class TripForm(Formulario):
     """Create or edit a trip.
 
     Dates are captured as *local* wall-clock values plus a timezone; the service
@@ -119,7 +120,7 @@ class TripForm(FlaskForm):
         return ok
 
 
-class TravelerForm(FlaskForm):
+class TravelerForm(Formulario):
     """Assign a person to a trip."""
 
     user_id = SelectField(
@@ -140,7 +141,7 @@ class TravelerForm(FlaskForm):
     submit = SubmitField('Asignar')
 
 
-class DestinationForm(FlaskForm):
+class DestinationForm(Formulario):
     """Add a destination to a trip."""
 
     ciudad = StringField(
@@ -159,7 +160,7 @@ class DestinationForm(FlaskForm):
     submit = SubmitField('Añadir destino')
 
 
-class TripFilterForm(FlaskForm):
+class TripFilterForm(Formulario):
     """Trip list filters. GET form, so CSRF is not applicable."""
 
     class Meta:
@@ -208,7 +209,7 @@ def _tz_field(label, description=None):
     )
 
 
-class ItineraryItemForm(FlaskForm):
+class ItineraryItemForm(Formulario):
     """Fields every itinerary item shares.
 
     Manual entry captures wall-clock time plus its zone, exactly as extraction
@@ -338,7 +339,7 @@ ITINERARY_FORMS = {
 }
 
 
-class AssistantForm(FlaskForm):
+class AssistantForm(Formulario):
     """One question about one trip.
 
     Deliberately not a conversation. Each question is answered on its own from
@@ -358,7 +359,7 @@ class AssistantForm(FlaskForm):
     submit = SubmitField('Preguntar')
 
 
-class PlanningForm(FlaskForm):
+class PlanningForm(Formulario):
     """Ask the assistant how to make a journey.
 
     Not a booking form and not shaped like one: no times, no carriers, no

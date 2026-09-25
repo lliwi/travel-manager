@@ -1,5 +1,4 @@
 """Administration forms."""
-from flask_wtf import FlaskForm
 from wtforms import (
     BooleanField,
     DecimalField,
@@ -19,6 +18,7 @@ from wtforms.validators import (
 )
 
 from app.models.enums import AIProviderCode, AITask, UserStatus
+from app.utils.forms import Formulario
 
 
 def _correo_valido(form, field):
@@ -40,6 +40,7 @@ def _correo_valido(form, field):
         raise WTFValidationError(exc.mensaje) from exc
 
 
+
 class MultiCheckboxField(SelectMultipleField):
     """Role selection rendered as checkboxes rather than a multi-select."""
 
@@ -47,7 +48,7 @@ class MultiCheckboxField(SelectMultipleField):
     option_widget = widgets.CheckboxInput()
 
 
-class UserForm(FlaskForm):
+class UserForm(Formulario):
     """Create or edit an account."""
 
     username = StringField(
@@ -77,7 +78,7 @@ class UserForm(FlaskForm):
     submit = SubmitField('Guardar')
 
 
-class AIProviderForm(FlaskForm):
+class AIProviderForm(Formulario):
     """Configure an inference endpoint.
 
     The stored API key is never rendered back: on an edit, leaving the field
@@ -157,7 +158,7 @@ class AIProviderForm(FlaskForm):
         return True
 
 
-class AITaskBindingForm(FlaskForm):
+class AITaskBindingForm(Formulario):
     """Assign one task to a provider (specification section 2.5)."""
 
     tarea = SelectField('Tarea', choices=AITask.choices(), validators=[DataRequired()])

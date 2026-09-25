@@ -11,7 +11,7 @@
     Parámetros que la organización decide y que pueden cambiar sin desplegar.
 </p></div>
 
-<form method="post">
+<form method="post" id="form-ajustes">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
     {% for clave, nombre, ayuda, ajustes in bloques %}
@@ -40,7 +40,10 @@
         <div class="card-body">
             {% for ajuste in ajustes %}
             {% set valor = get(ajuste.clave) %}
-            <div class="setting-row">
+            {% set elegibles = opciones(ajuste.clave) %}
+            {# El ancho según lo que se espera escribir, no el mismo para todo:
+               un DN no cabía y un puerto parecía un campo vacío. #}
+            <div class="setting-row es-{{ 'corto' if ajuste.tipo == 'bool' else ancho(ajuste.clave) }}">
                 <div class="setting-info">
                     <label for="ajuste__{{ ajuste.clave }}" class="fw-semibold">{{ ajuste.nombre }}</label>
                     {% if ajuste.descripcion %}
@@ -55,6 +58,13 @@
                                id="ajuste__{{ ajuste.clave }}" name="ajuste__{{ ajuste.clave }}"
                                value="true" {{ 'checked' if valor }}>
                     </div>
+                    {% elif elegibles %}
+                    <select class="form-select form-select-sm"
+                            id="ajuste__{{ ajuste.clave }}" name="ajuste__{{ ajuste.clave }}">
+                        {% for opcion, etiqueta in elegibles %}
+                        <option value="{{ opcion }}" {{ 'selected' if valor == opcion }}>{{ etiqueta }}</option>
+                        {% endfor %}
+                    </select>
                     {% elif ajuste.tipo == 'secreto' %}
                     {# Never rendered back, not even to whoever typed it. The
                        field arrives empty and an empty field means «keep». #}
@@ -78,8 +88,13 @@
     </div>
     {% endfor %}
 
-    <button type="submit" class="btn btn-primary">
-        <i class="bi bi-save me-1"></i>Guardar ajustes</button>
+    {# Pegada abajo: la página es larga, y cambiar el primer ajuste no debe
+       obligar a bajar hasta el final para guardarlo. #}
+    <div class="form-actions" id="acciones-ajustes">
+        <button type="submit" class="btn btn-primary">
+            <i class="bi bi-save me-1"></i>Guardar ajustes</button>
+        <span class="form-actions-nota" id="estado-ajustes">Los cambios se aplican al guardar.</span>
+    </div>
 </form>
 
 {# Los proveedores no son un valor sino filas con su propia vida —claves
@@ -133,4 +148,30 @@
     </div>
     {% endif %}
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script nonce="{{ csp_nonce() }}">
+// Decir que hay cambios sin guardar, y avisar antes de irse con ellos: en una
+// página así de larga, lo fácil es cambiar algo, seguir leyendo y marcharse.
+(function () {
+    'use strict';
+    var form = document.getElementById('form-ajustes');
+    var nota = document.getElementById('estado-ajustes');
+    if (!form || !nota) { return; }
+    var sucio = false;
+    function marcar() {
+        if (sucio) { return; }
+        sucio = true;
+        nota.textContent = 'Hay cambios sin guardar.';
+        nota.classList.add('text-warning-emphasis', 'fw-medium');
+    }
+    form.addEventListener('input', marcar);
+    form.addEventListener('change', marcar);
+    form.addEventListener('submit', function () { sucio = false; });
+    window.addEventListener('beforeunload', function (e) {
+        if (sucio) { e.preventDefault(); e.returnValue = ''; }
+    });
+})();
+</script>
 {% endblock %}

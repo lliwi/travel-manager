@@ -49,8 +49,8 @@
             {{ render_field(form.roles) }}
             {{ render_field(form.password) }}
             {% endif %}
-            <div class="d-flex gap-2">
-                {{ form.submit }}
+            <div class="form-actions">
+                {{ form.submit(class='btn btn-primary') }}
                 <a href="{{ url_for('admin.users') }}" class="btn btn-outline-secondary">Cancelar</a>
             </div>
         </form>

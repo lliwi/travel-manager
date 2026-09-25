@@ -42,8 +42,8 @@
                 <form method="post" novalidate>
                     {{ form.hidden_tag() }}
                     {{ render_field(form.codigo, placeholder='000000') }}
-                    <div class="d-flex gap-2">
-                        {{ form.submit }}
+                    <div class="form-actions">
+                        {{ form.submit(class='btn btn-primary') }}
                         <a href="{{ url_for('auth.profile') }}"
                            class="btn btn-outline-secondary">Cancelar</a>
                     </div>

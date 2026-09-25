@@ -1,5 +1,4 @@
 """Authentication forms."""
-from flask_wtf import FlaskForm
 from wtforms import (
     BooleanField,
     DateField,
@@ -11,8 +10,10 @@ from wtforms import (
 )
 from wtforms.validators import DataRequired, EqualTo, Length, Optional
 
+from app.utils.forms import Formulario
 
-class LoginForm(FlaskForm):
+
+class LoginForm(Formulario):
     """Credential entry."""
 
     username = StringField(
@@ -29,7 +30,7 @@ class LoginForm(FlaskForm):
     submit = SubmitField('Entrar')
 
 
-class ChangePasswordForm(FlaskForm):
+class ChangePasswordForm(Formulario):
     """Password change from the profile screen."""
 
     current_password = PasswordField(
@@ -56,7 +57,7 @@ class ChangePasswordForm(FlaskForm):
     submit = SubmitField('Cambiar contraseña')
 
 
-class MFAForm(FlaskForm):
+class MFAForm(Formulario):
     """The six digits, or a recovery code.
 
     One field for both because they are the same question -- «prove it is
@@ -75,7 +76,7 @@ class MFAForm(FlaskForm):
     submit = SubmitField('Entrar')
 
 
-class ProfileForm(FlaskForm):
+class ProfileForm(Formulario):
     """Editable profile fields."""
 
     nombre = StringField('Nombre', validators=[DataRequired(), Length(max=150)])
@@ -90,7 +91,7 @@ class ProfileForm(FlaskForm):
     submit = SubmitField('Guardar cambios')
 
 
-class TravelerDocumentForm(FlaskForm):
+class TravelerDocumentForm(Formulario):
     """A passport, visa or policy somebody carries.
 
     The number is write-only: it is never rendered back, so leaving it empty

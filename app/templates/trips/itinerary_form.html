@@ -149,8 +149,8 @@
                 </div>
             </div>
 
-            <div class="d-flex gap-2">
-                {{ form.submit }}
+            <div class="form-actions">
+                {{ form.submit(class='btn btn-primary') }}
                 <a href="{{ url_for('trips.detail', trip_id=trip.id) }}" class="btn btn-outline-secondary">Cancelar</a>
             </div>
         </form>

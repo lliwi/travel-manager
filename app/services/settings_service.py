@@ -170,9 +170,8 @@ DEFAULTS = {
     # --- Second factor ------------------------------------------------
     'MFA_OBLIGATORIO': (
         'ninguno', 'string', 'seguridad', 'Exigir segundo factor',
-        'Quién está obligado a configurar un código de un solo uso: «ninguno», '
-        '«administradores», «gestion» (gestores y administradores) o «todos». '
-        'Quien no lo tenga configurado será llevado a configurarlo al entrar. '
+        'Quién está obligado a configurar un código de un solo uso. Quien no '
+        'lo tenga configurado será llevado a configurarlo al entrar. '
         'Por debajo de esa exigencia, cualquiera puede activarlo por su cuenta '
         'desde su perfil.',
         False,
@@ -394,6 +393,48 @@ def es_secreto(clave):
     return bool(declared) and declared[1] == 'secreto'
 
 
+#: Settings that only accept a fixed set of values, shown as a dropdown.
+#: As a text box, «Todos» with a capital or «administrador» in the singular
+#: was read as «ninguno»: a typo switched the second factor off in silence.
+OPCIONES = {
+    'MFA_OBLIGATORIO': (
+        ('ninguno', 'Nadie'),
+        ('administradores', 'Administradores'),
+        ('gestion', 'Gestores y administradores'),
+        ('todos', 'Todas las cuentas'),
+    ),
+}
+
+#: How much text each setting is expected to hold, for the screen.
+#: «corto» -- a number or a code; «medio» -- a name, a host, an address;
+#: «largo» -- a DN, a URL or a list, which gets the whole row. Anything not
+#: listed takes its type's default (see :func:`ancho`).
+ANCHOS = {
+    'IDIOMA_POR_DEFECTO': 'corto',
+    'BUSQUEDA_VIAJES_MONEDA': 'corto',
+    'POLITICA_MONEDA': 'corto',
+    'LDAP_USUARIO': 'largo',
+    'LDAP_RUTA': 'largo',
+    'PROXY_SALIDA': 'largo',
+    'PROXY_EXCEPCIONES': 'largo',
+    'CORREO_REMITENTE': 'largo',
+}
+
+
+def opciones(clave):
+    """The allowed ``(valor, etiqueta)`` pairs, or None for free text."""
+    return OPCIONES.get(clave)
+
+
+def ancho(clave):
+    """How wide the field for this setting should be: corto, medio or largo."""
+    if clave in ANCHOS:
+        return ANCHOS[clave]
+    declared = DEFAULTS.get(clave)
+    tipo = declared[1] if declared else 'string'
+    return 'corto' if tipo in ('int', 'float') else 'medio'
+
+
 def get(clave, default=None):
     """Read a setting, falling back to its declared default.
 
@@ -463,6 +504,15 @@ def set_value(clave, valor, actor=None, commit=True):
         )
         db.session.add(setting)
 
+    permitidos = OPCIONES.get(clave)
+    if permitidos and valor not in {v for v, _ in permitidos}:
+        from app.utils.errors import ValidationError
+
+        raise ValidationError(
+            f'«{valor}» no es un valor válido para '
+            f'{declared[3] if declared else clave}.'
+        )
+
     if es_secreto(clave) and valor:
         from app.utils.crypto import encrypt_secret
 
@@ -487,15 +537,23 @@ def all_settings(grupo=None, include_admin_only=True):
 
 
 def seed_defaults(commit=True):
-    """Create any missing setting from :data:`DEFAULTS`.
+    """Create any missing setting from :data:`DEFAULTS`, and refresh the rest.
 
-    Idempotent: existing values are never overwritten, so an administrator's
-    change survives an upgrade that adds new settings.
+    Idempotent. The *value* of an existing setting is never overwritten, so an
+    administrator's change survives an upgrade. What describes it -- name,
+    description, group -- belongs to the code and is brought up to date:
+    otherwise a corrected explanation reached new installations only, and
+    one that is already running kept the old text for ever.
     """
-    existing = {s.clave for s in SystemSetting.query.all()}
+    existing = {s.clave: s for s in SystemSetting.query.all()}
     created = 0
     for clave, (valor, tipo, grupo, nombre, descripcion, visible) in DEFAULTS.items():
-        if clave in existing:
+        fila = existing.get(clave)
+        if fila is not None:
+            for campo, nuevo in (('nombre', nombre), ('descripcion', descripcion),
+                                 ('grupo', grupo), ('visible_gestor', visible)):
+                if getattr(fila, campo) != nuevo:
+                    setattr(fila, campo, nuevo)
             continue
         db.session.add(SystemSetting(
             clave=clave,
@@ -507,7 +565,7 @@ def seed_defaults(commit=True):
             visible_gestor=visible,
         ))
         created += 1
-    if commit and created:
+    if commit and (created or db.session.dirty):
         db.session.commit()
     return created
 

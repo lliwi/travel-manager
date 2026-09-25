@@ -14,7 +14,7 @@
     <form method="post" novalidate>
         {{ form.hidden_tag() }}
         {{ render_field(form.codigo, placeholder='000000') }}
-        {{ form.submit }}
+        {{ form.submit(class='btn btn-primary w-100') }}
     </form>
 
     <p class="text-muted small mt-3 mb-0">

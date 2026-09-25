@@ -314,8 +314,20 @@ class TestLaPoliticaDeObligatoriedad:
 
     def test_un_valor_desconocido_no_exige_nada(self, app, admin):
         """Failing towards «locked out of the application» because somebody
-        mistyped a setting would be a poor trade."""
-        settings_service.set_value('MFA_OBLIGATORIO', 'sí, claro')
+        mistyped a setting would be a poor trade.
+
+        The panel no longer lets anybody type one -- it is a dropdown, and
+        ``set_value`` refuses the rest -- so the value is written straight
+        into the row: what is tested is a value already stored, from before
+        that, or edited by hand in the database.
+        """
+        from app.extensions import db
+        from app.models.settings import SystemSetting
+
+        settings_service.set_value('MFA_OBLIGATORIO', 'ninguno')
+        fila = SystemSetting.query.filter_by(clave='MFA_OBLIGATORIO').one()
+        fila.valor = {'v': 'sí, claro'}
+        db.session.commit()
 
         assert mfa_service.es_obligatorio(admin) is False
 

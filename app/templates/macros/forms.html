@@ -1,53 +1,93 @@
-{# Render a WTForms field with Bootstrap markup and its validation errors. #}
+{# Render a WTForms field.
+
+   Lo que añade a pintar el campo:
+   - «opcional» junto a la etiqueta de lo que no es obligatorio. Se marca lo
+     opcional y no lo obligatorio: casi todo lo es, y un asterisco en cada
+     etiqueta acaba sin leerse.
+   - La ayuda y el error enlazados al campo (aria-describedby), para que un
+     lector de pantalla los lea al llegar a él y no al final del formulario.
+   - El error, con icono y antes que la ayuda: es lo que hay que leer primero. #}
+{% macro _descripcion(field, opcional) -%}
+  {%- set texto = field.description or '' -%}
+  {%- if opcional and texto.startswith('Opcional. ') -%}{{ texto[10:] }}
+  {%- else -%}{{ texto }}{%- endif -%}
+{%- endmacro %}
+
+{% macro _pie(field, help, opcional) %}
+  {% for error in field.errors %}
+    <div class="invalid-feedback" id="{{ field.id }}-error">{{ error }}</div>
+  {% endfor %}
+  {% if field.description and help %}
+    <div class="form-text" id="{{ field.id }}-ayuda">{{ _descripcion(field, opcional) }}</div>
+  {% endif %}
+{% endmacro %}
+
+{% macro _aria(field, help) -%}
+  {%- set ids = [] -%}
+  {%- if field.errors %}{% set _ = ids.append(field.id ~ '-error') %}{% endif -%}
+  {%- if field.description and help %}{% set _ = ids.append(field.id ~ '-ayuda') %}{% endif -%}
+  {{- ids | join(' ') -}}
+{%- endmacro %}
+
+{% macro _etiqueta(field, label_class, opcional) %}
+  <label class="{{ label_class }}" for="{{ field.id }}">{{ field.label.text }}
+    {%- if opcional %}<span class="form-label-opcional">opcional</span>{% endif %}</label>
+{% endmacro %}
+
 {% macro render_field(field, label_class='form-label', field_class='form-control',
                       placeholder=None, rows=None, help=True) %}
+  {# A dropdown always carries a value, so «opcional» next to it would say
+     something untrue. #}
+  {% set opcional = not field.flags.required
+                    and field.type not in ('SelectField', 'SelectMultipleField') %}
+  {% set invalido = ' is-invalid' if field.errors else '' %}
+  {% set descrito = _aria(field, help) %}
+  {% set aria = {} %}
+  {% if descrito %}{% set _ = aria.update({'aria-describedby': descrito}) %}{% endif %}
+  {% if field.errors %}{% set _ = aria.update({'aria-invalid': 'true'}) %}{% endif %}
+
   {% if field.type == 'BooleanField' %}
-    <div class="form-check mb-3">
-      {{ field(class='form-check-input' + (' is-invalid' if field.errors else '')) }}
+    <div class="form-check campo">
+      {{ field(class='form-check-input' + invalido, **aria) }}
       {{ field.label(class='form-check-label') }}
-      {% if field.description and help %}
-        <small class="form-text text-muted d-block">{{ field.description }}</small>
-      {% endif %}
-      {% for error in field.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+      {{ _pie(field, help, False) }}
     </div>
   {% elif field.type in ('SelectField', 'SelectMultipleField') %}
-    <div class="mb-3">
-      {{ field.label(class=label_class) }}
-      {{ field(class='form-select' + (' is-invalid' if field.errors else '')) }}
-      {% if field.description and help %}
-        <small class="form-text text-muted">{{ field.description }}</small>
-      {% endif %}
-      {% for error in field.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+    <div class="campo">
+      {{ _etiqueta(field, label_class, opcional) }}
+      {{ field(class='form-select' + invalido, **aria) }}
+      {{ _pie(field, help, opcional) }}
     </div>
   {% elif field.type == 'MultiCheckboxField' %}
-    <div class="mb-3">
-      {{ field.label(class=label_class) }}
+    {# Un grupo de casillas es un fieldset: el lector de pantalla anuncia
+       «Roles» al entrar en él, no solo «Administrador, casilla». #}
+    <fieldset class="campo" {% if descrito %}aria-describedby="{{ descrito }}"{% endif %}>
+      <legend class="{{ label_class }}">{{ field.label.text }}
+        {%- if opcional %}<span class="form-label-opcional">opcional</span>{% endif %}</legend>
       <div class="check-group">{{ field() }}</div>
-      {% for error in field.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
-    </div>
-  {% elif field.type == 'TextAreaField' %}
-    <div class="mb-3">
-      {{ field.label(class=label_class) }}
-      {{ field(class=field_class + (' is-invalid' if field.errors else ''),
-               rows=rows or 4, placeholder=placeholder or '') }}
+      {% for error in field.errors %}
+        <div class="campo-error" id="{{ field.id }}-error">{{ error }}</div>
+      {% endfor %}
       {% if field.description and help %}
-        <small class="form-text text-muted">{{ field.description }}</small>
+        <div class="form-text" id="{{ field.id }}-ayuda">{{ _descripcion(field, opcional) }}</div>
       {% endif %}
-      {% for error in field.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+    </fieldset>
+  {% elif field.type == 'TextAreaField' %}
+    <div class="campo">
+      {{ _etiqueta(field, label_class, opcional) }}
+      {{ field(class=field_class + invalido, rows=rows or 4,
+               placeholder=placeholder or '', **aria) }}
+      {{ _pie(field, help, opcional) }}
     </div>
   {% elif field.type == 'SubmitField' %}
     {{ field(class='btn btn-primary') }}
   {% elif field.type == 'HiddenField' or field.type == 'CSRFTokenField' %}
     {{ field() }}
   {% else %}
-    <div class="mb-3">
-      {{ field.label(class=label_class) }}
-      {{ field(class=field_class + (' is-invalid' if field.errors else ''),
-               placeholder=placeholder or '') }}
-      {% if field.description and help %}
-        <small class="form-text text-muted">{{ field.description }}</small>
-      {% endif %}
-      {% for error in field.errors %}<div class="invalid-feedback">{{ error }}</div>{% endfor %}
+    <div class="campo">
+      {{ _etiqueta(field, label_class, opcional) }}
+      {{ field(class=field_class + invalido, placeholder=placeholder or '', **aria) }}
+      {{ _pie(field, help, opcional) }}
     </div>
   {% endif %}
 {% endmacro %}

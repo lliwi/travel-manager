@@ -1,17 +1,18 @@
 """Document forms."""
-from flask_wtf import FlaskForm
 from flask_wtf.file import FileAllowed, FileField, FileRequired
 from wtforms import SelectField, SubmitField
 from wtforms.validators import DataRequired, Optional
 
 from app.models.enums import DocumentType
+from app.utils.forms import Formulario
 
 #: Mirrors ``ALLOWED_DOCUMENT_EXTENSIONS``; enforced again server-side by
 #: magic-byte inspection, because a client-side extension check proves nothing.
 ALLOWED_EXTENSIONS = ('pdf', 'jpg', 'jpeg', 'png', 'tiff', 'tif', 'eml')
 
 
-class DocumentUploadForm(FlaskForm):
+
+class DocumentUploadForm(Formulario):
     """Attach a file to a trip."""
 
     archivo = FileField(

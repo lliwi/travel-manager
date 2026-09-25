@@ -340,7 +340,23 @@ a.chip:hover { background: #e2e8f0; }
 }
 .setting-row:last-child { border-bottom: none; }
 .setting-info { flex: 1; min-width: 0; }
-.setting-control { flex-shrink: 0; width: 160px; }
+.setting-control { flex-shrink: 0; width: 20rem; }
+
+/* Lo corto no llena la columna: un puerto en un campo de 20 rem parece un
+   campo vacío con un número perdido. Se alinea a la izquierda de la columna,
+   para que todos los campos empiecen en el mismo sitio. */
+.setting-row.es-corto .setting-control .form-control { width: 7.5rem; }
+
+/* Lo largo -- un DN, una URL, una lista -- ocupa la fila entera, debajo de
+   su explicación: en 20 rem se cortaba a la mitad y había que desplazarse
+   dentro del campo para comprobar lo escrito. Monoespaciada, porque es texto
+   técnico que se revisa carácter a carácter. */
+.setting-row.es-largo { flex-wrap: wrap; }
+.setting-row.es-largo .setting-control { width: 100%; flex-basis: 100%; }
+.setting-row.es-largo .form-control {
+    font-family: var(--bs-font-monospace);
+    font-size: .8rem;
+}
 
 .admin-tile { text-decoration: none; color: inherit; transition: box-shadow .15s, transform .15s; }
 .admin-tile:hover { box-shadow: var(--shadow); transform: translateY(-1px); }
@@ -1067,3 +1083,400 @@ a.stat-card { transition: border-color .12s ease, box-shadow .12s ease, transfor
     border-color: var(--primary);
     box-shadow: 0 0 0 2px rgba(13, 110, 253, .25);
 }
+
+/* =====================================================================
+   Formularios
+   ---------------------------------------------------------------------
+   El mismo lenguaje que el calendario de Informes: superficies rellenas
+   en lugar de cajas con borde grueso, el color reservado para el estado
+   (foco, elegido, error) y un anillo suave en vez de un borde más grueso
+   para decir «aquí».
+
+   Dos límites deliberados a lo minimalista:
+   - El campo conserva un borde, claro pero visible. Un relleno sin borde
+     sobre una tarjeta blanca no llega al contraste mínimo para reconocer
+     un control (WCAG 1.4.11), y hay quien no distingue #f8fafc de #fff.
+   - 36 px de alto, no menos: por debajo cuesta acertar con el ratón y con
+     el dedo, y lo que se gana en densidad se pierde en clics fallidos.
+   ===================================================================== */
+:root {
+    --field-h: 2.25rem;
+    --field-h-sm: 1.9rem;
+    --field-radius: 8px;
+    --field-bg: #f8fafc;
+    --field-bg-hover: #f1f5f9;
+    --field-border: #dbe2ea;
+    --field-border-hover: #b8c4d2;
+    --field-text: #0f172a;
+    --field-placeholder: #94a3b8;
+    --ring: 0 0 0 3px rgba(13, 110, 253, .18);
+    --ring-danger: 0 0 0 3px rgba(220, 53, 69, .16);
+    --soft: #eef2f6;
+    --soft-hover: #e2e8f0;
+    --soft-text: #334155;
+    --primary-soft: rgba(13, 110, 253, .08);
+    --primary-soft-hover: rgba(13, 110, 253, .15);
+    --danger: #dc3545;
+    --danger-text: #b42318;
+    --danger-soft: rgba(220, 53, 69, .08);
+    --danger-soft-hover: rgba(220, 53, 69, .15);
+    --success-text: #067647;
+    --success-soft: rgba(18, 183, 106, .1);
+    --warning-text: #93370d;
+    --warning-soft: rgba(247, 144, 9, .14);
+}
+
+/* ---------- Etiquetas y ayudas ---------- */
+.form-label {
+    font-size: .82rem;
+    font-weight: 500;
+    color: var(--soft-text);
+    margin-bottom: .3rem;
+}
+
+/* Se marca lo opcional, no lo obligatorio: en la mayoría de formularios casi
+   todo es obligatorio, y un asterisco en cada etiqueta es ruido que se deja
+   de leer. */
+.form-label-opcional {
+    margin-left: .35rem;
+    font-size: .72rem;
+    font-weight: 400;
+    color: var(--text-muted);
+}
+
+.form-text {
+    font-size: .78rem;
+    color: var(--text-muted);
+    margin-top: .3rem;
+    line-height: 1.4;
+}
+
+/* ---------- Campos ---------- */
+.form-control,
+.form-select {
+    min-height: var(--field-h);
+    padding: .4rem .7rem;
+    font-size: .9rem;
+    line-height: 1.4;
+    color: var(--field-text);
+    background-color: var(--field-bg);
+    border: 1px solid var(--field-border);
+    border-radius: var(--field-radius);
+    box-shadow: none;
+    transition: border-color .12s ease, background-color .12s ease, box-shadow .12s ease;
+}
+.form-select { padding-right: 2.1rem; }
+
+.form-control:hover,
+.form-select:hover { border-color: var(--field-border-hover); }
+
+.form-control:focus,
+.form-select:focus {
+    background-color: #fff;
+    border-color: var(--primary);
+    box-shadow: var(--ring);
+    outline: 0;
+}
+
+.form-control::placeholder { color: var(--field-placeholder); opacity: 1; }
+
+.form-control:disabled,
+.form-control[readonly],
+.form-select:disabled {
+    background-color: var(--field-bg-hover);
+    border-color: transparent;
+    color: var(--text-muted);
+}
+
+textarea.form-control { min-height: 5.5rem; resize: vertical; }
+
+.form-control-sm,
+.form-select-sm {
+    min-height: var(--field-h-sm);
+    padding-top: .25rem;
+    padding-bottom: .25rem;
+    font-size: .82rem;
+    border-radius: 7px;
+}
+
+/* La flecha del desplegable, en el gris del texto secundario en vez del negro
+   de Bootstrap, que era lo más oscuro de todo el campo. */
+.form-select {
+    --bs-form-select-bg-img: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%2364748b' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.6' d='m4 6 4 4 4-4'/%3e%3c/svg%3e");
+    background-size: 14px 12px;
+    background-position: right .65rem center;
+}
+
+/* Fechas y horas: el icono del navegador, más discreto. */
+.form-control::-webkit-calendar-picker-indicator { opacity: .55; cursor: pointer; }
+.form-control::-webkit-calendar-picker-indicator:hover { opacity: .9; }
+input[type="date"].form-control,
+input[type="datetime-local"].form-control,
+input[type="time"].form-control { font-variant-numeric: tabular-nums; }
+
+/* El botón de «Elegir archivo», como un botón suave de los nuestros. */
+.form-control::file-selector-button {
+    margin: -.4rem .75rem -.4rem -.7rem;
+    padding: .4rem .8rem;
+    border: 0;
+    border-right: 1px solid var(--field-border);
+    background: var(--soft);
+    color: var(--soft-text);
+    font-weight: 500;
+}
+.form-control:hover:not(:disabled)::file-selector-button { background: var(--soft-hover); }
+
+.input-group-text {
+    background: var(--soft);
+    border-color: var(--field-border);
+    color: var(--text-muted);
+    font-size: .85rem;
+    border-radius: var(--field-radius);
+}
+
+/* ---------- Errores ---------- */
+.form-control.is-invalid,
+.form-select.is-invalid {
+    border-color: var(--danger);
+    background-color: #fffafa;
+}
+.form-control.is-invalid:focus,
+.form-select.is-invalid:focus { box-shadow: var(--ring-danger); }
+
+.invalid-feedback,
+.campo-error {
+    align-items: flex-start;
+    gap: .3rem;
+    font-size: .78rem;
+    color: var(--danger-text);
+    margin-top: .3rem;
+}
+/* Solo junto a un campo marcado, como en Bootstrap: al corregirlo, main.js
+   le quita la marca y el mensaje se va con ella. */
+.is-invalid ~ .invalid-feedback,
+.campo-error { display: flex; }
+.invalid-feedback::before,
+.campo-error::before {
+    content: "\F333";               /* bi-exclamation-circle */
+    font-family: "bootstrap-icons";
+    line-height: 1.3;
+}
+
+/* ---------- Casillas, radios e interruptores ---------- */
+.form-check { padding-left: 1.75rem; min-height: 1.5rem; }
+.form-check .form-check-input { margin-left: -1.75rem; }
+
+.form-check-input {
+    width: 1.1rem;
+    height: 1.1rem;
+    margin-top: .15rem;
+    border: 1.5px solid var(--field-border-hover);
+    background-color: #fff;
+    cursor: pointer;
+    transition: background-color .12s ease, border-color .12s ease, box-shadow .12s ease;
+}
+.form-check-input[type="checkbox"] { border-radius: 5px; }
+.form-check-input:hover { border-color: var(--primary); }
+.form-check-input:focus { box-shadow: var(--ring); border-color: var(--primary); }
+.form-check-input:checked { background-color: var(--primary); border-color: var(--primary); }
+
+.form-check-label { cursor: pointer; font-size: .9rem; }
+.form-check .form-text { margin-top: .1rem; }
+
+.form-switch { padding-left: 2.9rem; }
+.form-switch .form-check-input {
+    width: 2.3rem;
+    height: 1.3rem;
+    margin-left: -2.9rem;
+    margin-top: .05rem;
+    border-radius: 2rem;
+    background-color: var(--soft-hover);
+    border-color: transparent;
+    --bs-form-switch-bg: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3e%3ccircle r='3' fill='%23fff'/%3e%3c/svg%3e");
+}
+.form-switch .form-check-input:checked { background-color: var(--primary); }
+.form-switch .form-check-input:focus { --bs-form-switch-bg: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3e%3ccircle r='3' fill='%23fff'/%3e%3c/svg%3e"); }
+
+/* ---------- Elección múltiple como fichas ----------
+   Como las celdas del calendario: rellenas, y el color para lo elegido. Una
+   ficha entera es la zona que se pulsa, no un cuadradito de 13 px al lado
+   del texto. La casilla real sigue ahí, oculta a la vista pero no al
+   teclado ni al lector de pantalla. */
+.check-group ul {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: .4rem;
+    margin: 0;
+    padding: 0;
+}
+.check-group li { position: relative; }
+.check-group input[type="checkbox"],
+.check-group input[type="radio"] {
+    position: absolute;
+    opacity: 0;
+    inset: 0;
+    margin: 0;
+    cursor: pointer;
+}
+.check-group label {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    min-height: var(--field-h);
+    padding: .35rem .8rem;
+    border-radius: var(--field-radius);
+    background: var(--field-bg);
+    border: 1px solid var(--field-border);
+    color: var(--soft-text);
+    font-size: .88rem;
+    cursor: pointer;
+    user-select: none;
+    transition: background-color .12s ease, border-color .12s ease, color .12s ease;
+}
+.check-group label::before {
+    content: "\F28A";               /* bi-circle */
+    font-family: "bootstrap-icons";
+    color: var(--field-border-hover);
+}
+.check-group li:hover label { border-color: var(--field-border-hover); }
+.check-group input:checked + label {
+    background: var(--primary-soft);
+    border-color: var(--primary);
+    color: var(--primary-dark);
+    font-weight: 500;
+}
+.check-group input:checked + label::before { content: "\F26A"; color: var(--primary); } /* bi-check-circle-fill */
+.check-group input:focus-visible + label { box-shadow: var(--ring); }
+
+/* ---------- Botones ---------- */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: .15rem;
+    min-height: var(--field-h);
+    padding: .4rem .95rem;
+    font-size: .875rem;
+    font-weight: 500;
+    line-height: 1.3;
+    border-radius: var(--field-radius);
+    transition: background-color .12s ease, border-color .12s ease, color .12s ease, box-shadow .12s ease;
+}
+.btn-sm {
+    min-height: var(--field-h-sm);
+    padding: .2rem .6rem;
+    font-size: .8rem;
+    border-radius: 7px;
+}
+.btn:focus-visible { box-shadow: var(--ring); outline: 0; }
+.btn:disabled, .btn.disabled { opacity: .45; }
+
+.btn-primary {
+    --bs-btn-bg: var(--primary);
+    --bs-btn-border-color: var(--primary);
+    --bs-btn-hover-bg: var(--primary-dark);
+    --bs-btn-hover-border-color: var(--primary-dark);
+    --bs-btn-active-bg: var(--primary-dark);
+    --bs-btn-active-border-color: var(--primary-dark);
+    box-shadow: 0 1px 2px rgba(13, 110, 253, .25);
+}
+
+/* Las secundarias, rellenas y sin borde: al lado de la principal tienen que
+   leerse como opciones, no competir con ella. Un contorno de 1 px en cada
+   botón era lo que hacía pesadas las pantallas. */
+.btn-outline-secondary,
+.btn-secondary,
+.btn-light {
+    --bs-btn-color: var(--soft-text);
+    --bs-btn-bg: var(--soft);
+    --bs-btn-border-color: transparent;
+    --bs-btn-hover-color: var(--text);
+    --bs-btn-hover-bg: var(--soft-hover);
+    --bs-btn-hover-border-color: transparent;
+    --bs-btn-active-color: var(--text);
+    --bs-btn-active-bg: #d5dde7;
+    --bs-btn-active-border-color: transparent;
+    --bs-btn-disabled-color: var(--text-muted);
+    --bs-btn-disabled-bg: var(--soft);
+    --bs-btn-disabled-border-color: transparent;
+}
+.btn-outline-primary {
+    --bs-btn-color: var(--primary);
+    --bs-btn-bg: var(--primary-soft);
+    --bs-btn-border-color: transparent;
+    --bs-btn-hover-color: var(--primary-dark);
+    --bs-btn-hover-bg: var(--primary-soft-hover);
+    --bs-btn-hover-border-color: transparent;
+    --bs-btn-active-color: var(--primary-dark);
+    --bs-btn-active-bg: rgba(13, 110, 253, .22);
+    --bs-btn-active-border-color: transparent;
+    --bs-btn-disabled-color: var(--primary);
+    --bs-btn-disabled-bg: var(--primary-soft);
+    --bs-btn-disabled-border-color: transparent;
+}
+.btn-outline-danger {
+    --bs-btn-color: var(--danger-text);
+    --bs-btn-bg: var(--danger-soft);
+    --bs-btn-border-color: transparent;
+    --bs-btn-hover-color: #fff;
+    --bs-btn-hover-bg: var(--danger);
+    --bs-btn-hover-border-color: var(--danger);
+    --bs-btn-active-color: #fff;
+    --bs-btn-active-bg: #bb2d3b;
+    --bs-btn-active-border-color: #bb2d3b;
+    --bs-btn-disabled-color: var(--danger-text);
+    --bs-btn-disabled-bg: var(--danger-soft);
+    --bs-btn-disabled-border-color: transparent;
+}
+.btn-outline-danger:focus-visible { box-shadow: var(--ring-danger); }
+.btn-success {
+    --bs-btn-bg: #12b76a;
+    --bs-btn-border-color: #12b76a;
+    --bs-btn-hover-bg: #039855;
+    --bs-btn-hover-border-color: #039855;
+}
+.btn-warning {
+    --bs-btn-color: var(--warning-text);
+    --bs-btn-bg: var(--warning-soft);
+    --bs-btn-border-color: transparent;
+    --bs-btn-hover-color: #fff;
+    --bs-btn-hover-bg: #dc6803;
+    --bs-btn-hover-border-color: #dc6803;
+}
+.btn-link {
+    --bs-btn-color: var(--primary);
+    --bs-btn-hover-color: var(--primary-dark);
+    text-decoration: none;
+    min-height: auto;
+}
+.btn-link:hover { text-decoration: underline; }
+
+/* Al saltar a una sección (#correo) la cabecera fija taparía su título. */
+.card[id] { scroll-margin-top: 4.5rem; }
+
+/* ---------- Barra de acciones ----------
+   Pegada al borde inferior mientras el formulario no quepa en la pantalla:
+   cambiar el primer ajuste de una página larga no obliga a bajar hasta el
+   final para guardarlo. En un formulario corto no se nota, porque «sticky»
+   solo actúa cuando hay algo por debajo. */
+.form-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .5rem;
+    margin-top: 1rem;
+    padding: .75rem 0;
+    background: var(--body-bg);
+    box-shadow: 0 -1px 0 var(--border);
+}
+.card-body .form-actions { background: var(--card-bg); }
+.form-actions .form-actions-nota { margin-left: auto; font-size: .8rem; color: var(--text-muted); }
+
+/* ---------- Ritmo ---------- */
+.campo { margin-bottom: 1.1rem; }
+.card-header { font-weight: 600; }
+.card-header small, .card-header .small { font-weight: 400; }

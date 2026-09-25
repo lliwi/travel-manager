@@ -237,6 +237,8 @@
         if (!tieneValor(campo)) { return; }
 
         campo.classList.remove('is-invalid');
+        // Si no, un lector de pantalla seguiría anunciándolo como erróneo.
+        campo.removeAttribute('aria-invalid');
 
         /* Quitar «is-invalid» basta para los mensajes normales, que Bootstrap
            solo muestra junto a un campo inválido. No para los de la zona de

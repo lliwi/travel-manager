@@ -275,45 +275,57 @@ def test_directory():
     return redirect(url_for('admin.settings', _anchor='directorio'))
 
 
+def _guardar_ajustes(actor):
+    """Write what the settings form sent. Returns the keys that changed."""
+    cambiados = []
+    for setting in settings_service.all_settings():
+        field = f'ajuste__{setting.clave}'
+        if field not in request.form and setting.tipo != 'bool':
+            continue
+        raw = request.form.get(field)
+
+        if setting.tipo == 'secreto':
+            # Blank means «leave it», not «clear it»: the field arrives
+            # empty on every load, so treating that as a change would wipe
+            # the password every time anybody saved the page.
+            if not (raw or '').strip():
+                continue
+            settings_service.set_value(
+                setting.clave, raw.strip(), actor=actor, commit=False,
+            )
+            cambiados.append(setting.clave)
+            continue
+
+        valor = _coerce_setting(setting.tipo, raw, field in request.form)
+        if valor != settings_service.get(setting.clave):
+            settings_service.set_value(setting.clave, valor, actor=actor, commit=False)
+            cambiados.append(setting.clave)
+
+    db.session.commit()
+    if cambiados:
+        audit_service.record(
+            'settings.updated',
+            recurso_tipo=AuditResourceType.CONFIGURACION,
+            actor=actor,
+            metadatos={'claves': sorted(cambiados)},
+        )
+    return cambiados
+
+
 @admin_bp.route('/ajustes', methods=['GET', 'POST'])
 @login_required
 @require_admin
 def settings():
     """Edit the runtime settings."""
     if request.method == 'POST':
-        actor = current_user._get_current_object()
-        cambiados = []
-        for setting in settings_service.all_settings():
-            field = f'ajuste__{setting.clave}'
-            if field not in request.form and setting.tipo != 'bool':
-                continue
-            raw = request.form.get(field)
-
-            if setting.tipo == 'secreto':
-                # Blank means «leave it», not «clear it»: the field arrives
-                # empty on every load, so treating that as a change would wipe
-                # the password every time anybody saved the page.
-                if not (raw or '').strip():
-                    continue
-                settings_service.set_value(
-                    setting.clave, raw.strip(), actor=actor, commit=False,
-                )
-                cambiados.append(setting.clave)
-                continue
-
-            valor = _coerce_setting(setting.tipo, raw, field in request.form)
-            if valor != settings_service.get(setting.clave):
-                settings_service.set_value(setting.clave, valor, actor=actor, commit=False)
-                cambiados.append(setting.clave)
-
-        db.session.commit()
-        if cambiados:
-            audit_service.record(
-                'settings.updated',
-                recurso_tipo=AuditResourceType.CONFIGURACION,
-                actor=actor,
-                metadatos={'claves': sorted(cambiados)},
-            )
+        try:
+            cambiados = _guardar_ajustes(current_user._get_current_object())
+        except AppError as error:
+            # Nothing half-saved: the page is one form, and a refusal on one
+            # setting must not leave the ones before it written.
+            db.session.rollback()
+            flash(error.mensaje, 'danger')
+            return redirect(url_for('admin.settings'))
         flash(f'{len(cambiados)} ajustes actualizados.', 'success')
         return redirect(url_for('admin.settings'))
 
@@ -344,6 +356,8 @@ def settings():
         bloques=bloques,
         salida_actual=http.descripcion(),
         get=_valor_para_pantalla,
+        ancho=settings_service.ancho,
+        opciones=settings_service.opciones,
         proveedores=ai_provider_service.list_providers(),
         bindings=ai_provider_service.list_bindings(),
     )

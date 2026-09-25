@@ -240,7 +240,7 @@ class TestElAvisoSeRetiraAlRellenar:
         html = self._formulario_en_blanco(as_user, gestor)
         bloques = re.findall(
             r'<input[^>]*is-invalid[^>]*>\s*(?:<small[^>]*>.*?</small>\s*)?'
-            r'<div class="invalid-feedback">',
+            r'<div class="invalid-feedback"[^>]*>',
             html, re.S,
         )
 

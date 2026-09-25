@@ -76,6 +76,8 @@ class Config:
     SESSION_COOKIE_SAMESITE = 'Lax'
     PERMANENT_SESSION_LIFETIME = timedelta(hours=_int('SESSION_LIFETIME_HOURS', 8))
     WTF_CSRF_TIME_LIMIT = None
+    #: Off so WTForms translates its own messages; see app/utils/forms.py.
+    WTF_I18N_ENABLED = False
 
     # ------------------------------------------------------------------
     # Passwords (Argon2id -- specification section 3.2)
