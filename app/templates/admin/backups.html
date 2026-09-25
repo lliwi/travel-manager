@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import badge %}
+{% block title %}Copias de seguridad — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('admin.index') }}">Administración</a></li>
+<li class="breadcrumb-item active">Copias de seguridad</li>
+{% endblock %}
+
+{% macro tamano(bytes) -%}
+{%- if bytes is none -%}—
+{%- elif bytes >= 1024 ** 3 -%}{{ '%.1f' | format(bytes / 1024 ** 3) }} GB
+{%- elif bytes >= 1024 ** 2 -%}{{ '%.1f' | format(bytes / 1024 ** 2) }} MB
+{%- else -%}{{ (bytes / 1024) | round | int }} KB{%- endif -%}
+{%- endmacro %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Copias de seguridad</h1>
+    <p class="text-muted mb-0">
+        Una copia completa en un único ZIP cifrado: base de datos, ajustes,
+        usuarios, configuración de la IA, documentos y la clave con la que se
+        cifran los secretos.
+    </p>
+</div>
+
+<div class="row g-4 mb-4">
+    <div class="col-xl-6">
+        <div class="card h-100">
+            <div class="card-header"><i class="bi bi-archive me-2"></i>Hacer una copia</div>
+            <div class="card-body">
+                <div class="alert alert-warning small">
+                    <i class="bi bi-key me-1"></i>
+                    <strong>Guarde la frase de paso aparte.</strong> No se
+                    almacena en ningún sitio: sin ella la copia no se puede
+                    abrir, y nadie puede recuperarla.
+                </div>
+                <form method="post" action="{{ url_for('admin.create_backup') }}" autocomplete="off">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3">
+                        <label class="form-label" for="frase">Frase de paso</label>
+                        <input type="password" class="form-control" id="frase" name="frase"
+                               minlength="{{ longitud_minima }}" required autocomplete="new-password">
+                        <div class="form-text">Al menos {{ longitud_minima }} caracteres.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="frase2">Repita la frase de paso</label>
+                        <input type="password" class="form-control" id="frase2" name="frase2"
+                               minlength="{{ longitud_minima }}" required autocomplete="new-password">
+                    </div>
+                    <button class="btn btn-primary" {{ 'disabled' if activo }}>
+                        <i class="bi bi-archive me-1"></i>Hacer copia ahora</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-6">
+        <div class="card h-100 border-danger-subtle">
+            <div class="card-header"><i class="bi bi-arrow-counterclockwise me-2"></i>Restaurar desde una copia</div>
+            <div class="card-body">
+                <div class="alert alert-danger small">
+                    <i class="bi bi-exclamation-octagon me-1"></i>
+                    <strong>Sustituye todo</strong>: viajes, documentos,
+                    usuarios, ajustes y el registro de auditoría vuelven a como
+                    estaban en la copia, y se pierde lo hecho después. Haga
+                    antes una copia del estado actual y descárguela.
+                </div>
+                <form method="post" action="{{ url_for('admin.import_backup') }}"
+                      enctype="multipart/form-data" autocomplete="off" class="js-confirmar"
+                      data-mensaje="Se van a sustituir TODOS los datos por los de la copia. ¿Continuar?">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="mb-3">
+                        <label class="form-label" for="fichero">Fichero ZIP</label>
+                        <input type="file" class="form-control" id="fichero" name="fichero"
+                               accept=".zip,application/zip" required>
+                        <div class="form-text">Como máximo {{ tamano(tamano_maximo) }}.</div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="frase-restaurar">Frase de paso de la copia</label>
+                        <input type="password" class="form-control" id="frase-restaurar" name="frase"
+                               required autocomplete="off">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="confirmacion">
+                            Escriba <code>{{ confirmacion }}</code> para confirmar</label>
+                        <input type="text" class="form-control" id="confirmacion" name="confirmacion"
+                               required autocomplete="off" pattern="{{ confirmacion }}">
+                    </div>
+                    <button class="btn btn-outline-danger" {{ 'disabled' if activo }}>
+                        <i class="bi bi-upload me-1"></i>Comprobar y restaurar</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header"><i class="bi bi-clock-history me-2"></i>Historial</div>
+    {% if trabajos %}
+    <div class="table-responsive">
+        <table class="table align-middle mb-0 small">
+            <thead><tr><th>Fecha</th><th>Operación</th><th>Estado</th><th>Contenido</th>
+                <th class="text-end">Tamaño</th><th class="text-end">Acciones</th></tr></thead>
+            <tbody>
+            {% set colores = {'pendiente': 'light', 'en_curso': 'primary',
+                              'completado': 'success', 'error': 'danger'} %}
+            {% for t in trabajos %}
+            <tr {% if t.activo %}class="js-activo" data-estado="{{ url_for('admin.backup_status', trabajo_id=t.id) }}"{% endif %}>
+                <td class="text-nowrap">{{ t.created_at | local_dt }}
+                    <div class="text-muted">{{ t.lanzado_por_nombre or '—' }}</div></td>
+                <td>{{ t.tipo.label }}
+                    {% if t.nombre_fichero and t.tipo.value == 'restauracion' %}
+                    <div class="text-muted">{{ t.nombre_fichero }}</div>{% endif %}</td>
+                <td>
+                    {{ badge(t.estado.label, colores.get(t.estado.value, 'secondary')) }}
+                    {% if t.progreso %}<div class="text-muted">{{ t.progreso }}</div>{% endif %}
+                    {% if t.error %}<div class="text-danger">{{ t.error }}</div>{% endif %}
+                </td>
+                <td>
+                    {% set r = t.resumen or {} %}
+                    {% if r %}
+                    {{ r.get('filas', 0) }} filas en {{ r.get('tablas', 0) }} tablas ·
+                    {{ r.get('objetos', 0) }} documentos
+                    {% if t.tipo.value == 'restauracion' and r.get('creado_en') %}
+                    <div class="text-muted">copia del {{ r.creado_en[:16] | replace('T', ' ') }} UTC</div>
+                    {% endif %}
+                    {% else %}—{% endif %}
+                </td>
+                <td class="text-end text-nowrap">{{ tamano(t.tamano) }}</td>
+                <td class="text-end text-nowrap">
+                    {% if t.descargable %}
+                    <a class="btn btn-sm btn-outline-primary"
+                       href="{{ url_for('admin.download_backup', trabajo_id=t.id) }}">
+                        <i class="bi bi-download me-1"></i>Descargar</a>
+                    <form method="post" class="d-inline js-confirmar"
+                          data-mensaje="¿Eliminar esta copia del servidor? Si no la ha descargado, se pierde."
+                          action="{{ url_for('admin.delete_backup', trabajo_id=t.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="btn btn-sm btn-outline-danger" title="Eliminar del servidor">
+                            <i class="bi bi-trash"></i></button>
+                    </form>
+                    {% if t.descargado_en %}
+                    <div class="text-muted">descargada el {{ t.descargado_en | local_dt }}</div>
+                    {% endif %}
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="card-body text-muted small">Todavía no se ha hecho ninguna copia.</div>
+    {% endif %}
+    <div class="card-footer small text-muted">
+        Las copias quedan en el servidor, cifradas, hasta que las elimine.
+        No se hacen solas: solo cuando se pide aquí.
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script nonce="{{ csp_nonce() }}">
+(function () {
+    'use strict';
+    // Sin «onsubmit» en línea: la política de contenido lo bloquearía.
+    Array.prototype.forEach.call(document.querySelectorAll('.js-confirmar'), function (f) {
+        f.addEventListener('submit', function (e) {
+            if (!window.confirm(f.dataset.mensaje)) { e.preventDefault(); }
+        });
+    });
+
+    // Mientras una operación está en marcha se pregunta por su estado, y solo
+    // se recarga cuando cambia.
+    var fila = document.querySelector('.js-activo');
+    if (!fila) { return; }
+    var visto = null;
+    function preguntar() {
+        if (document.hidden) { return programar(); }
+        fetch(fila.dataset.estado, {headers: {'Accept': 'application/json'}, credentials: 'same-origin'})
+            .then(function (r) {
+                // Una restauración sustituye la tabla de usuarios: si la
+                // sesión deja de valer, lo que toca es volver a entrar.
+                if (r.status === 401 || r.redirected) { window.location.reload(); return null; }
+                return r.ok ? r.json() : null;
+            })
+            .then(function (d) {
+                if (!d) { return programar(); }
+                var ahora = d.estado + '|' + (d.progreso || '');
+                if (visto !== null && ahora !== visto || !d.activo) {
+                    window.location.reload();
+                    return;
+                }
+                visto = ahora;
+                programar();
+            })
+            .catch(programar);
+    }
+    function programar() { window.setTimeout(preguntar, 10000); }
+    programar();
+})();
+</script>
+{% endblock %}

@@ -57,6 +57,7 @@ def make_celery():
             'app.tasks.alert_tasks',
             'app.tasks.maintenance_tasks',
             'app.tasks.ai_tasks',
+            'app.tasks.backup_tasks',
         ],
         task_cls=FlaskTask,
     )

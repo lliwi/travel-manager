@@ -64,6 +64,15 @@ class StorageBackend:
         """A temporary direct URL, or None when the backend cannot issue one."""
         return None
 
+    def list_keys(self, bucket, prefix=''):
+        """Every key in a bucket, optionally under a prefix."""
+        raise NotImplementedError
+
+    def download_to(self, bucket, key, fileobj):
+        """Write an object into an open file, without holding it in memory."""
+        for chunk in self.stream(bucket, key):
+            fileobj.write(chunk)
+
     def ensure_buckets(self, *buckets):
         raise NotImplementedError
 
@@ -141,6 +150,27 @@ class S3Backend(StorageBackend):
         except Exception:
             return False
 
+    def stream(self, bucket, key, chunk_size=1024 * 256):
+        """Stream from the object store rather than through a full buffer.
+
+        ``get`` reads the whole object into memory, which is fine for a
+        document and not for a backup of all of them.
+        """
+        try:
+            cuerpo = self.client.get_object(Bucket=bucket, Key=key)['Body']
+        except Exception as exc:
+            raise StorageError(f'No se pudo recuperar el objeto: {exc}') from exc
+        yield from cuerpo.iter_chunks(chunk_size)
+
+    def list_keys(self, bucket, prefix=''):
+        try:
+            paginador = self.client.get_paginator('list_objects_v2')
+            for pagina in paginador.paginate(Bucket=bucket, Prefix=prefix):
+                for objeto in pagina.get('Contents') or []:
+                    yield objeto['Key']
+        except Exception as exc:
+            raise StorageError(f'No se pudo listar {bucket}: {exc}') from exc
+
     def presigned_url(self, bucket, key, expires=60, filename=None):
         """Issue a short-lived direct URL.
 
@@ -212,6 +242,11 @@ class MemoryBackend(StorageBackend):
 
     def exists(self, bucket, key):
         return (bucket, key) in self._objects
+
+    def list_keys(self, bucket, prefix=''):
+        return sorted(
+            k for b, k in self._objects if b == bucket and k.startswith(prefix)
+        )
 
     def ensure_buckets(self, *buckets):
         return True

@@ -538,6 +538,18 @@ class AIRunState(LabeledEnum):
     BLOQUEADA = ('bloqueada', 'Bloqueada por política')
 
 
+class BackupJobType(LabeledEnum):
+    COPIA = ('copia', 'Copia')
+    RESTAURACION = ('restauracion', 'Restauración')
+
+
+class BackupJobState(LabeledEnum):
+    PENDIENTE = ('pendiente', 'En cola')
+    EN_CURSO = ('en_curso', 'En curso')
+    COMPLETADO = ('completado', 'Completado')
+    ERROR = ('error', 'Error')
+
+
 class AIParameterOrigin(LabeledEnum):
     """Who wrote a parameter profile: a person, or the tuner on their behalf."""
 

@@ -17,7 +17,7 @@ from flask import (
 from flask_login import current_user, login_required
 
 from app.blueprints.admin import admin_bp
-from app.extensions import db, limiter
+from app.extensions import csrf, db, limiter
 from app.models.alert import AlertRuleSetting
 from app.models.enums import AIProviderCode, AuditResourceType, AuditResult, UserStatus
 from app.models.user import Role, User
@@ -873,6 +873,137 @@ def resume_ai_autotune(ajuste_id):
 @require_admin
 def cancel_ai_autotune(ajuste_id):
     return _accion_de_autoajuste(ajuste_id, 'cancelar', 'Autoajuste cancelado.')
+
+
+# ======================================================================
+# Backups
+# ======================================================================
+@admin_bp.route('/copias')
+@login_required
+@require_admin
+def backups():
+    """Make a full backup, download it, or restore one."""
+    from app.services import backup_service
+
+    return render_template(
+        'admin/backups.html',
+        trabajos=backup_service.recientes(),
+        longitud_minima=backup_service.LONGITUD_MINIMA_FRASE,
+        confirmacion=backup_service.CONFIRMACION,
+        tamano_maximo=backup_service.TAMANO_MAXIMO_IMPORTACION,
+        activo=any(t.activo for t in backup_service.recientes(5)),
+    )
+
+
+@admin_bp.route('/copias/crear', methods=['POST'])
+@login_required
+@require_admin
+def create_backup():
+    from app.services import backup_service
+
+    try:
+        backup_service.solicitar_copia(
+            current_user._get_current_object(),
+            request.form.get('frase', ''), request.form.get('frase2', ''),
+        )
+        flash('Copia en preparación. Aparecerá aquí para descargarla al terminar.',
+              'success')
+    except AppError as error:
+        db.session.rollback()
+        flash(error.mensaje, 'danger')
+    return redirect(url_for('admin.backups'))
+
+
+@admin_bp.route('/copias/importar', methods=['POST'])
+@csrf.exempt
+@login_required
+@require_admin
+def import_backup():
+    """Receive a backup ZIP to restore.
+
+    Exempt from the global CSRF hook and checked here instead: the hook reads
+    the form before the view runs, and reading the form enforces the 32 MB
+    request limit -- which a backup with its documents always exceeds. The
+    limit is raised first, then the token is checked, so the protection is
+    the same and only the order changes.
+    """
+    from flask_wtf.csrf import ValidationError as CSRFError
+    from flask_wtf.csrf import validate_csrf
+
+    from app.services import backup_service
+
+    request.max_content_length = backup_service.TAMANO_MAXIMO_IMPORTACION
+    try:
+        if current_app.config.get('WTF_CSRF_ENABLED', True):
+            validate_csrf(request.form.get('csrf_token'))
+    except CSRFError:
+        flash('La sesión del formulario ha caducado. Vuelva a intentarlo.', 'danger')
+        return redirect(url_for('admin.backups'))
+
+    try:
+        backup_service.solicitar_restauracion(
+            current_user._get_current_object(),
+            request.files.get('fichero'),
+            request.form.get('frase', ''),
+            request.form.get('confirmacion', ''),
+        )
+        flash('Copia comprobada. La restauración está en marcha; al terminar '
+              'puede que tenga que volver a iniciar sesión.', 'warning')
+    except AppError as error:
+        db.session.rollback()
+        flash(error.mensaje, 'danger')
+    return redirect(url_for('admin.backups'))
+
+
+@admin_bp.route('/copias/<trabajo_id>/descargar')
+@login_required
+@require_admin
+def download_backup(trabajo_id):
+    from flask import Response, stream_with_context
+
+    from app.services import backup_service
+
+    trabajo = backup_service.get_or_404(trabajo_id)
+    try:
+        flujo = backup_service.descargar(current_user._get_current_object(), trabajo)
+    except AppError as error:
+        flash(error.mensaje, 'danger')
+        return redirect(url_for('admin.backups'))
+
+    cabeceras = {
+        'Content-Disposition': f'attachment; filename="{trabajo.nombre_fichero}"',
+        'Cache-Control': 'no-store',
+    }
+    if trabajo.tamano:
+        cabeceras['Content-Length'] = str(trabajo.tamano)
+    return Response(stream_with_context(flujo), mimetype='application/zip',
+                    headers=cabeceras)
+
+
+@admin_bp.route('/copias/<trabajo_id>/eliminar', methods=['POST'])
+@login_required
+@require_admin
+def delete_backup(trabajo_id):
+    from app.services import backup_service
+
+    try:
+        backup_service.eliminar(current_user._get_current_object(),
+                                backup_service.get_or_404(trabajo_id))
+        flash('Copia eliminada del servidor.', 'info')
+    except AppError as error:
+        flash(error.mensaje, 'danger')
+    return redirect(url_for('admin.backups'))
+
+
+@admin_bp.route('/copias/<trabajo_id>/estado')
+@login_required
+@require_admin
+@limiter.limit('600 per hour')
+def backup_status(trabajo_id):
+    """Polled by the page while a job runs. Own limit: see ai_autotune_status."""
+    from app.services import backup_service
+
+    return jsonify(backup_service.get_or_404(trabajo_id).to_dict())
 
 
 # ======================================================================

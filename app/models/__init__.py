@@ -14,6 +14,7 @@ from app.models.ai import (
 )
 from app.models.alert import Alert, AlertRuleSetting, AlertRun, AlertTransition
 from app.models.audit import GENESIS_HASH, AuditEvent
+from app.models.backup import BackupJob
 from app.models.base import (
     GUID,
     BaseModel,
@@ -76,5 +77,5 @@ __all__ = [
     # Catalogues and settings
     'Country', 'Location', 'SystemSetting', 'TravelerDocument',
     # Audit
-    'AuditEvent', 'GENESIS_HASH',
+    'AuditEvent', 'GENESIS_HASH', 'BackupJob',
 ]

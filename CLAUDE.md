@@ -220,6 +220,28 @@ next, the plan is replayed from the trials in the row, and the row's
 a search on a 9B model hit the worker's 30-minute limit at trial 8 and died
 without a word -- and a deploy would have killed it the same way.
 
+## A backup is one encrypted ZIP, and it carries the key
+
+Administración → Copias de seguridad makes a full copy on demand -- every
+table, every stored document, and `SECRETS_ENCRYPTION_KEY` -- and restores
+from the same file. The key has to travel: without it the API keys, the
+directory password, MFA secrets and document numbers come back unreadable.
+So every member is AES-256-GCM under a passphrase-derived key (scrypt), with
+its name as associated data; the passphrase is stored nowhere and crosses the
+Celery queue encrypted with the application key.
+
+Tables are exported row by row rather than with `pg_dump`, so the suite can
+prove the round trip on SQLite and secrets can be re-encrypted when the copy
+lands on an installation with another key -- `_campos_cifrados()` lists
+those columns, and a test fails if a new `encrypt_secret` column is missing
+from it. A restore refuses a wrong passphrase, another schema revision or a
+damaged file before touching anything; `backup_jobs` is the one table neither
+copied nor replaced, so the restore can report on itself. The restored audit
+chain still verifies, and its last event says how long the replaced one was.
+
+`scripts/backup.sh` still exists for the host: it is what to use when the
+application itself is what needs rescuing.
+
 ## Observability
 
 `/healthz` and `/readyz` say whether the system is alive; `/metrics` says how
