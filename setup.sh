@@ -150,7 +150,16 @@ fi
 header "Paso 6: construyendo las imágenes"
 # ---------------------------------------------------------------------
 info "Esto puede tardar varios minutos la primera vez."
-${COMPOSE} build
+# Con el proxy de BUILD_PROXY si esta máquina no sale directa, y comprobando
+# antes que el demonio de Docker también lo tiene: sin eso la construcción
+# falla en la primera línea con un «no such host» que apunta al DNS.
+compose() { ${COMPOSE} "$@"; }
+# shellcheck source=scripts/lib/proxy.sh
+source "${ROOT}/scripts/lib/proxy.sh"
+if ! construir_imagenes; then
+    fail "No se han podido construir las imágenes."
+    exit 1
+fi
 ok "Imágenes construidas."
 
 # ---------------------------------------------------------------------
