@@ -44,7 +44,7 @@ Implementa la **fase 1** del
 | Backend | Flask 3 (application factory + blueprints), Python 3.11 |
 | Base de datos | PostgreSQL 16, SQLAlchemy 2, Alembic |
 | Cola de trabajos | Celery 5 + Redis 7 |
-| Almacenamiento | MinIO (compatible con S3) |
+| Almacenamiento | SeaweedFS (compatible con S3) |
 | Antivirus | ClamAV |
 | OCR | Tesseract (español e inglés) |
 | IA | Ollama (local, por defecto), vLLM, OpenAI y DeepSeek |
@@ -92,7 +92,6 @@ conservan.
 ### 2. Acceder
 
 - Aplicación: <http://localhost>
-- Consola de MinIO: <http://localhost:9001>
 
 ### 3. Arranque diario
 
@@ -118,7 +117,7 @@ Opciones adicionales:
 | `--no-build` | No reconstruir aunque haya cambios |
 | `--no-migrate` | No aplicar migraciones ni siembra |
 
-En desarrollo el código se monta desde el host, PostgreSQL, Redis y MinIO
+En desarrollo el código se monta desde el host, PostgreSQL, Redis y el almacén S3
 publican su puerto en loopback para poder usar herramientas locales, y el
 antivirus queda desactivado (`ANTIVIRUS_BACKEND=noop`): ClamAV tarda minutos en
 descargar sus firmas y en desarrollo rara vez aporta.

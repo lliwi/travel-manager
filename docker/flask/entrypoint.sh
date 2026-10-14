@@ -24,11 +24,11 @@ do
 done
 echo "    Redis disponible."
 
-echo "==> Esperando a MinIO..."
-until curl -sf "${S3_ENDPOINT_URL:-http://minio:9000}/minio/health/live" >/dev/null; do
+echo "==> Esperando al almacén de documentos..."
+until curl -sf "${S3_ENDPOINT_URL:-http://s3:9000}/healthz" >/dev/null; do
     sleep 1
 done
-echo "    MinIO disponible."
+echo "    Almacén de documentos disponible."
 
 echo "==> Aplicando migraciones..."
 if [ -d "migrations/versions" ] && [ -n "$(ls -A migrations/versions 2>/dev/null)" ]; then

@@ -410,7 +410,6 @@ resumen() {
     header "Travel Manager en marcha (${ETIQUETA})"
     echo ""
     echo -e "  ${BOLD}Aplicación:${NC}     http://localhost:${puerto}"
-    echo -e "  ${BOLD}Consola MinIO:${NC}  http://localhost:9001"
     if [[ "${ENTORNO}" == "dev" ]]; then
         echo -e "  ${BOLD}PostgreSQL:${NC}     localhost:5432"
         echo -e "  ${BOLD}Redis:${NC}          localhost:6379"

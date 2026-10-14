@@ -78,7 +78,7 @@ class StorageBackend:
 
 
 class S3Backend(StorageBackend):
-    """S3-compatible storage (MinIO in the reference deployment)."""
+    """S3-compatible storage (SeaweedFS in the reference deployment)."""
 
     name = 's3'
 

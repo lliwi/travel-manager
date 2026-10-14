@@ -24,7 +24,7 @@ class TestRedes:
         """The datastores must not be reachable from outside Docker."""
         assert compose['networks']['backend']['internal'] is True
 
-    @pytest.mark.parametrize('servicio', ['postgres', 'redis', 'minio', 'clamav'])
+    @pytest.mark.parametrize('servicio', ['postgres', 'redis', 's3', 'clamav'])
     def test_los_almacenes_no_publican_puertos_al_exterior(self, compose, servicio):
         puertos = compose['services'][servicio].get('ports') or []
         for p in puertos:
@@ -140,3 +140,45 @@ class TestSondasDeSalud:
             'Si esto deja de ser cierto, revise si la exención sigue haciendo '
             'falta; mientras lo sea, es imprescindible.'
         )
+
+
+@pytest.mark.unit
+class TestElAlmacenDeDocumentos:
+    """SeaweedFS replaced MinIO when MinIO stopped publishing images.
+
+    Each of these fails silently: the stack starts, and the problem shows up
+    as documents anybody can read, a store that never reports healthy, or one
+    that refuses uploads with the disk half empty.
+    """
+
+    def test_la_imagen_va_fijada_a_una_version(self, compose):
+        imagen = compose['services']['s3']['image']
+        etiqueta = imagen.rsplit(':', 1)[-1]
+
+        assert ':' in imagen and etiqueta not in ('latest', 'dev'), imagen
+
+    def test_las_credenciales_son_obligatorias(self, compose):
+        """Without them SeaweedFS answers anonymous S3 requests."""
+        entorno = compose['services']['s3']['environment']
+
+        for variable in ('AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'):
+            assert ':?' in str(entorno[variable]), (
+                f'{variable} tiene un valor por defecto: el almacén quedaría '
+                f'abierto si faltara en docker/.env.'
+            )
+
+    def test_la_comprobacion_de_salud_no_usa_localhost(self, compose):
+        """localhost is ::1 in the container and SeaweedFS does not listen there."""
+        prueba = ' '.join(compose['services']['s3']['healthcheck']['test'])
+
+        assert 'localhost' not in prueba
+        assert '127.0.0.1' in prueba
+
+    def test_el_numero_de_volumenes_lo_decide_el_disco(self, compose):
+        """The default cap of 8 refuses uploads long before the disk is full."""
+        assert '-volume.max=0' in compose['services']['s3']['command']
+
+    def test_la_aplicacion_apunta_al_servicio(self, compose):
+        for servicio in ('web', 'worker'):
+            entorno = compose['services'][servicio]['environment']
+            assert entorno['S3_ENDPOINT_URL'] == 'http://s3:9000', servicio

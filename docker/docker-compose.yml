@@ -14,7 +14,7 @@ volumes:
     driver: local
   redis_data:
     driver: local
-  minio_data:
+  s3_data:
     driver: local
   clamav_data:
     driver: local
@@ -68,26 +68,37 @@ services:
       timeout: 5s
       retries: 5
 
-  minio:
-    # Pinned to a release tag: MinIO no longer publishes `latest` on Docker
-    # Hub, and a floating tag on the store that holds every document is not
-    # something to leave to chance anyway.
-    image: quay.io/minio/minio:RELEASE.2024-10-13T13-34-11Z
-    container_name: travelmanager_minio
+  s3:
+    # SeaweedFS, compatible con S3. Era MinIO hasta que dejó de publicar
+    # imágenes: quay.io pasó a exigir autenticación y Docker Hub se quedó sin
+    # etiquetas, así que una instalación nueva no podía ni arrancar. La
+    # aplicación habla S3 y no sabe cuál hay detrás; el servicio se llama por
+    # lo que hace para que el próximo cambio no obligue a renombrarlo.
+    #
+    # Fijada a una versión: es el almacén de todos los documentos.
+    image: chrislusf/seaweedfs:4.48
+    container_name: travelmanager_s3
     restart: unless-stopped
-    command: server /data --console-address ":9001"
+    # Volúmenes de 1 GB y tantos como quepan en el disco: con los valores por
+    # defecto el límite es 8, y el almacén dejaría de aceptar documentos con
+    # el disco medio vacío. Con menos de un 5 % libre pasa a solo lectura
+    # antes de llenarlo, que es lo que protege a PostgreSQL si comparten disco.
+    command: >
+      server -dir=/data -s3 -s3.port=9000
+      -master.volumeSizeLimitMB=1024 -volume.max=0 -volume.minFreeSpace=5
     environment:
-      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:?S3_SECRET_KEY debe estar definida}
+      # Con credenciales definidas, el S3 rechaza a quien no las presente.
+      # Sin ellas aceptaría peticiones anónimas: por eso son obligatorias.
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY:?S3_ACCESS_KEY debe estar definida}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:?S3_SECRET_KEY debe estar definida}
     volumes:
-      - minio_data:/data
+      - s3_data:/data
     networks: [backend]
-    # The console is published on loopback only: it is an administrative
-    # interface, not part of the application.
-    ports:
-      - '127.0.0.1:9001:9001'
     healthcheck:
-      test: ['CMD', 'curl', '-sf', 'http://localhost:9000/minio/health/live']
+      # 127.0.0.1 y no localhost: dentro del contenedor localhost resuelve a
+      # ::1, SeaweedFS no escucha en IPv6, y la comprobación fallaba siempre
+      # -- con lo que web y worker, que esperan a que esté sano, no arrancaban.
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:9000/healthz']
       interval: 15s
       timeout: 5s
       retries: 5
@@ -161,7 +172,7 @@ services:
       # saldría por el proxy el día que se configure uno.
       HTTP_PROXY: ${HTTP_PROXY:-}
       HTTPS_PROXY: ${HTTPS_PROXY:-}
-      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,::1,host.docker.internal,postgres,redis,minio,openldap,mailpit,web,worker}
+      NO_PROXY: ${NO_PROXY:-localhost,127.0.0.1,::1,host.docker.internal,postgres,redis,s3,minio,openldap,mailpit,web,worker}
       # El proxy corporativo suele reemitir los certificados con su propia
       # autoridad. Apunte esto al paquete de CA de su organización si es el
       # caso; Python y httpx lo respetan sin más configuración.
@@ -173,8 +184,8 @@ services:
       CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/2
       RATELIMIT_STORAGE_URI: redis://:${REDIS_PASSWORD}@redis:6379/3
 
-      S3_ENDPOINT_URL: http://minio:9000
-      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-minioadmin}
+      S3_ENDPOINT_URL: http://s3:9000
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:?S3_ACCESS_KEY debe estar definida}
       S3_SECRET_KEY: ${S3_SECRET_KEY}
       S3_BUCKET_DOCUMENTS: ${S3_BUCKET_DOCUMENTS:-travel-documents}
       S3_BUCKET_QUARANTINE: ${S3_BUCKET_QUARANTINE:-travel-quarantine}
@@ -206,7 +217,7 @@ services:
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
-      minio: {condition: service_healthy}
+      s3: {condition: service_healthy}
     healthcheck:
       test: ['CMD', 'python', '-c', "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:5000/healthz', timeout=5).status==200 else 1)"]
       interval: 30s
@@ -240,7 +251,7 @@ services:
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
-      minio: {condition: service_healthy}
+      s3: {condition: service_healthy}
     healthcheck:
       test: ['CMD-SHELL', 'celery -A app.tasks.celery_app.celery inspect ping -d celery@$$HOSTNAME || exit 1']
       interval: 60s

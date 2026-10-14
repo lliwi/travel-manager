@@ -165,7 +165,10 @@ ok "Imágenes construidas."
 # ---------------------------------------------------------------------
 header "Paso 7: arrancando los servicios"
 # ---------------------------------------------------------------------
-${COMPOSE} up -d
+# --remove-orphans: al repetirlo tras una actualización retira los servicios
+# que ya no existen -- el de MinIO, por ejemplo --, que si no seguirían en
+# marcha sin que nadie los use.
+${COMPOSE} up -d --remove-orphans
 ok "Servicios arrancados."
 info "ClamAV descarga su base de firmas en el primer arranque; puede tardar"
 info "varios minutos hasta que acepte análisis."
@@ -206,7 +209,6 @@ header "Instalación completada"
 HTTP_PORT="$(grep -E '^HTTP_PORT=' "${ENV_FILE}" | cut -d= -f2- || echo 80)"
 echo ""
 echo -e "  ${BOLD}Aplicación:${NC}       http://localhost:${HTTP_PORT}"
-echo -e "  ${BOLD}Consola MinIO:${NC}    http://localhost:9001"
 echo ""
 echo -e "  ${BOLD}Comandos útiles:${NC}"
 echo "    ./start.sh                      arrancar de nuevo"

@@ -5,7 +5,7 @@
 # Diferencias respecto a producción:
 #   - El código se monta desde el host y el servidor recarga al guardar.
 #   - La aplicación se publica directamente; no hace falta Nginx ni TLS.
-#   - PostgreSQL, Redis y MinIO publican su puerto en loopback, para poder
+#   - PostgreSQL, Redis y el almacén S3 publican su puerto en loopback, para poder
 #     conectar herramientas locales.
 #   - ClamAV no se levanta: tarda minutos en descargar firmas y en desarrollo
 #     rara vez aporta. `ANTIVIRUS_BACKEND=noop` deja constancia explícita de
@@ -20,10 +20,9 @@ services:
     ports:
       - '127.0.0.1:6379:6379'
 
-  minio:
+  s3:
     ports:
       - '127.0.0.1:9000:9000'
-      - '127.0.0.1:9001:9001'
 
   clamav:
     # Sin réplicas: el servicio queda definido pero no se arranca.

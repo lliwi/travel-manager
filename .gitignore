@@ -6,7 +6,7 @@
 # Secretos y configuración local
 #
 # docker/.env contiene la clave de sesión, la de cifrado y las contraseñas
-# de PostgreSQL, Redis y MinIO. Solo se versiona la plantilla.
+# de PostgreSQL, Redis y el almacén S3. Solo se versiona la plantilla.
 # ---------------------------------------------------------------------
 .env
 .env.*
@@ -78,7 +78,7 @@ bandit-report.*
 # ---------------------------------------------------------------------
 # Datos de la aplicación
 #
-# Los documentos viven en MinIO y la base de datos en su volumen; estos
+# Los documentos viven en el almacén S3 y la base de datos en su volumen; estos
 # directorios solo aparecen en ejecuciones locales fuera de Docker.
 # ---------------------------------------------------------------------
 # Su contenido, no el directorio: excluyendo «data/» git no entra en él, y

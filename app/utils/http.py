@@ -64,7 +64,9 @@ EXCEPCIONES_POR_DEFECTO = (
     # somebody configured a proxy.
     'localhost', '127.0.0.1', '[::1]',
     'host.docker.internal',
-    'postgres', 'redis', 'minio', 'openldap', 'mailpit', 'web', 'worker',
+    # «minio» stays alongside «s3»: an installation migrating its documents
+    # may still point at the old container while it does.
+    'postgres', 'redis', 's3', 'minio', 'openldap', 'mailpit', 'web', 'worker',
 )
 
 

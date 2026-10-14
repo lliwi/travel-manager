@@ -7,7 +7,7 @@
 # de los dos da un error que no se parece al problema:
 #
 #   1. El demonio de Docker, que descarga las imágenes base (FROM python…,
-#      FROM nginx…) y las de postgres, redis, minio y clamav. No lee los
+#      FROM nginx…) y las de postgres, redis, seaweedfs y clamav. No lee los
 #      --build-arg: solo su propia configuración. Sin ella intenta resolver
 #      auth.docker.io con el DNS interno y falla con «no such host».
 #   2. La construcción en sí -- pip, apt --, que sí usa los --build-arg.

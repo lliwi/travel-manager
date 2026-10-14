@@ -39,7 +39,7 @@ Two things remain, deliberately last:
 ## Architecture
 
 **Stack**: Flask 3 application factory · PostgreSQL 16 · SQLAlchemy 2 + Alembic ·
-Celery + Redis · MinIO · ClamAV · Tesseract · Ollama (host) · Jinja2 +
+Celery + Redis · SeaweedFS (S3) · ClamAV · Tesseract · Ollama (host) · Jinja2 +
 Bootstrap 5 · Gunicorn behind Nginx · Docker Compose.
 
 **Two surfaces, one brain.** The Jinja blueprints and `/api/v1` are different
@@ -241,6 +241,22 @@ chain still verifies, and its last event says how long the replaced one was.
 
 `scripts/backup.sh` still exists for the host: it is what to use when the
 application itself is what needs rescuing.
+
+## The document store is any S3, and SeaweedFS by default
+
+The application speaks plain S3 through boto3 and never names the product
+behind it; the Compose service is called `s3` for that reason. It was MinIO
+until MinIO stopped publishing images -- quay.io began demanding
+authentication and Docker Hub lost every tag -- and a fresh installation could
+not start. SeaweedFS replaced it with no change to the code.
+
+Three things in its service definition fail silently if undone, and
+`tests/test_despliegue.py` pins them: the S3 credentials are mandatory,
+because without them SeaweedFS answers anonymous requests; the health check
+uses 127.0.0.1, because `localhost` resolves to ::1 inside the container and
+SeaweedFS does not listen there, so web and worker would wait for ever; and
+`-volume.max=0`, because the default cap of 8 volumes stops accepting
+documents with the disk half empty.
 
 ## Observability
 

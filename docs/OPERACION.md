@@ -177,6 +177,23 @@ del vencimiento, no el de la renovación. Si lo renueva con certbot o similar,
 ponga la recarga en su `deploy-hook`; si lo hace a mano, apúntelo junto a la
 fecha de caducidad.
 
+## Construir detrás de un proxy
+
+Si el servidor solo sale a internet por un proxy, construir las imágenes lo
+necesita en **dos** sitios:
+
+1. **`BUILD_PROXY` en `docker/.env`**, para pip y apt durante la construcción.
+   `setup.sh` y `start.sh` lo usan siempre que esté definido.
+2. **El demonio de Docker**, que es quien descarga las imágenes base (python,
+   nginx, postgres, seaweedfs…) y no lee lo anterior. Sin él, la instalación
+   falla con un «no such host» resolviendo `auth.docker.io`, que parece un
+   problema de DNS y no lo es.
+
+Los dos scripts comprueban lo segundo antes de construir y, si falta, dicen
+exactamente qué fichero crear. Requiere reiniciar Docker, lo que detiene todos
+los contenedores del servidor, no solo los de esta aplicación: por eso lo hace
+quien administra la máquina y no el script.
+
 ## Salida a internet (proxy)
 
 Si el servidor no alcanza internet directamente, se configura en **Ajustes →
@@ -378,6 +395,14 @@ correo no debe empezar a escribir a la primera dirección que encuentre.
 
 ## Copias de seguridad
 
+**Desde el panel** (Administración → Copias de seguridad) se hace una copia
+completa bajo demanda —base de datos, ajustes, documentos y la clave con la
+que se cifran los secretos— en un único ZIP cifrado con una frase de paso, que
+se descarga y se restaura importándolo en el mismo sitio. Es la forma normal.
+
+**Desde el servidor**, con los scripts de abajo, para cuando lo que hay que
+rescatar es la propia aplicación.
+
 Hay dos almacenes que respaldar, y hacerlo por separado no sirve de nada si no
 se restauran juntos: la base de datos guarda las claves de los objetos y el
 almacén guarda los objetos. Los scripts los tratan siempre como una sola cosa.
@@ -411,6 +436,35 @@ Para ensayar sin tocar los documentos, `--only-database`.
 no es una copia de seguridad, es una suposición. Una prueba que sirve: cree un
 viaje con un título reconocible, restaure una copia anterior y compruebe que ha
 desaparecido; si sigue ahí, la restauración no hizo lo que parecía.
+
+## Almacén de documentos (SeaweedFS)
+
+Los documentos viven en un servidor S3: SeaweedFS, en el servicio `s3`. Era
+MinIO hasta que MinIO dejó de publicar imágenes —quay.io exige autenticación y
+Docker Hub se quedó sin etiquetas— y una instalación nueva no podía arrancar.
+La aplicación solo habla S3, así que el cambio no toca el código.
+
+### Pasar de MinIO a SeaweedFS en una instalación con documentos
+
+Los documentos de MinIO están en su propio formato dentro del volumen
+`minio_data`; no se pueden leer copiando ficheros. Se trasladan con una copia
+de seguridad, que los lleva dentro:
+
+1. **Antes de actualizar**, con la versión que todavía usa MinIO:
+   Administración → Copias de seguridad → «Hacer copia ahora», y descárguela.
+2. Actualice el código y arranque: `./start.sh --prod`. Retira solo el
+   contenedor de MinIO, que ya no está en la configuración, y deja su volumen.
+   El almacén nuevo empieza vacío, y los documentos parecerán no estar.
+3. Administración → Copias de seguridad → restaure el ZIP del paso 1.
+4. Compruebe que se abren algunos documentos. Cuando esté conforme, el volumen
+   viejo se puede borrar: `docker volume ls | grep minio_data` y
+   `docker volume rm <nombre>`. Hasta entonces, no lo borre: es la vuelta atrás.
+
+Funciona porque el cambio de almacén no cambia el esquema de la base de datos:
+la copia y la instalación están en la misma versión, que es lo que la
+restauración exige.
+
+Una instalación nueva no necesita nada de esto.
 
 ## Escalado
 

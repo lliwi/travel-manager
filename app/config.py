@@ -134,12 +134,13 @@ class Config:
     CELERY_TASK_ALWAYS_EAGER = _bool('CELERY_TASK_ALWAYS_EAGER', False)
 
     # ------------------------------------------------------------------
-    # Document storage (S3 compatible / MinIO -- section 3.1)
+    # Document storage (any S3-compatible server; SeaweedFS in the reference
+    # deployment -- section 3.1)
     # ------------------------------------------------------------------
     STORAGE_BACKEND = os.environ.get('STORAGE_BACKEND', 's3')
-    S3_ENDPOINT_URL = os.environ.get('S3_ENDPOINT_URL', 'http://minio:9000')
+    S3_ENDPOINT_URL = os.environ.get('S3_ENDPOINT_URL', 'http://s3:9000')
     S3_PUBLIC_ENDPOINT_URL = os.environ.get('S3_PUBLIC_ENDPOINT_URL')
-    S3_ACCESS_KEY = os.environ.get('S3_ACCESS_KEY', 'minioadmin')
+    S3_ACCESS_KEY = os.environ.get('S3_ACCESS_KEY', 'travelmanager')
     S3_SECRET_KEY = os.environ.get('S3_SECRET_KEY', 'minioadmin')
     S3_REGION = os.environ.get('S3_REGION', 'us-east-1')
     S3_BUCKET_DOCUMENTS = os.environ.get('S3_BUCKET_DOCUMENTS', 'travel-documents')
