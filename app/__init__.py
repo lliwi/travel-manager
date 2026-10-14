@@ -108,9 +108,13 @@ def initialize_extensions(app):
     if not app.config['DEBUG'] and not app.config['TESTING']:
         csp = {
             'default-src': "'self'",
-            'script-src': ["'self'", 'https://cdn.jsdelivr.net'],
-            'style-src': ["'self'", 'https://cdn.jsdelivr.net', "'unsafe-inline'"],
-            'font-src': ["'self'", 'https://cdn.jsdelivr.net', 'data:'],
+            # Nothing from outside: Bootstrap, its icons and the font are
+            # served from static/vendor. Behind a corporate proxy a CDN arrives
+            # blocked and the page renders unstyled; allowing one here would
+            # only hide the next asset somebody links from outside.
+            'script-src': ["'self'"],
+            'style-src': ["'self'", "'unsafe-inline'"],
+            'font-src': ["'self'", 'data:'],
             'img-src': ["'self'", 'data:'],
             'connect-src': "'self'",
             'frame-ancestors': "'none'",

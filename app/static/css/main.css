@@ -1,7 +1,8 @@
 /* Travel Manager — design tokens and layout.
    A thin layer over Bootstrap 5: dark sidebar, light content, one accent. */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+/* Inter se carga desde static/vendor/inter/inter.css, enlazada en base.html:
+   desde Google Fonts la bloqueaban el proxy corporativo y la propia CSP. */
 
 :root {
     --primary: #0d6efd;
