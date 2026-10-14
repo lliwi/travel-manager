@@ -230,8 +230,42 @@ class TestLaImagenEsLaQueSeProbo:
         assert '-c constraints.txt' in texto
         assert 'COPY requirements.txt constraints.txt' in texto
 
-    def test_la_url_de_la_base_de_datos_nombra_el_controlador(self, compose):
+    def test_la_url_de_la_base_de_datos_nombra_el_controlador(self, monkeypatch):
         """Not SQLAlchemy's default: it is what changed under us."""
+        from app.config import _database_url
+
+        monkeypatch.delenv('DATABASE_URL', raising=False)
+        assert _database_url().startswith('postgresql+psycopg2://')
+
+
+@pytest.mark.unit
+class TestLaContrasenaDePostgres:
+    """Found in production: «password authentication failed» with the right
+    password in docker/.env."""
+
+    def test_no_va_pegada_en_una_url(self, compose):
+        """Pasted into a URL, «@», «/» or «#» in it broke the URL."""
         for servicio in ('web', 'worker'):
-            url = compose['services'][servicio]['environment']['DATABASE_URL']
-            assert url.startswith('postgresql+psycopg2://'), (servicio, url)
+            entorno = compose['services'][servicio]['environment']
+            assert 'DATABASE_URL' not in entorno, servicio
+            assert ':?' in str(entorno['POSTGRES_PASSWORD']), servicio
+
+    @pytest.mark.parametrize('contrasena', ['a@b/c#d%e:f?g', 'sin-nada-raro'])
+    def test_se_escapa_al_construir_la_url(self, monkeypatch, contrasena):
+        from sqlalchemy.engine import make_url
+
+        from app.config import _database_url
+
+        monkeypatch.delenv('DATABASE_URL', raising=False)
+        monkeypatch.setenv('POSTGRES_PASSWORD', contrasena)
+
+        url = make_url(_database_url())
+        assert url.password == contrasena
+        assert url.host == 'postgres'
+
+    def test_una_contrasena_rechazada_se_explica(self):
+        """Not a traceback repeated every few seconds."""
+        texto = (RAIZ / 'docker' / 'flask' / 'entrypoint.sh').read_text()
+
+        assert 'password authentication failed' in texto
+        assert 'ALTER USER' in texto

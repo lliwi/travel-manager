@@ -25,6 +25,34 @@ def _int(name, default):
         return default
 
 
+def _database_url():
+    """Where the database is: DATABASE_URL if given, else built from parts.
+
+    Built rather than written into Compose as a string: a password with «@»,
+    «/», «#» or «%» in it breaks a URL it is pasted into, and the result is
+    an authentication failure with the right password -- the server got it
+    whole, the URL handed the client a fragment. ``URL.create`` escapes it.
+
+    The driver is named, not left to SQLAlchemy's default: 2.1 changed that
+    default from psycopg2 to psycopg 3, and an image built with it could not
+    connect. See constraints.txt.
+    """
+    explicita = os.environ.get('DATABASE_URL')
+    if explicita:
+        return explicita
+
+    from sqlalchemy.engine import URL
+
+    return URL.create(
+        'postgresql+psycopg2',
+        username=os.environ.get('POSTGRES_USER', 'travel'),
+        password=os.environ.get('POSTGRES_PASSWORD', 'travel'),
+        host=os.environ.get('POSTGRES_HOST', 'postgres'),
+        port=int(os.environ.get('POSTGRES_PORT', 5432)),
+        database=os.environ.get('POSTGRES_DB', 'travel_manager'),
+    ).render_as_string(hide_password=False)
+
+
 class Config:
     """Base configuration shared by every environment."""
 
@@ -40,13 +68,7 @@ class Config:
     # ------------------------------------------------------------------
     # Database
     # ------------------------------------------------------------------
-    SQLALCHEMY_DATABASE_URI = os.environ.get(
-        'DATABASE_URL',
-        # The driver named, not left to SQLAlchemy's default: 2.1 changed it
-        # from psycopg2 to psycopg 3, and an image built with it could not
-        # connect. See constraints.txt.
-        'postgresql+psycopg2://travel:travel@postgres:5432/travel_manager',
-    )
+    SQLALCHEMY_DATABASE_URI = _database_url()
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
     _base_engine_options = {
