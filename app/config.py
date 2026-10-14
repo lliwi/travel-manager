@@ -42,7 +42,10 @@ class Config:
     # ------------------------------------------------------------------
     SQLALCHEMY_DATABASE_URI = os.environ.get(
         'DATABASE_URL',
-        'postgresql://travel:travel@postgres:5432/travel_manager',
+        # The driver named, not left to SQLAlchemy's default: 2.1 changed it
+        # from psycopg2 to psycopg 3, and an image built with it could not
+        # connect. See constraints.txt.
+        'postgresql+psycopg2://travel:travel@postgres:5432/travel_manager',
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 

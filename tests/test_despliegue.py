@@ -182,3 +182,56 @@ class TestElAlmacenDeDocumentos:
         for servicio in ('web', 'worker'):
             entorno = compose['services'][servicio]['environment']
             assert entorno['S3_ENDPOINT_URL'] == 'http://s3:9000', servicio
+
+
+RAIZ = COMPOSE.parent.parent
+
+
+def _nombre(requisito):
+    """«Flask-SQLAlchemy>=3.1» -> «flask-sqlalchemy», as pip compares them."""
+    import re
+
+    nombre = re.split(r'[<>=!~\[; ]', requisito.strip(), maxsplit=1)[0]
+    return re.sub(r'[-_.]+', '-', nombre).lower()
+
+
+@pytest.mark.unit
+class TestLaImagenEsLaQueSeProbo:
+    """Found in production: requirements.txt only sets minimums, a build weeks
+    later installed SQLAlchemy 2.1, whose default PostgreSQL driver is one we
+    do not install, and the application could not start.
+    """
+
+    def _lineas(self, fichero):
+        return [
+            linea.strip() for linea in (RAIZ / fichero).read_text().splitlines()
+            if linea.strip() and not linea.lstrip().startswith('#')
+        ]
+
+    def test_cada_dependencia_tiene_version_exacta(self):
+        fijadas = {_nombre(linea): linea for linea in self._lineas('constraints.txt')}
+        sueltas = [
+            requisito for requisito in self._lineas('requirements.txt')
+            if _nombre(requisito) not in fijadas
+        ]
+
+        assert not sueltas, (
+            'Sin versión exacta en constraints.txt: ' + ', '.join(sueltas)
+        )
+
+    def test_las_versiones_son_exactas(self):
+        inexactas = [linea for linea in self._lineas('constraints.txt') if '==' not in linea]
+
+        assert not inexactas, inexactas
+
+    def test_el_dockerfile_las_aplica(self):
+        texto = (RAIZ / 'docker' / 'flask' / 'Dockerfile').read_text()
+
+        assert '-c constraints.txt' in texto
+        assert 'COPY requirements.txt constraints.txt' in texto
+
+    def test_la_url_de_la_base_de_datos_nombra_el_controlador(self, compose):
+        """Not SQLAlchemy's default: it is what changed under us."""
+        for servicio in ('web', 'worker'):
+            url = compose['services'][servicio]['environment']['DATABASE_URL']
+            assert url.startswith('postgresql+psycopg2://'), (servicio, url)

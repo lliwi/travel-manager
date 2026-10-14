@@ -178,7 +178,7 @@ services:
       # caso; Python y httpx lo respetan sin más configuración.
       SSL_CERT_FILE: ${SSL_CERT_FILE:-}
 
-      DATABASE_URL: postgresql://${POSTGRES_USER:-travel}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-travel_manager}
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-travel}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-travel_manager}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/1
       CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/2

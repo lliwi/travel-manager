@@ -21,8 +21,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Limitado por constraints.txt: requirements.txt solo fija mínimos, y sin esto
+# cada construcción instalaba lo último publicado ese día -- no lo probado.
+COPY requirements.txt constraints.txt ./
+RUN pip install --no-cache-dir -r requirements.txt -c constraints.txt
 
 COPY . .
 
