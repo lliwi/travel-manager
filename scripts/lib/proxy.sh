@@ -137,7 +137,7 @@ construir_imagenes() {
     comprobar_proxy_del_demonio "${proxy}" || return 1
 
     if [[ -z "${proxy}" ]]; then
-        compose build
+        compose build || { _pista_si_falla_la_construccion; return 1; }
         return
     fi
 
@@ -151,5 +151,34 @@ construir_imagenes() {
         --build-arg http_proxy="${proxy}" \
         --build-arg https_proxy="${proxy}" \
         --build-arg NO_PROXY="${sin_proxy}" \
-        --build-arg no_proxy="${sin_proxy}"
+        --build-arg no_proxy="${sin_proxy}" \
+        || { _pista_si_falla_la_construccion; return 1; }
+}
+
+# Qué probar cuando la construcción falla por algo del servidor y no del
+# proyecto. Visto en producción: «mount source: overlay ... no such device» al
+# copiar el código, con el Dockerfile intacto. No se puede distinguir desde
+# aquí cuál de las dos causas es, así que se dicen las dos, en el orden en que
+# conviene probarlas: la primera no toca nada más que la caché.
+_pista_si_falla_la_construccion() {
+    cat >&2 <<'PISTA'
+
+    Si el error de arriba menciona «overlay», «no such device» o «failed to
+    solve: mount», no es del proyecto: es Docker en este servidor.
+
+    1. La caché de construcción puede haber quedado dañada, por ejemplo al
+       reiniciar Docker a mitad de una construcción. Bórrela y repita:
+
+         docker builder prune -af
+
+    2. Si sigue igual, el núcleo puede no tener disponible el módulo
+       «overlay», típicamente tras actualizar el núcleo sin reiniciar.
+       Compruébelo:
+
+         uname -r; ls /lib/modules; modprobe overlay && echo "overlay: ok"
+
+       Si «uname -r» no aparece en /lib/modules o modprobe falla, reinicie
+       el servidor.
+
+PISTA
 }

@@ -21,8 +21,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         redis-tools \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Las mismas versiones exactas que la imagen web: worker y beat ejecutan el
+# mismo código, y sin esto instalaban lo último publicado ese día.
+COPY requirements.txt constraints.txt ./
+RUN pip install --no-cache-dir -r requirements.txt -c constraints.txt
 
 COPY . .
 

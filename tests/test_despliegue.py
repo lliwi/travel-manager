@@ -224,11 +224,21 @@ class TestLaImagenEsLaQueSeProbo:
 
         assert not inexactas, inexactas
 
-    def test_el_dockerfile_las_aplica(self):
-        texto = (RAIZ / 'docker' / 'flask' / 'Dockerfile').read_text()
+    @pytest.mark.parametrize('imagen', ['flask', 'celery'])
+    def test_cada_dockerfile_las_aplica(self, imagen):
+        """Both: worker and beat run the same code, and the Celery image was
+        left installing whatever was newest when only web was fixed."""
+        texto = (RAIZ / 'docker' / imagen / 'Dockerfile').read_text()
 
         assert '-c constraints.txt' in texto
         assert 'COPY requirements.txt constraints.txt' in texto
+
+    def test_cada_dockerfile_de_python_esta_cubierto(self):
+        """A new Python image must not be added without its pins."""
+        for dockerfile in (RAIZ / 'docker').glob('*/Dockerfile'):
+            texto = dockerfile.read_text()
+            if 'pip install' in texto:
+                assert '-c constraints.txt' in texto, dockerfile.parent.name
 
     def test_la_url_de_la_base_de_datos_nombra_el_controlador(self, monkeypatch):
         """Not SQLAlchemy's default: it is what changed under us."""
@@ -269,3 +279,161 @@ class TestLaContrasenaDePostgres:
 
         assert 'password authentication failed' in texto
         assert 'ALTER USER' in texto
+
+
+@pytest.mark.unit
+class TestElScriptDeArranque:
+    """start.sh, revisado tras parar y arrancar en producción."""
+
+    TEXTO = (RAIZ / 'start.sh').read_text()
+
+    def test_parar_ve_tambien_los_contenedores_caidos(self):
+        """Without «-a», a web container in a restart loop was invisible, so
+        «--stop» did nothing and left it for the next start."""
+        assert 'compose ps -a -q' in self.TEXTO
+
+    def test_un_cambio_de_versiones_reconstruye(self):
+        assert '"${ROOT}/constraints.txt"' in self.TEXTO
+
+    def test_una_migracion_fallida_no_se_da_por_buena(self):
+        """«flask db upgrade | grep -q» reported a failed migration as «al día»."""
+        assert 'flask db upgrade 2>&1 | grep' not in self.TEXTO
+        assert 'Las migraciones han fallado' in self.TEXTO
+
+
+@pytest.mark.unit
+class TestUnaConstruccionFallidaDiceQueProbar:
+    def test_explica_el_fallo_de_overlay(self, tmp_path):
+        import subprocess
+
+        (tmp_path / 'docker').mkdir()
+        (tmp_path / 'docker' / '.env').write_text('')
+        guion = (
+            f'ROOT="{tmp_path}"; ENV_FILE="{tmp_path}/docker/.env"\n'
+            'info() { :; }; warn() { :; }; fail() { :; }\n'
+            'compose() { return 1; }\n'
+            f'source "{RAIZ}/scripts/lib/proxy.sh"\n'
+            'construir_imagenes; echo "rc=$?"\n'
+        )
+        r = subprocess.run(['bash', '-c', guion], capture_output=True, text=True,
+                           env={'PATH': '/usr/bin:/bin'}, timeout=30)
+
+        assert 'rc=1' in r.stdout
+        assert 'docker builder prune -af' in r.stderr
+        assert 'modprobe overlay' in r.stderr
+
+
+@pytest.mark.unit
+class TestLasComprobacionesDeSalud:
+    def test_ninguna_usa_localhost(self, compose):
+        """Found twice: localhost is ::1 in these containers, SeaweedFS and
+        Nginx listen on IPv4 only, and the check failed with the service
+        working -- «unhealthy» Nginx after every clean install."""
+        culpables = [
+            nombre for nombre, servicio in compose['services'].items()
+            if 'localhost' in ' '.join(map(str, (servicio.get('healthcheck') or {}).get('test', [])))
+        ]
+
+        assert not culpables, culpables
+
+
+@pytest.mark.unit
+class TestHttpOHttps:
+    """Visto al validar una instalación limpia: con el certificado autofirmado
+    start.sh servía HTTP sin redirigir y la cookie de sesión seguía siendo
+    solo-HTTPS, así que por http:// no se podía iniciar sesión."""
+
+    def _decidir(self, tmp_path, con_certificado):
+        import subprocess
+
+        certs = tmp_path / 'docker' / 'nginx' / 'certs'
+        certs.mkdir(parents=True)
+        if con_certificado:
+            subprocess.run(
+                ['openssl', 'req', '-x509', '-nodes', '-newkey', 'rsa:2048', '-days', '1',
+                 '-keyout', str(certs / 'server.key'), '-out', str(certs / 'server.crt'),
+                 '-subj', '/CN=prueba'],
+                check=True, capture_output=True,
+            )
+        guion = (
+            f'ROOT="{tmp_path}"\n'
+            'ok() { echo "OK $*"; }; info() { :; }; warn() { echo "WARN $*"; }\n'
+            f'source "{RAIZ}/scripts/lib/tls.sh"\n'
+            'configurar_tls; echo "FORCE_HTTPS=$FORCE_HTTPS"\n'
+        )
+        r = subprocess.run(['bash', '-c', guion], capture_output=True, text=True, timeout=30)
+        redireccion = (tmp_path / 'docker' / 'nginx' / 'tls_redirect.conf').read_text()
+        return r.stdout, redireccion
+
+    def test_con_el_autofirmado_todo_va_por_https(self, tmp_path):
+        import shutil
+
+        if not shutil.which('openssl'):
+            pytest.skip('openssl no disponible')
+        salida, redireccion = self._decidir(tmp_path, con_certificado=True)
+
+        assert 'FORCE_HTTPS=true' in salida
+        assert 'return 301 https://' in redireccion
+
+    def test_sin_certificado_http_y_lo_dice(self, tmp_path):
+        salida, redireccion = self._decidir(tmp_path, con_certificado=False)
+
+        assert 'FORCE_HTTPS=false' in salida
+        assert 'return 301' not in redireccion
+        assert 'WARN' in salida
+
+    @pytest.mark.parametrize('forzar, segura', [('true', True), ('false', False)])
+    def test_la_cookie_sigue_a_la_decision(self, monkeypatch, forzar, segura):
+        """A «Secure» cookie over HTTP is dropped, and nobody can sign in."""
+        import importlib
+
+        # By name: «import app.config» returns the «config» dict the package
+        # re-exports, not the module.
+        configuracion = importlib.import_module('app.config')
+
+        monkeypatch.setenv('FORCE_HTTPS', forzar)
+        recargada = importlib.reload(configuracion)
+        try:
+            assert recargada.ProductionConfig.SESSION_COOKIE_SECURE is segura
+            assert recargada.ProductionConfig.REMEMBER_COOKIE_SECURE is segura
+        finally:
+            monkeypatch.delenv('FORCE_HTTPS')
+            importlib.reload(configuracion)
+
+    @pytest.mark.parametrize('script', ['setup.sh', 'start.sh'])
+    def test_los_dos_scripts_deciden_igual(self, script):
+        texto = (RAIZ / script).read_text()
+
+        assert 'scripts/lib/tls.sh' in texto
+        assert 'configurar_tls' in texto
+
+
+@pytest.mark.unit
+class TestLaRedireccionNoTumbaANginx:
+    def test_el_fragmento_no_vive_en_conf_d(self):
+        """nginx.conf loads conf.d/*.conf at http level, where «return» is not
+        allowed: with any certificate the redirect stopped Nginx starting."""
+        for fichero in ('docker/nginx/Dockerfile', 'docker/docker-compose.yml',
+                        'docker/nginx/app.conf'):
+            texto = (RAIZ / fichero).read_text()
+            assert 'conf.d/tls_redirect.conf' not in texto, fichero
+            assert 'snippets/tls_redirect.conf' in texto, fichero
+
+
+@pytest.mark.unit
+class TestArrancarSinCambiosNoReconstruye:
+    """Visto al parar y arrancar una instalación limpia: los scripts escriben
+    ficheros en docker/ al arrancar, y cada arranque se veía «con cambios»."""
+
+    TEXTO = (RAIZ / 'start.sh').read_text()
+
+    @pytest.mark.parametrize('generado', [
+        'docker/.env*', 'docker/.entorno', 'docker/nginx/tls_redirect.conf',
+        'docker/nginx/certs*',
+    ])
+    def test_lo_que_escriben_los_scripts_no_cuenta_como_cambio(self, generado):
+        assert f'! -path "${{ROOT}}/{generado}"' in self.TEXTO
+
+    def test_el_resumen_no_promete_http_cuando_todo_va_por_https(self):
+        assert 'http://localhost:${puerto}"' not in self.TEXTO
+        assert "https://%s" in self.TEXTO

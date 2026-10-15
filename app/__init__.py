@@ -141,7 +141,7 @@ def initialize_extensions(app):
             # is restarting). Setting it in both places just duplicates it.
             strict_transport_security=False,
             referrer_policy='strict-origin-when-cross-origin',
-            session_cookie_secure=True,
+            session_cookie_secure=app.config['SESSION_COOKIE_SECURE'],
         )
     else:
         # En desarrollo y en los tests no hay política que satisfacer, pero la

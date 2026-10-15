@@ -170,11 +170,15 @@ mostrar_estado() {
 
 detener() {
     header "Deteniendo Travel Manager (${ETIQUETA})"
-    if [[ -z "$(compose ps -q 2>/dev/null)" ]]; then
-        info "No había servicios en marcha."
+    # «-a»: también los parados y los que se reinician en bucle. Sin él, con
+    # la aplicación caída «ps» no veía nada, no se ejecutaba «down», y el
+    # contenedor roto, su red y su estado seguían ahí para el siguiente
+    # arranque.
+    if [[ -z "$(compose ps -a -q 2>/dev/null)" ]]; then
+        info "No había servicios."
         return
     fi
-    compose down
+    compose down --remove-orphans
     ok "Servicios detenidos. Los datos se conservan en los volúmenes."
     info "Para borrarlos también: docker compose -f docker/docker-compose.yml down -v"
 }
@@ -202,9 +206,19 @@ necesita_build() {
     local cambios
     # Las migraciones y el conjunto de evaluación también van dentro de la
     # imagen: una migración nueva sin reconstruir no se aplica nunca.
+    #
+    # Fuera lo que los propios scripts escriben en docker/ al arrancar -- la
+    # redirección, los secretos, el entorno, los certificados --, que no entra
+    # en ninguna imagen: con ellos, cada arranque se veía «con cambios» y
+    # reconstruía todo, a través del proxy, sin haber tocado una línea.
     cambios="$(find "${ROOT}/app" "${ROOT}/migrations" "${ROOT}/data/evaluacion" \
-        "${ROOT}/requirements.txt" "${ROOT}/docker" \
-        -newer "${marca}" -print -quit 2>/dev/null || true)"
+        "${ROOT}/requirements.txt" "${ROOT}/constraints.txt" "${ROOT}/docker" \
+        -newer "${marca}" \
+        ! -path "${ROOT}/docker/.env*" \
+        ! -path "${ROOT}/docker/.entorno" \
+        ! -path "${ROOT}/docker/nginx/tls_redirect.conf" \
+        ! -path "${ROOT}/docker/nginx/certs*" \
+        -print -quit 2>/dev/null || true)"
     rm -f "${marca}"
 
     [[ -n "${cambios}" ]]
@@ -216,70 +230,10 @@ necesita_build() {
 # shellcheck source=scripts/lib/proxy.sh
 source "${ROOT}/scripts/lib/proxy.sh"
 
-# Decide si Nginx debe redirigir a HTTPS, mirando el certificado que hay.
-#
-# No basta con «¿existe un certificado?»: la instalación genera siempre uno
-# autofirmado, así que esa pregunta responde que sí desde el primer minuto y
-# redirigiría todo a un HTTPS que el navegador rechaza. La pregunta útil es si
-# alguien ha puesto uno de verdad, y eso se ve en que no esté firmado por sí
-# mismo: en un autofirmado, quien lo emite y para quién es el mismo.
-#
-# Se comprueba aquí y no dentro del contenedor porque la imagen de Nginx no
-# lleva openssl, y el anfitrión sí.
-configurar_tls() {
-    local dir="${ROOT}/docker/nginx/certs"
-    local destino="${ROOT}/docker/nginx/tls_redirect.conf"
-    local cert="${dir}/server.crt"
-    local cabecera="# Generado por ./start.sh — no editar a mano."
-
-    # Nginx y la aplicación tienen que decidir lo mismo. Talisman redirige por
-    # su cuenta, así que dejarlo en «true» mientras aquí se decide no redirigir
-    # da un 302 hacia un HTTPS que no existe, y el ajuste de nginx no se nota.
-    export FORCE_HTTPS=false
-
-    if [[ ! -f "${cert}" ]]; then
-        printf '%s\n# Sin certificado: se sirve por HTTP.\n' "${cabecera}" > "${destino}"
-        warn "No hay certificado en docker/nginx/certs; se sirve por HTTP."
-        return 0
-    fi
-
-    if ! command -v openssl >/dev/null 2>&1; then
-        printf '%s\n# Sin openssl para comprobar el certificado: se sirve por HTTP.\n' \
-            "${cabecera}" > "${destino}"
-        warn "openssl no disponible; no se activa la redirección a HTTPS."
-        return 0
-    fi
-
-    local emisor sujeto
-    emisor="$(openssl x509 -noout -issuer -in "${cert}" 2>/dev/null | sed 's/^issuer=//')"
-    sujeto="$(openssl x509 -noout -subject -in "${cert}" 2>/dev/null | sed 's/^subject=//')"
-
-    if [[ -z "${emisor}" ]]; then
-        printf '%s\n# El certificado no se pudo leer: se sirve por HTTP.\n' \
-            "${cabecera}" > "${destino}"
-        warn "docker/nginx/certs/server.crt no se pudo leer; se sirve por HTTP."
-        return 0
-    fi
-
-    if [[ "${emisor}" == "${sujeto}" ]]; then
-        printf '%s\n# Certificado autofirmado (desarrollo): se sirve por HTTP.\n' \
-            "${cabecera}" > "${destino}"
-        info "Certificado autofirmado; se sirve por HTTP sin redirigir."
-        return 0
-    fi
-
-    printf '%s\nreturn 301 https://$host$request_uri;\n' "${cabecera}" > "${destino}"
-    export FORCE_HTTPS=true
-    ok "Certificado emitido por «${emisor#*CN=}»: se activa la redirección a HTTPS."
-
-    # Un certificado caducado redirige a un HTTPS que nadie puede usar, y el
-    # aviso llega tarde si solo se ve en el navegador.
-    if ! openssl x509 -checkend 0 -noout -in "${cert}" >/dev/null 2>&1; then
-        warn "El certificado está CADUCADO. Renuévelo: la aplicación redirige a HTTPS."
-    elif ! openssl x509 -checkend 2592000 -noout -in "${cert}" >/dev/null 2>&1; then
-        warn "El certificado caduca en menos de 30 días."
-    fi
-}
+# HTTP o HTTPS: en scripts/lib/tls.sh, compartido con setup.sh para que los
+# dos lleguen a la misma conclusión.
+# shellcheck source=scripts/lib/tls.sh
+source "${ROOT}/scripts/lib/tls.sh"
 
 construir() {
     # «--proxy URL» manda para esta ejecución; «--proxy» a secas, o nada, usa
@@ -354,7 +308,16 @@ aplicar_actualizaciones() {
     # El punto de entrada del contenedor ya migra al arrancar; repetirlo aquí
     # cubre el caso de reiniciar sin recrear y no cuesta nada: `db upgrade` no
     # hace nada si no hay revisiones pendientes.
-    if compose exec -T web flask db upgrade 2>&1 | grep -q 'Running upgrade'; then
+    # La salida se guarda antes de mirarla: «flask … | grep -q» daba por buena
+    # una migración fallida -- grep no encontraba «Running upgrade» y se
+    # informaba de que la base de datos ya estaba al día.
+    local migracion
+    if ! migracion="$(compose exec -T web flask db upgrade 2>&1)"; then
+        fail "Las migraciones han fallado."
+        echo "${migracion}" | tail -20 | sed 's/^/    /' >&2
+        exit 1
+    fi
+    if grep -q 'Running upgrade' <<<"${migracion}"; then
         ok "Migraciones aplicadas."
     else
         ok "La base de datos ya estaba al día."
@@ -397,19 +360,30 @@ comprobar_ollama() {
     fi
 }
 
-resumen() {
-    local puerto
+# Dónde está la aplicación, como la escribiría alguien en el navegador. Decía
+# siempre http://localhost:80, también cuando todo va por HTTPS.
+direccion_publica() {
     if [[ "${ENTORNO}" == "dev" ]]; then
-        puerto="$(grep -E '^DEV_PORT=' "${ENV_FILE}" | cut -d= -f2- || echo 5000)"
-        puerto="${puerto:-5000}"
+        local puerto
+        puerto="$(grep -E '^DEV_PORT=' "${ENV_FILE}" | cut -d= -f2- || true)"
+        printf 'http://localhost:%s' "${puerto:-5000}"
+    elif [[ "${FORCE_HTTPS:-}" == "true" ]]; then
+        local puerto
+        puerto="$(grep -E '^HTTPS_PORT=' "${ENV_FILE}" | cut -d= -f2- || true)"
+        puerto="${puerto:-443}"
+        [[ "${puerto}" == "443" ]] && printf 'https://%s' "$(hostname -f 2>/dev/null || hostname)" \
+            || printf 'https://%s:%s' "$(hostname -f 2>/dev/null || hostname)" "${puerto}"
     else
-        puerto="$(grep -E '^HTTP_PORT=' "${ENV_FILE}" | cut -d= -f2- || echo 80)"
-        puerto="${puerto:-80}"
+        local puerto
+        puerto="$(grep -E '^HTTP_PORT=' "${ENV_FILE}" | cut -d= -f2- || true)"
+        printf 'http://%s:%s' "$(hostname -f 2>/dev/null || hostname)" "${puerto:-80}"
     fi
+}
 
+resumen() {
     header "Travel Manager en marcha (${ETIQUETA})"
     echo ""
-    echo -e "  ${BOLD}Aplicación:${NC}     http://localhost:${puerto}"
+    echo -e "  ${BOLD}Aplicación:${NC}     $(direccion_publica)"
     if [[ "${ENTORNO}" == "dev" ]]; then
         echo -e "  ${BOLD}PostgreSQL:${NC}     localhost:5432"
         echo -e "  ${BOLD}Redis:${NC}          localhost:6379"

@@ -165,6 +165,13 @@ ok "Imágenes construidas."
 # ---------------------------------------------------------------------
 header "Paso 7: arrancando los servicios"
 # ---------------------------------------------------------------------
+# La misma decisión que start.sh sobre HTTP y HTTPS. Sin esto, tras la
+# instalación la aplicación redirigía por su cuenta y Nginx no, y al primer
+# «start.sh» la decisión cambiaba.
+# shellcheck source=scripts/lib/tls.sh
+source "${ROOT}/scripts/lib/tls.sh"
+configurar_tls
+
 # --remove-orphans: al repetirlo tras una actualización retira los servicios
 # que ya no existen -- el de MinIO, por ejemplo --, que si no seguirían en
 # marcha sin que nadie los use.

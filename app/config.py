@@ -97,6 +97,7 @@ class Config:
     # Session & CSRF
     # ------------------------------------------------------------------
     SESSION_COOKIE_SECURE = True
+    REMEMBER_COOKIE_SECURE = True
     SESSION_COOKIE_HTTPONLY = True
     SESSION_COOKIE_SAMESITE = 'Lax'
     PERMANENT_SESSION_LIFETIME = timedelta(hours=_int('SESSION_LIFETIME_HOURS', 8))
@@ -315,9 +316,18 @@ class ProductionConfig(Config):
     #: It exists because the same decision is also taken by Nginx, and the two
     #: disagreeing is worse than either: with a self-signed certificate, Nginx
     #: served HTTP while the application answered 302 to an HTTPS the browser
-    #: refuses, so the site was unreachable by both doors. «./start.sh» now
-    #: sets this alongside the Nginx redirect, from one look at the certificate.
+    #: refuses, so the site was unreachable by both doors. scripts/lib/tls.sh
+    #: sets this alongside the Nginx redirect, from one look at the
+    #: certificate, for setup.sh and start.sh alike.
     FORCE_HTTPS = _bool('FORCE_HTTPS', True)
+
+    #: Only HTTPS when everything is HTTPS. A «Secure» cookie served over HTTP
+    #: is dropped by the browser, and signing in then fails with nothing on
+    #: screen but «error inesperado» -- which is what happened with the
+    #: self-signed certificate. scripts/lib/tls.sh now redirects whenever a
+    #: certificate exists, so this is False only with no certificate at all.
+    SESSION_COOKIE_SECURE = FORCE_HTTPS
+    REMEMBER_COOKIE_SECURE = FORCE_HTTPS
 
     @staticmethod
     def init_app(app):

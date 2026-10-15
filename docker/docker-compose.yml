@@ -224,7 +224,7 @@ services:
       redis: {condition: service_healthy}
       s3: {condition: service_healthy}
     healthcheck:
-      test: ['CMD', 'python', '-c', "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:5000/healthz', timeout=5).status==200 else 1)"]
+      test: ['CMD', 'python', '-c', "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:5000/healthz', timeout=5).status==200 else 1)"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -294,12 +294,15 @@ services:
       # Montado y no copiado en la imagen: lo escribe ./start.sh según el
       # certificado que encuentre, y así cambiar de autofirmado a uno real no
       # obliga a reconstruir nada.
-      - ./nginx/tls_redirect.conf:/etc/nginx/conf.d/tls_redirect.conf:ro
+      - ./nginx/tls_redirect.conf:/etc/nginx/snippets/tls_redirect.conf:ro
     networks: [frontend]
     depends_on:
       web: {condition: service_healthy}
     healthcheck:
-      test: ['CMD', 'wget', '-q', '--spider', 'http://localhost/healthz']
+      # 127.0.0.1 y no localhost: dentro del contenedor localhost es ::1, Nginx
+      # escucha solo en IPv4, y la comprobación fallaba siempre -- el contenedor
+      # salía «unhealthy» con la aplicación funcionando perfectamente.
+      test: ['CMD', 'wget', '-q', '--spider', 'http://127.0.0.1/healthz']
       interval: 30s
       timeout: 5s
       retries: 3
