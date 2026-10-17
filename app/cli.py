@@ -27,6 +27,7 @@ def register_commands(app):
     app.cli.add_command(ai_stats)
     app.cli.add_command(autoajustar)
     app.cli.add_command(mfa_reset)
+    app.cli.add_command(rotar_cifrado)
 
 
 @click.command('init-db')
@@ -643,6 +644,39 @@ def autoajustar(tarea, modelo, claves, ensayos, repeticiones, aplicar):
                + ('Aplicado.' if ajuste.aplicado else
                   'Propuesta pendiente en Administración → Autoajuste.' if ajuste.hay_propuesta
                   else 'Nada mejor que lo actual.'))
+
+
+@click.command('rotar-cifrado')
+@click.option('--comprobar', is_flag=True,
+              help='Solo decir con qué clave se abre cada secreto, sin cambiar nada.')
+@with_appcontext
+def rotar_cifrado(comprobar):
+    """Re-encrypt stored secrets with SECRETS_ENCRYPTION_KEY.
+
+    Exit 0 when everything is left on the current key, 3 when something opens
+    with neither key -- the previous one is missing, and nothing was written.
+    """
+    from app.services import rotacion_service
+
+    resultado = (rotacion_service.estado() if comprobar
+                 else rotacion_service.recifrar())
+
+    if resultado.ilegibles:
+        click.echo(click.style(
+            f'{len(resultado.ilegibles)} secretos no se abren ni con la clave '
+            f'actual ni con SECRETS_ENCRYPTION_KEY_PREVIOUS:', fg='red'))
+        for descripcion in resultado.ilegibles[:20]:
+            click.echo(f'  - {descripcion}')
+        click.echo('No se ha cambiado nada. Ponga la clave anterior en '
+                   'SECRETS_ENCRYPTION_KEY_PREVIOUS y repita.')
+        raise SystemExit(3)
+
+    if comprobar:
+        click.echo(f'Con la clave actual: {resultado.con_la_actual}. '
+                   f'Pendientes de recifrar: {resultado.con_la_anterior}.')
+    else:
+        click.echo(f'Todos los secretos ({resultado.con_la_actual}) están '
+                   f'cifrados con la clave actual.')
 
 
 @click.command('ai-stats')

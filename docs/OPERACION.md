@@ -484,21 +484,54 @@ worker suele ser el punto de equilibrio.
 El servicio `beat` debe permanecer con **una sola instancia**: varias
 programarían la misma tarea varias veces.
 
-## Rotación de claves
+## Rotación de credenciales
 
-Para rotar `SECRETS_ENCRYPTION_KEY` sin parar el servicio:
+Todas las credenciales del despliegue viven en `docker/.env`, y `./setup.sh`
+aplica lo que diga ese fichero cada vez que se ejecuta. Hay dos maneras de
+rotarlas.
 
-1. Genere la nueva clave.
-2. Mueva la actual a `SECRETS_ENCRYPTION_KEY_PREVIOUS` y ponga la nueva en
-   `SECRETS_ENCRYPTION_KEY`.
-3. Reinicie. A partir de ahí se cifra con la nueva y se sigue pudiendo descifrar
-   con la anterior.
-4. Vuelva a guardar cada clave API desde Administración → Proveedores de IA.
-5. Vacíe `SECRETS_ENCRYPTION_KEY_PREVIOUS` y reinicie.
+### Ante un compromiso: `./setup.sh --rotar`
 
-Si se salta el paso 4, las claves antiguas dejarán de poder leerse al vaciar la
-clave anterior. La aplicación no se cae: informa de que no hay clave configurada
-para ese proveedor.
+Genera credenciales nuevas para todo y las aplica:
+
+| Credencial | Qué se hace |
+| --- | --- |
+| `SECRET_KEY` | Nueva. Se cierran todas las sesiones abiertas. |
+| `POSTGRES_PASSWORD` | Nueva, y se aplica dentro de PostgreSQL (`ALTER USER`) antes de arrancar la aplicación. |
+| `REDIS_PASSWORD`, `S3_SECRET_KEY` | Nuevas; los contenedores se recrean con ellas. |
+| `METRICS_TOKEN` | Nuevo, si había uno. Hay que darlo al recolector de métricas. |
+| `SECRETS_ENCRYPTION_KEY` | Nueva. Todo lo guardado cifrado —claves de API, contraseña del directorio, segundos factores, números de documento— se re-cifra con ella, y la anterior se retira. |
+
+Las credenciales viejas dejan de funcionar en cada servicio. Las anteriores
+quedan en `docker/.env.<fecha>.bak` por si hubiera que volver atrás; tras un
+compromiso, guarde esa copia fuera del servidor o bórrela.
+
+**Lo que no rota**, porque no está en `docker/.env`: las credenciales de
+terceros configuradas en el panel —claves de API de los proveedores de IA,
+contraseña del directorio, clave de SerpApi—. Esas se cambian en el servicio
+de origen y se actualizan en Ajustes. Y las contraseñas de los usuarios, que
+cada uno cambia en su perfil.
+
+### A mano: editar `docker/.env` y `./setup.sh`
+
+Cambie en `docker/.env` las que quiera y ejecute `./setup.sh`. Se aplican igual
+que arriba. Para la clave de cifrado:
+
+- Lo correcto es poner la nueva en `SECRETS_ENCRYPTION_KEY` y la anterior en
+  `SECRETS_ENCRYPTION_KEY_PREVIOUS`.
+- Si solo cambia la nueva, `setup.sh` busca la anterior en sus copias
+  `docker/.env.*.bak` y usa la que abra **todo** lo guardado.
+- Si no la encuentra, se detiene sin tocar nada guardado y le pide la anterior.
+  Nunca re-cifra «lo que se pueda»: eso escondería lo que se pierde.
+
+Al terminar, `SECRETS_ENCRYPTION_KEY_PREVIOUS` se vacía sola: todo está ya con
+la clave nueva, y conservar la vieja sería no haber rotado.
+
+Para ver el estado sin cambiar nada:
+
+```bash
+docker compose -f docker/docker-compose.yml exec web flask rotar-cifrado --comprobar
+```
 
 ## Incidentes frecuentes
 

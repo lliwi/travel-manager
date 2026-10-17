@@ -258,6 +258,24 @@ SeaweedFS does not listen there, so web and worker would wait for ever; and
 `-volume.max=0`, because the default cap of 8 volumes stops accepting
 documents with the disk half empty.
 
+## Credentials rotate by running setup.sh again
+
+`docker/.env` is the source of truth and `./setup.sh` applies it on every run;
+`--rotar` generates new values for everything first. Each credential needs its
+own step, because each is remembered somewhere different: PostgreSQL keeps its
+password inside the volume (so it gets an `ALTER USER`, retried, since the
+first start restarts the server under `pg_isready`), Redis and SeaweedFS read
+theirs at start (Compose recreates them), and the data holds the encryption
+key -- `rotacion_service.recifrar` rewrites everything the previous key
+opens, in one transaction, and refuses without writing if anything opens with
+neither. When the previous key was not given, setup.sh looks for it in its
+own `docker/.env.*.bak` copies and only takes one that opens everything.
+Secrets reach `docker exec` through stdin, never the command line.
+
+setup.sh also refuses to generate secrets when this project's data volume
+exists and `docker/.env` or one of its critical secrets is missing: new ones
+over old data would make every encrypted secret unreadable for good.
+
 ## Observability
 
 `/healthz` and `/readyz` say whether the system is alive; `/metrics` says how
