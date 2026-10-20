@@ -391,6 +391,45 @@ def _por_tramo(trip_ids, fin):
     return salida
 
 
+def _por_salida_del_dia(trip_ids, inicio, fin):
+    """City per traveller from where a leg leaving that day is going.
+
+    From the day somebody sets off, the question «who do I have in Londres» is
+    about them: by tonight that is where they are, or where they are headed.
+    Answering with the city they left -- or with nothing, when that city is not
+    one the map can place -- hid them on exactly the day they started to
+    matter. A leg still airborne at midnight is flagged as such, so the map
+    never claims they have arrived.
+    """
+    filas = (
+        TravelSegment.query.filter(
+            TravelSegment.trip_id.in_(trip_ids),
+            TravelSegment.is_deleted.is_(False),
+            TravelSegment.salida_utc >= inicio,
+            TravelSegment.salida_utc < fin,
+        )
+        # Ascending, so the pass that overwrites leaves the day's last leg:
+        # after a connection, the city they end the day in.
+        .order_by(TravelSegment.salida_utc.asc())
+        .all()
+    )
+    salida = []
+    for f in filas:
+        ciudad, pais = ciudad_del_catalogo(
+            codigo=f.destino_codigo,
+            location_id=f.destino_location_id,
+            nombres=(f.destino_ciudad, f.destino_nombre),
+            pais=f.destino_pais,
+        )
+        llega_ese_dia = f.llegada_utc is not None and as_aware_utc(f.llegada_utc) < fin
+        if llega_ese_dia:
+            salida.append((f.trip_id, f.trip_traveler_id, ciudad, pais, 'tramo'))
+        else:
+            salida.append((f.trip_id, f.trip_traveler_id, ciudad, pais, 'en_transito',
+                           f.llegada_utc))
+    return salida
+
+
 def _por_proximo_tramo(trip_ids, inicio):
     """City per traveller from where their next leg departs.
 
@@ -510,9 +549,10 @@ def donde_estan(actor, dia=None):
     """Travellers per city on ``dia``, plus everyone the itinerary cannot place.
 
     The rule, in order, and said on the screen so a number nobody can explain
-    never appears: the lodging covering that night; failing that, the
-    destination of the last leg that had landed; failing that, the trip's
-    declared destination; and last, where their next leg departs from.
+    never appears: the lodging covering that night; failing that, where a leg
+    leaving that day is going; failing that, the destination of the last leg
+    that had landed; failing that, the trip's declared destination; and last,
+    where their next leg departs from.
     """
     dia = dia or utcnow().date()
     inicio, fin = _limites_del_dia(dia)
@@ -537,6 +577,7 @@ def donde_estan(actor, dia=None):
     for candidatos in (_por_proximo_tramo(trip_ids, inicio),
                        _por_destino(trip_ids, inicio, fin),
                        _por_tramo(trip_ids, fin),
+                       _por_salida_del_dia(trip_ids, inicio, fin),
                        _por_alojamiento(trip_ids, inicio, fin)):
         ubicacion.update(_asignar(candidatos, viajeros_por_viaje))
 

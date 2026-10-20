@@ -452,6 +452,63 @@ class TestQuienVaDeCamino:
 
 
 @pytest.mark.unit
+class TestElDiaDeLaSalida:
+    def test_cuenta_ya_en_la_ciudad_a_la_que_va(
+        self, app, seeded, gestor, trip, traveler_row, segment_factory,
+    ):
+        """Quien sale hoy de Madrid hacia Londres es de Londres desde hoy, no
+        de la ciudad que deja, y menos aún de ninguna."""
+        from app.models.trip import TripDestination
+
+        TripDestination.query.delete()
+        segment_factory(origen='MAD', origen_pais='ES', destino='LHR',
+                        destino_pais='GB', traveler=traveler_row,
+                        salida=datetime(2026, 6, 2, 18, 0),
+                        llegada=datetime(2026, 6, 2, 19, 30),
+                        llegada_tz='Europe/London')
+
+        mapa = map_service.donde_estan(gestor, DIA)
+
+        assert [c['ciudad'] for c in mapa['ciudades']] == ['Londres']
+        assert mapa['en_transito'] == []
+
+    def test_si_aterriza_al_dia_siguiente_consta_de_camino(
+        self, app, seeded, gestor, trip, traveler_row, segment_factory,
+    ):
+        from app.models.trip import TripDestination
+
+        TripDestination.query.delete()
+        segment_factory(origen='MAD', origen_pais='ES', destino='LHR',
+                        destino_pais='GB', traveler=traveler_row,
+                        salida=datetime(2026, 6, 2, 22, 0),
+                        llegada=datetime(2026, 6, 3, 9, 0),
+                        llegada_tz='Europe/London')
+
+        mapa = map_service.donde_estan(gestor, DIA)
+
+        assert [c['ciudad'] for c in mapa['ciudades']] == ['Londres']
+        assert mapa['ciudades'][0]['personas'][0]['segun'] == 'en_transito'
+
+    def test_le_gana_al_destino_declarado_y_a_donde_aterrizo_antes(
+        self, app, seeded, gestor, trip, traveler_row, segment_factory,
+    ):
+        """El día que cambia de ciudad termina en la nueva."""
+        segment_factory(origen='MAD', origen_pais='ES', destino='MUC',
+                        destino_pais='DE', traveler=traveler_row,
+                        salida=datetime(2026, 6, 1, 9, 0),
+                        llegada=datetime(2026, 6, 1, 11, 30))
+        segment_factory(origen='MUC', origen_pais='DE', destino='LHR',
+                        destino_pais='GB', traveler=traveler_row,
+                        salida=datetime(2026, 6, 2, 16, 0),
+                        llegada=datetime(2026, 6, 2, 17, 0),
+                        llegada_tz='Europe/London')
+
+        mapa = map_service.donde_estan(gestor, DIA)
+
+        assert [c['ciudad'] for c in mapa['ciudades']] == ['Londres']
+
+
+@pytest.mark.unit
 class TestDeDondeSaleElProximoVuelo:
     def test_un_viaje_con_solo_la_vuelta_ya_situa(
         self, app, seeded, gestor, trip, traveler_row, segment_factory,
