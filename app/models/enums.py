@@ -269,7 +269,8 @@ class DocumentProcessState(LabeledEnum):
         return 'info'
 
 
-#: Once a document reaches one of these it never moves again.
+#: Once a document reaches one of these the pipeline never moves it again. A
+#: discarded one can still be reopened by a reviewer; see ``ALLOWED_TRANSITIONS``.
 DOCUMENT_TERMINAL_STATES = (
     DocumentProcessState.INFECTADO,
     DocumentProcessState.RECHAZADO,

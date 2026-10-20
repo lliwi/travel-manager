@@ -62,6 +62,26 @@ class TestMaquinaDeEstados:
         with pytest.raises(InvalidTransition):
             document_service.transition(document, S.ALMACENADO)
 
+    def test_un_descartado_puede_aprobarse(self, gestor, documento_aprobado):
+        """Discarding is a judgement, and a reviewer may change their mind."""
+        from app.services import extraction_service
+
+        document = documento_aprobado
+        extraction_service.reject(gestor, document.current_extraction)
+        assert document.estado_proceso is S.DESCARTADO
+
+        extraction_service.approve(gestor, document.current_extraction)
+
+        assert document.estado_proceso is S.APROBADO
+
+    def test_un_descartado_no_se_reprocesa(self, gestor, documento_aprobado):
+        from app.services import extraction_service
+
+        extraction_service.reject(gestor, documento_aprobado.current_extraction)
+
+        with pytest.raises(ConflictError):
+            document_service.reprocess(gestor, documento_aprobado)
+
     def test_solo_document_service_escribe_el_estado(self):
         """A grep-level guard on the invariant the whole pipeline relies on.
 

@@ -58,10 +58,13 @@ ALLOWED_TRANSITIONS = {
         S.RECIBIDO, S.VALIDADO, S.ESCANEADO, S.ALMACENADO, S.TEXTO_EXTRAIDO,
         S.CLASIFICADO, S.EXTRAIDO, S.NORMALIZADO, S.DESCARTADO,
     },
-    # Terminal.
+    # Discarding is a reviewer's judgement, and judgements get reconsidered:
+    # a person may bring the document back to review or approve it outright.
+    # The pipeline never does, which is why it stays terminal for reprocessing.
+    S.DESCARTADO: {S.PENDIENTE_REVISION, S.REVISADO, S.APROBADO},
+    # Terminal: the file itself was refused.
     S.INFECTADO: set(),
     S.RECHAZADO: set(),
-    S.DESCARTADO: set(),
 }
 
 
