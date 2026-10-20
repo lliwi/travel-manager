@@ -10,6 +10,7 @@ N+1 with ``metodo='manual'`` and a field-level diff, so "se registra quién los
 confirmó" holds for the machine's answer *and* for the human's correction.
 """
 import logging
+import re
 
 from app.extensions import db
 from app.models.enums import (
@@ -176,6 +177,7 @@ def review_fields(extraction):
                 'valor': _display(value),
                 'valor_bruto': value,
                 'es_instante': isinstance(value, dict) and 'local' in value,
+                **_entrada(name, value),
                 'confianza': confianza,
                 'confianza_pct': int(confianza * 100) if confianza is not None else None,
                 'requiere_revision': confianza is None or confianza < threshold,
@@ -193,6 +195,41 @@ def review_fields(extraction):
         })
 
     return grupos
+
+
+_FECHA = re.compile(r'^\d{4}-\d{2}-\d{2}$')
+_FECHA_HORA = re.compile(r'^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(:00)?$')
+
+
+def _entrada(name, value):
+    """Which input the review screen renders a field with, and its value.
+
+    A picker is offered only when the value already has the shape the browser
+    emits. Anything else stays a text box: a ``datetime-local`` cannot show
+    «26/10/2026», would render it empty, and submitting that empty box would
+    erase the value as if the reviewer had cleared it.
+    """
+    if isinstance(value, dict) and 'local' in value:
+        local = value.get('local') or ''
+        coincide = _FECHA_HORA.match(local)
+        if not local or coincide:
+            return {'tipo_entrada': 'datetime-local',
+                    'valor_entrada': coincide.group(1) if coincide else ''}
+        return {'tipo_entrada': 'text', 'valor_entrada': local}
+
+    if isinstance(value, str) and _FECHA.match(value):
+        return {'tipo_entrada': 'date', 'valor_entrada': value}
+    if value in (None, '') and name.startswith('fecha'):
+        return {'tipo_entrada': 'date', 'valor_entrada': ''}
+    return {'tipo_entrada': 'text', 'valor_entrada': _display(value)}
+
+
+def _misma_hora_local(a, b):
+    """Whether two local times differ only by the picker dropping ``:00``."""
+    def recortar(v):
+        coincide = _FECHA_HORA.match(v or '')
+        return coincide.group(1) if coincide else v
+    return recortar(a) == recortar(b)
 
 
 def _titulo_servicio(servicio, indice):
@@ -237,6 +274,8 @@ def parse_review_form(extraction, form):
                     'local': local or None,
                     'zona_horaria': zona or original.get('zona_horaria'),
                 }
+                if _misma_hora_local(nuevo['local'], original.get('local')):
+                    nuevo['local'] = original.get('local')
                 if nuevo != original:
                     del_servicio[name] = nuevo
                 continue

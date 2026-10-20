@@ -69,10 +69,10 @@
                     <td>
                         {% if campo.es_instante %}
                         <div class="input-group input-group-sm">
-                            <input type="text" class="form-control"
+                            <input type="{{ campo.tipo_entrada }}" class="form-control"
                                    id="{{ campo.nombre_form }}"
                                    name="{{ campo.nombre_form }}__local"
-                                   value="{{ campo.valor_bruto.local or '' }}"
+                                   value="{{ campo.valor_entrada }}"
                                    placeholder="AAAA-MM-DDTHH:MM">
                             <input type="text" class="form-control"
                                    name="{{ campo.nombre_form }}__zona"
@@ -80,10 +80,10 @@
                                    placeholder="Europe/Madrid">
                         </div>
                         {% else %}
-                        <input type="text" class="form-control form-control-sm"
+                        <input type="{{ campo.tipo_entrada }}" class="form-control form-control-sm"
                                id="{{ campo.nombre_form }}"
                                name="{{ campo.nombre_form }}"
-                               value="{{ campo.valor }}">
+                               value="{{ campo.valor_entrada }}">
                         {% endif %}
                     </td>
                     <td>

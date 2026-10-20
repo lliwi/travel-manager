@@ -447,3 +447,49 @@ class TestVariasPersonasEnUnaReserva:
         segmento = TravelSegment.query.filter_by(numero='IB1').first()
         assert segmento.asiento == '3C'
         assert not (segmento.datos or {}).get('pasajeros')
+
+
+@pytest.mark.unit
+class TestSelectorDeFechas:
+    @pytest.mark.parametrize('nombre, valor, tipo, entrada', [
+        ('salida', {'local': '2026-10-26T00:00', 'zona_horaria': 'Europe/Madrid'},
+         'datetime-local', '2026-10-26T00:00'),
+        ('salida', {'local': '2026-10-26T09:30:00', 'zona_horaria': 'Europe/Madrid'},
+         'datetime-local', '2026-10-26T09:30'),
+        ('salida', {'local': None, 'zona_horaria': None}, 'datetime-local', ''),
+        ('fecha_caducidad', '2030-01-31', 'date', '2030-01-31'),
+        ('fecha_emision', None, 'date', ''),
+        ('localizador', 'XYZ12A', 'text', 'XYZ12A'),
+    ])
+    def test_elige_la_entrada_por_la_forma_del_valor(self, nombre, valor, tipo, entrada):
+        resultado = extraction_service._entrada(nombre, valor)
+
+        assert resultado == {'tipo_entrada': tipo, 'valor_entrada': entrada}
+
+    def test_lo_que_el_navegador_no_entiende_sigue_siendo_texto(self):
+        """A picker would show it empty, and submitting would erase it."""
+        resultado = extraction_service._entrada(
+            'salida', {'local': '26/10/2026 09:30', 'zona_horaria': 'Europe/Madrid'},
+        )
+
+        assert resultado['tipo_entrada'] == 'text'
+        assert resultado['valor_entrada'] == '26/10/2026 09:30'
+
+    def test_perder_los_segundos_no_es_una_correccion(
+        self, gestor, documento_ida_y_vuelta
+    ):
+        extraction = documento_ida_y_vuelta.current_extraction
+        servicio = extraction_service.servicios_de(extraction)[0]
+        nombre, instante = next(
+            (n, v) for n, v in servicio['campos'].items()
+            if isinstance(v, dict) and v.get('local')
+        )
+        local = instante['local'][:16]
+        form = {
+            f'campo__0__{nombre}__local': local,
+            f'campo__0__{nombre}__zona': instante.get('zona_horaria') or '',
+        }
+
+        correcciones = extraction_service.parse_review_form(extraction, form)
+
+        assert correcciones == {}
