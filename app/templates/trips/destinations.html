@@ -35,7 +35,7 @@
                         <td class="text-end">
                             <form method="post"
                                   action="{{ url_for('trips.remove_destination', trip_id=trip.id, destination_id=destino.id) }}"
-                                  onsubmit="return confirm('¿Eliminar este destino?');">
+                                  data-confirm="¿Eliminar este destino?">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button class="btn btn-sm btn-outline-danger" type="submit">
                                     <i class="bi bi-trash"></i>

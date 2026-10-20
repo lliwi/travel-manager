@@ -127,7 +127,7 @@
             <i class="bi bi-check-lg me-1"></i>Aprobar y aplicar al itinerario{% if campos | length > 1 %} ({{ campos | length }} servicios){% endif %}
         </button>
         <button type="submit" name="accion" value="descartar" class="btn btn-outline-danger"
-                onclick="return confirm('¿Descartar estos datos extraídos? El documento original se conserva.');">
+                data-confirm="¿Descartar estos datos extraídos? El documento original se conserva.">
             <i class="bi bi-x-lg me-1"></i>Descartar
         </button>
         <a href="{{ url_for('documents.detail', document_id=document.id) }}"

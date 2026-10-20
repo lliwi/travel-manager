@@ -35,7 +35,7 @@
                         <td class="text-end">
                             <form method="post"
                                   action="{{ url_for('trips.remove_traveler', trip_id=trip.id, user_id=viajero.user_id) }}"
-                                  onsubmit="return confirm('¿Desasignar a {{ viajero.nombre_completo }} de este viaje?');">
+                                  data-confirm="¿Desasignar a {{ viajero.nombre_completo }} de este viaje?">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button class="btn btn-sm btn-outline-danger" type="submit">
                                     <i class="bi bi-person-dash"></i>

@@ -58,11 +58,22 @@
         });
     }
 
-    /** Ask before submitting anything marked destructive. */
+    /** Ask before submitting anything marked destructive.
+     *  Never an inline «onsubmit»: the CSP refuses handler attributes, so
+     *  that confirmation silently disappeared and the action went ahead.
+     *  On a button rather than its form when only one of several submit
+     *  buttons is destructive -- «Descartar» next to «Aprobar». */
     function confirmDestructiveForms() {
         document.querySelectorAll('form[data-confirm]').forEach(function (form) {
             form.addEventListener('submit', function (event) {
                 if (!window.confirm(form.dataset.confirm)) {
+                    event.preventDefault();
+                }
+            });
+        });
+        document.querySelectorAll('button[data-confirm]').forEach(function (button) {
+            button.addEventListener('click', function (event) {
+                if (!window.confirm(button.dataset.confirm)) {
                     event.preventDefault();
                 }
             });

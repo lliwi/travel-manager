@@ -53,6 +53,23 @@ class TestLaCSPDejaCorrerLoQueLaPlantillaEscribio:
         assert script_src, 'La CSP ya no declara script-src'
         assert "'unsafe-inline'" not in script_src.group(1)
 
+    def test_ningun_atributo_manejador_de_eventos(self):
+        """A nonce cannot cover ``onsubmit="…"``: the policy refuses every
+        handler attribute. Worse than a dead button, the form then submits
+        without the confirmation -- a trip was deleted without being asked.
+        ``data-confirm`` is the way, and ``main.js`` honours it."""
+        manejador = re.compile(r'<[^>]*\son[a-z]+\s*=', re.IGNORECASE)
+        con_manejador = [
+            str(ruta.relative_to(RAIZ))
+            for ruta in sorted(PLANTILLAS.rglob('*.html'))
+            if manejador.search(ruta.read_text())
+        ]
+
+        assert not con_manejador, (
+            'Atributos on…= que la CSP bloqueará en producción: '
+            + ', '.join(con_manejador)
+        )
+
     def test_hay_scripts_en_linea_que_comprobar(self):
         """Guard against the checks above passing because they found nothing."""
         assert list(_scripts_en_linea())

@@ -46,7 +46,7 @@
            de modelo, o cuando la extracción se dejó un campo que sí está en el
            documento —un importe, por ejemplo—. #}
         <form method="post" action="{{ url_for('documents.reprocess', document_id=document.id) }}"
-              onsubmit="return confirm('Se volverá a leer el documento con el modelo actual. Tendrá datos nuevos que revisar; lo que ya aprobó no cambia hasta que apruebe los nuevos. ¿Continuar?');">
+              data-confirm="Se volverá a leer el documento con el modelo actual. Tendrá datos nuevos que revisar; lo que ya aprobó no cambia hasta que apruebe los nuevos. ¿Continuar?">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="desde_el_principio" value="1">
             <button class="btn btn-outline-primary btn-sm" type="submit">
@@ -59,7 +59,7 @@
 {% if Permiso.ELIMINAR_DOCUMENTO in permisos %}
 <div class="d-flex justify-content-end mb-3">
     <form method="post" action="{{ url_for('documents.delete', document_id=document.id) }}"
-          onsubmit="return confirm('¿Eliminar «{{ document.nombre_original }}»? Dejará de aparecer en el viaje. Lo que se extrajo de él y ya está en el itinerario se conserva, igual que la traza de auditoría.');">
+          data-confirm="¿Eliminar «{{ document.nombre_original }}»? Dejará de aparecer en el viaje. Lo que se extrajo de él y ya está en el itinerario se conserva, igual que la traza de auditoría.">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button type="submit" class="btn btn-outline-danger btn-sm">
             <i class="bi bi-trash me-1"></i>Eliminar documento

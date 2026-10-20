@@ -62,7 +62,7 @@
                     {% if user.id != current_user.id %}
                     <form method="post" action="{{ url_for('admin.delete_user', user_id=user.id) }}"
                           class="d-inline"
-                          onsubmit="return confirm('¿Desactivar la cuenta de {{ user.nombre_completo }}?');">
+                          data-confirm="¿Desactivar la cuenta de {{ user.nombre_completo }}?">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button class="btn btn-sm btn-outline-danger"><i class="bi bi-person-dash"></i></button>
                     </form>

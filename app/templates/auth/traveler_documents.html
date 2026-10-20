@@ -79,7 +79,7 @@
                           action="{{ url_for('auth.delete_traveler_document',
                                              user_id=propietario.id if not es_propio else None,
                                              documento_id=doc.id) }}"
-                          onsubmit="return confirm('¿Eliminar este documento? Se borra de verdad, no se archiva.');">
+                          data-confirm="¿Eliminar este documento? Se borra de verdad, no se archiva.">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button class="btn btn-sm btn-outline-danger" type="submit">
                             <i class="bi bi-trash"></i></button>

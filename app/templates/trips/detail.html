@@ -56,7 +56,7 @@
                 <li><hr class="dropdown-divider"></li>
                 <li>
                     <form method="post" action="{{ url_for('trips.delete', trip_id=trip.id) }}"
-                          onsubmit="return confirm('¿Eliminar el viaje {{ trip.referencia }}? Dejará de aparecer en los listados. Sus documentos, su itinerario y la traza de auditoría se conservan.');">
+                          data-confirm="¿Eliminar el viaje {{ trip.referencia }}? Dejará de aparecer en los listados. Sus documentos, su itinerario y la traza de auditoría se conservan.">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <button type="submit" class="dropdown-item text-danger">
                             <i class="bi bi-trash me-2"></i>Eliminar el viaje
