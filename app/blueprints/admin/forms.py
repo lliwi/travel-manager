@@ -17,7 +17,7 @@ from wtforms.validators import (
     Optional,
 )
 
-from app.models.enums import AIProviderCode, AITask, UserStatus
+from app.models.enums import AdvisoryCategory, AIProviderCode, AITask, UserStatus
 from app.utils.forms import Formulario
 
 
@@ -156,6 +156,46 @@ class AIProviderForm(Formulario):
             )
             return False
         return True
+
+
+class WebSourceForm(Formulario):
+    """One allow-listed domain the research service may consult."""
+
+    nombre = StringField(
+        'Nombre', validators=[DataRequired(message='Indique un nombre.'), Length(max=250)],
+        description='Cómo se citará en las recomendaciones.',
+    )
+    dominio = StringField(
+        'Dominio', validators=[DataRequired(message='Indique el dominio.'), Length(max=253)],
+        description='Sin «https://» ni ruta. Incluye sus subdominios: '
+                    '«exteriores.gob.es» admite también «www.exteriores.gob.es».',
+    )
+    url_base = StringField(
+        'Página de inicio', validators=[Optional(), Length(max=1000)],
+        description='Desde donde se empieza a buscar. Tiene que estar en el mismo dominio.',
+    )
+    categoria = SelectField('Categoría', choices=AdvisoryCategory.choices())
+    es_oficial = BooleanField(
+        'Fuente oficial',
+        description='Gobiernos y organismos sanitarios: se anteponen a las demás.',
+    )
+    pais_codigo = StringField(
+        'País', validators=[Optional(), Length(max=2)],
+        description='Código ISO de dos letras del país que la publica.',
+    )
+    idioma = StringField('Idioma', validators=[Optional(), Length(max=10)])
+    prioridad = IntegerField(
+        'Prioridad', default=100, validators=[Optional(), NumberRange(min=1, max=1000)],
+        description='Más baja, antes se consulta.',
+    )
+    confianza_base = DecimalField(
+        'Confianza', places=2, default=0.7,
+        validators=[Optional(), NumberRange(min=0, max=1)],
+        description='Entre 0 y 1: cuánto se fía de ella una recomendación.',
+    )
+    activa = BooleanField('Activa', default=True)
+    notas = StringField('Notas', validators=[Optional()])
+    submit = SubmitField('Guardar')
 
 
 class AITaskBindingForm(Formulario):

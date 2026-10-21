@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import badge %}
+{% block title %}Fuentes autorizadas — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('admin.index') }}">Administración</a></li>
+<li class="breadcrumb-item active">Fuentes autorizadas</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-center">
+    <div>
+        <h1>Fuentes autorizadas</h1>
+        <p class="text-muted mb-0">
+            Los únicos dominios que se consultan al buscar recomendaciones para un viaje.
+        </p>
+    </div>
+    <a href="{{ url_for('admin.create_web_source') }}" class="btn btn-primary">
+        <i class="bi bi-plus-lg me-1"></i>Nueva fuente
+    </a>
+</div>
+
+<div class="alert alert-info">
+    <i class="bi bi-shield-lock me-2"></i>
+    Cada dominio incluye sus subdominios. Fuera de esta lista no se consulta nada.
+    Las fuentes que trae la aplicación no se pueden eliminar, porque volverían en
+    el siguiente arranque: se desactivan.
+</div>
+
+{% if fuentes %}
+<div class="card mb-4">
+    <div class="table-responsive">
+        <table class="table align-middle mb-0">
+            <thead>
+                <tr><th>Fuente</th><th>Categoría</th><th>País</th>
+                    <th>Prioridad</th><th>Estado</th><th class="text-end">Acciones</th></tr>
+            </thead>
+            <tbody>
+            {% for f in fuentes %}
+            <tr class="{{ 'text-muted' if not f.activa }}">
+                <td>
+                    <strong>{{ f.nombre }}</strong>
+                    {% if f.es_oficial %}{{ badge('oficial', 'primary', 'patch-check') }}{% endif %}
+                    {% if f.id in de_serie %}{{ badge('de serie', 'light') }}{% endif %}
+                    <div class="small font-monospace">{{ f.dominio }}</div>
+                </td>
+                <td>{{ f.categoria.label }}</td>
+                <td>{{ f.pais_codigo or '—' }}</td>
+                <td>{{ f.prioridad }}</td>
+                <td>{{ badge('activa', 'success') if f.activa else badge('desactivada', 'secondary') }}</td>
+                <td class="text-end text-nowrap">
+                    <form method="post" class="d-inline"
+                          action="{{ url_for('admin.toggle_web_source', source_id=f.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="btn btn-sm btn-outline-secondary"
+                                title="{{ 'Desactivar' if f.activa else 'Activar' }}">
+                            <i class="bi bi-{{ 'pause' if f.activa else 'play' }}"></i></button>
+                    </form>
+                    <a href="{{ url_for('admin.edit_web_source', source_id=f.id) }}"
+                       class="btn btn-sm btn-outline-secondary" title="Editar">
+                        <i class="bi bi-pencil"></i></a>
+                    {% if f.id not in de_serie %}
+                    <form method="post" class="d-inline"
+                          action="{{ url_for('admin.delete_web_source', source_id=f.id) }}"
+                          data-confirm="¿Eliminar «{{ f.dominio }}» de las fuentes autorizadas?">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button class="btn btn-sm btn-outline-danger" title="Eliminar">
+                            <i class="bi bi-trash"></i></button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% else %}
+<div class="card mb-4"><div class="card-body empty-state">
+    <i class="bi bi-globe"></i>
+    <p>No hay ninguna fuente autorizada.</p>
+    <p class="text-muted small">Sin fuentes, las recomendaciones no consultan nada.</p>
+    <a href="{{ url_for('admin.create_web_source') }}" class="btn btn-sm btn-primary">
+        Añadir la primera</a>
+</div></div>
+{% endif %}
+{% endblock %}

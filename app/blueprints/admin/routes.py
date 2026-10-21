@@ -591,6 +591,105 @@ def delete_ai_provider(provider_id):
     return redirect(url_for('admin.ai_providers'))
 
 
+# ======================================================================
+# Allow-listed public sources
+# ======================================================================
+@admin_bp.route('/fuentes')
+@login_required
+@require_admin
+def web_sources():
+    """The domains the research service may consult."""
+    from app.services import web_source_service
+
+    fuentes = web_source_service.listar()
+    return render_template(
+        'admin/web_sources.html', fuentes=fuentes,
+        de_serie={f.id for f in fuentes if web_source_service.es_de_serie(f)},
+    )
+
+
+def _datos_de_fuente(form):
+    return {campo.name: campo.data for campo in form if campo.name not in (
+        'csrf_token', 'submit')}
+
+
+@admin_bp.route('/fuentes/nueva', methods=['GET', 'POST'])
+@login_required
+@require_admin
+def create_web_source():
+    from app.blueprints.admin.forms import WebSourceForm
+    from app.services import web_source_service
+
+    form = WebSourceForm()
+    if form.validate_on_submit():
+        try:
+            fuente = web_source_service.crear(
+                current_user._get_current_object(), _datos_de_fuente(form),
+            )
+        except AppError as error:
+            flash(error.mensaje, 'danger')
+        else:
+            flash(f'Fuente «{fuente.dominio}» añadida.', 'success')
+            return redirect(url_for('admin.web_sources'))
+    return render_template('admin/web_source_form.html', form=form, fuente=None)
+
+
+@admin_bp.route('/fuentes/<source_id>/editar', methods=['GET', 'POST'])
+@login_required
+@require_admin
+def edit_web_source(source_id):
+    from app.blueprints.admin.forms import WebSourceForm
+    from app.services import web_source_service
+
+    fuente = web_source_service.get_or_404(source_id)
+    form = WebSourceForm(obj=fuente)
+    if request.method == 'GET':
+        form.categoria.data = str(fuente.categoria)
+
+    if form.validate_on_submit():
+        try:
+            web_source_service.actualizar(
+                current_user._get_current_object(), fuente, _datos_de_fuente(form),
+            )
+        except AppError as error:
+            db.session.rollback()
+            flash(error.mensaje, 'danger')
+        else:
+            flash(f'Fuente «{fuente.dominio}» actualizada.', 'success')
+            return redirect(url_for('admin.web_sources'))
+    return render_template('admin/web_source_form.html', form=form, fuente=fuente)
+
+
+@admin_bp.route('/fuentes/<source_id>/estado', methods=['POST'])
+@login_required
+@require_admin
+def toggle_web_source(source_id):
+    from app.services import web_source_service
+
+    fuente = web_source_service.get_or_404(source_id)
+    web_source_service.cambiar_estado(
+        current_user._get_current_object(), fuente, not fuente.activa,
+    )
+    flash(f'«{fuente.dominio}» {"activada" if fuente.activa else "desactivada"}.', 'info')
+    return redirect(url_for('admin.web_sources'))
+
+
+@admin_bp.route('/fuentes/<source_id>/eliminar', methods=['POST'])
+@login_required
+@require_admin
+def delete_web_source(source_id):
+    from app.services import web_source_service
+
+    fuente = web_source_service.get_or_404(source_id)
+    dominio = fuente.dominio
+    try:
+        web_source_service.eliminar(current_user._get_current_object(), fuente)
+        flash(f'Fuente «{dominio}» eliminada.', 'info')
+    except AppError as error:
+        flash(error.mensaje, 'danger')
+    return redirect(url_for('admin.web_sources'))
+
+
 @admin_bp.route('/ajustes/proveedores/<provider_id>/predeterminado', methods=['POST'])
 @login_required
 @require_admin

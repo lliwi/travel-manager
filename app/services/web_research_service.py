@@ -59,22 +59,43 @@ def is_safe_address(hostname):
         return False, f'host bloqueado: {lowered}'
 
     try:
+        literal = ipaddress.ip_address(lowered.strip('[]'))
+    except ValueError:
+        literal = None
+    if literal is not None:
+        return _es_publica(literal)
+
+    # Behind a proxy it is the proxy that resolves and connects, so asking our
+    # own resolver checks an address nobody will use -- and corporate networks
+    # commonly refuse to resolve outside names at all, which turned every
+    # research request into «no se pudo resolver». The allow-list and the
+    # names and literals above still apply; what the proxy may reach from
+    # there is the proxy's policy.
+    if http.va_por_proxy(lowered):
+        return True, 'a través del proxy'
+
+    try:
         infos = socket.getaddrinfo(lowered, None)
     except socket.gaierror as exc:
         return False, f'no se pudo resolver: {exc}'
 
     for info in infos:
-        address = info[4][0]
         try:
-            parsed = ipaddress.ip_address(address)
+            parsed = ipaddress.ip_address(info[4][0])
         except ValueError:
-            return False, f'dirección no válida: {address}'
+            return False, f'dirección no válida: {info[4][0]}'
+        ok, motivo = _es_publica(parsed)
+        if not ok:
+            return ok, motivo
 
-        if (parsed.is_private or parsed.is_loopback or parsed.is_link_local
-                or parsed.is_reserved or parsed.is_multicast
-                or parsed.is_unspecified):
-            return False, f'dirección no pública: {address}'
+    return True, 'dirección pública'
 
+
+def _es_publica(direccion):
+    if (direccion.is_private or direccion.is_loopback or direccion.is_link_local
+            or direccion.is_reserved or direccion.is_multicast
+            or direccion.is_unspecified):
+        return False, f'dirección no pública: {direccion}'
     return True, 'dirección pública'
 
 

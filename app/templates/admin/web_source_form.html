@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import render_field %}
+{% block title %}{{ 'Editar fuente' if fuente else 'Nueva fuente' }} — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('admin.index') }}">Administración</a></li>
+<li class="breadcrumb-item"><a href="{{ url_for('admin.web_sources') }}">Fuentes autorizadas</a></li>
+<li class="breadcrumb-item active">{{ fuente.dominio if fuente else 'Nueva' }}</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>{{ 'Editar fuente' if fuente else 'Nueva fuente autorizada' }}</h1>
+</div>
+
+<div class="row">
+    <div class="col-lg-7">
+        <form method="post" novalidate>
+            {{ form.hidden_tag() }}
+
+            <div class="card mb-3">
+                <div class="card-header">Sitio</div>
+                <div class="card-body">
+                    {{ render_field(form.nombre, placeholder='Ministerio de Asuntos Exteriores — Recomendaciones de viaje') }}
+                    {{ render_field(form.dominio, placeholder='exteriores.gob.es') }}
+                    {{ render_field(form.url_base, placeholder='https://www.exteriores.gob.es/es/ServiciosAlCiudadano/Paginas/Recomendaciones-de-viaje.aspx') }}
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header">Uso en las recomendaciones</div>
+                <div class="card-body">
+                    {{ render_field(form.categoria) }}
+                    {{ render_field(form.es_oficial) }}
+                    <div class="row">
+                        <div class="col-sm-6">{{ render_field(form.pais_codigo, placeholder='ES') }}</div>
+                        <div class="col-sm-6">{{ render_field(form.idioma, placeholder='es') }}</div>
+                    </div>
+                    <div class="row">
+                        <div class="col-sm-6">{{ render_field(form.prioridad) }}</div>
+                        <div class="col-sm-6">{{ render_field(form.confianza_base) }}</div>
+                    </div>
+                    {{ render_field(form.notas) }}
+                    {{ render_field(form.activa) }}
+                </div>
+            </div>
+
+            <div class="d-flex gap-2">
+                {{ render_field(form.submit) }}
+                <a href="{{ url_for('admin.web_sources') }}" class="btn btn-outline-secondary">Cancelar</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

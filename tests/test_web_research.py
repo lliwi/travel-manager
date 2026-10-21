@@ -40,6 +40,60 @@ class TestValidacionDeDirecciones:
 
 
 @pytest.mark.security
+class TestDetrasDeUnProxy:
+    """Behind a proxy, the proxy resolves; asking our own DNS was the failure."""
+
+    @pytest.fixture
+    def con_proxy(self, app, monkeypatch):
+        from app.utils import http
+
+        monkeypatch.setattr(http, 'proxy_configurado', lambda: 'http://proxy:3128')
+
+    @pytest.fixture
+    def dns_que_falla(self, monkeypatch):
+        import socket
+
+        def _falla(*_a, **_k):
+            raise socket.gaierror('el DNS corporativo no resuelve nombres de fuera')
+
+        monkeypatch.setattr(research.socket, 'getaddrinfo', _falla)
+
+    def test_no_se_consulta_el_dns_local(self, con_proxy, dns_que_falla):
+        permitido, motivo = research.is_safe_address('www.exteriores.gob.es')
+
+        assert permitido, motivo
+
+    def test_sin_proxy_se_sigue_resolviendo(self, app, monkeypatch, dns_que_falla):
+        from app.utils import http
+
+        monkeypatch.setattr(http, 'proxy_configurado', lambda: None)
+        for variable in ('HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY',
+                         'https_proxy', 'http_proxy', 'all_proxy'):
+            monkeypatch.delenv(variable, raising=False)
+
+        assert not research.is_safe_address('www.exteriores.gob.es')[0]
+
+    @pytest.mark.parametrize('host', [
+        '169.254.169.254', 'metadata.google.internal', 'localhost',
+        '10.0.0.1', '192.168.1.1', '::1',
+    ])
+    def test_lo_interno_se_sigue_rechazando(self, con_proxy, dns_que_falla, host):
+        """Names and literals are refused without DNS, so the proxy changes
+        nothing for them."""
+        assert not research.is_safe_address(host)[0]
+
+    def test_una_excepcion_del_proxy_se_resuelve_en_local(
+        self, app, monkeypatch, con_proxy, dns_que_falla,
+    ):
+        """What goes direct is checked as before: no proxy stands in front."""
+        from app.utils import http
+
+        monkeypatch.setattr(http, 'excepciones', lambda: ['intranet.example'])
+
+        assert not research.is_safe_address('wiki.intranet.example')[0]
+
+
+@pytest.mark.security
 class TestListaBlanca:
     """Nothing outside ``web_sources`` is fetched."""
 

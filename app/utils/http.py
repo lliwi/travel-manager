@@ -178,6 +178,25 @@ def _es_directo(host):
     return False
 
 
+def va_por_proxy(host):
+    """Whether a request to ``host`` would leave through a proxy.
+
+    The same decision ``cliente`` makes, asked in advance: the panel's proxy
+    and its exceptions when there is one, the environment otherwise. A check
+    that resolves names locally has to know, because behind a proxy the local
+    resolver is often not allowed to answer for the internet at all.
+    """
+    if proxy_configurado():
+        return not _es_directo(host)
+
+    import urllib.request
+
+    proxies = urllib.request.getproxies_environment()
+    if not (proxies.get('https') or proxies.get('http') or proxies.get('all')):
+        return False
+    return not urllib.request.proxy_bypass_environment(str(host or ''), proxies)
+
+
 def _directo_si_es_privada():
     valor = _ajuste('PROXY_DIRECTO_PRIVADAS', True)
     if isinstance(valor, bool):
