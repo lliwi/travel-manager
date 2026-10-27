@@ -173,10 +173,20 @@ def reports():
 
     actor = current_user._get_current_object()
     dia = map_service.fecha_pedida(request.args.get('fecha'))
+    zona = map_service.zona_de(actor)
+    hora = map_service.hora_pedida(request.args.get('hora'))
+    momento = (
+        map_service.donde_estan_a_las(actor, map_service.instante_de(dia, hora, zona))
+        if hora is not None else None
+    )
     return render_template(
         'dashboard/reports.html',
         informe=report_service.informe_completo(actor),
         mapa=map_service.donde_estan(actor, dia),
+        momento=momento,
+        hora=hora,
+        zona=zona,
+        franja=map_service.franja_del_dia(actor, dia, zona),
         calendario=map_service.calendario_del_mes(
             actor, dia, abierto=bool(request.args.get('cal')),
         ),

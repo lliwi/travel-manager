@@ -649,3 +649,316 @@ def fecha_pedida(crudo):
         return date.fromisoformat(str(crudo).strip())
     except (TypeError, ValueError):
         return utcnow().date()
+
+
+# ======================================================================
+# At one moment
+# ======================================================================
+#
+# The day view answers «where does everybody sleep tonight». It cannot answer
+# «how many people do we have on the move right now»: a traveller flying that
+# day is drawn at the city they fly to, so on the map a flight is its two ends
+# and never the journey. The moment view places each person where they are at
+# one instant -- in a city, or somewhere along the leg they are on.
+
+def zona_de(actor):
+    """The zone hours are read in: the viewer's own, or the installation's."""
+    from app.services import settings_service
+
+    return getattr(actor, 'zona_horaria', None) or settings_service.zona_horaria_por_defecto()
+
+
+def hora_pedida(crudo):
+    """``HH`` or ``HH:MM`` from the query string, or None for the day view.
+
+    An unreadable hour falls back to the day view rather than an error, as an
+    unreadable date falls back to today.
+    """
+    if not crudo:
+        return None
+    texto = str(crudo).strip()
+    try:
+        if ':' in texto:
+            horas, minutos = (int(p) for p in texto.split(':', 1))
+        else:
+            horas, minutos = int(texto), 0
+        return time(horas, minutos)
+    except (TypeError, ValueError):
+        return None
+
+
+def instante_de(dia, hora, zona):
+    """The UTC instant of ``hora`` on ``dia`` as a clock in ``zona`` reads it."""
+    from app.utils.timeutil import to_utc
+
+    return to_utc(datetime.combine(dia, hora), zona)
+
+
+def _tramos_de(trip_ids):
+    """Every dated leg of these trips, earliest first."""
+    return (
+        TravelSegment.query.filter(
+            TravelSegment.trip_id.in_(trip_ids),
+            TravelSegment.is_deleted.is_(False),
+            TravelSegment.salida_utc.isnot(None),
+            TravelSegment.llegada_utc.isnot(None),
+        )
+        .order_by(TravelSegment.salida_utc.asc())
+        .all()
+    )
+
+
+def _suyos(filas, viajero):
+    """The rows that speak for this traveller: their own, or the whole trip's."""
+    return [
+        f for f in filas
+        if f.trip_id == viajero.trip_id
+        and f.trip_traveler_id in (None, viajero.id)
+    ]
+
+
+def _en_marcha(tramo, instante):
+    return as_aware_utc(tramo.salida_utc) <= instante < as_aware_utc(tramo.llegada_utc)
+
+
+def _extremo(tramo, lado):
+    """``(ciudad, pais)`` of one end of a leg, as the catalogue spells it."""
+    return ciudad_del_catalogo(
+        codigo=getattr(tramo, f'{lado}_codigo'),
+        location_id=getattr(tramo, f'{lado}_location_id'),
+        nombres=(getattr(tramo, f'{lado}_ciudad'), getattr(tramo, f'{lado}_nombre')),
+        pais=getattr(tramo, f'{lado}_pais'),
+    )
+
+
+def punto_intermedio(origen, destino, fraccion):
+    """Where along a leg somebody is, as ``(latitud, longitud)``.
+
+    Straight on the drawing rather than along the great circle: the map is
+    equirectangular, so a straight line is what the eye follows from one city
+    to the other, and a marker off that line would read as a different route.
+    A leg across the antimeridian goes the short way round, the way it flies.
+    """
+    (lat1, lon1), (lat2, lon2) = origen, destino
+    if lon2 - lon1 > 180:
+        lon2 -= 360
+    elif lon1 - lon2 > 180:
+        lon2 += 360
+    lat = lat1 + (lat2 - lat1) * fraccion
+    lon = lon1 + (lon2 - lon1) * fraccion
+    lon = (lon + 180) % 360 - 180
+    return round(lat, 4), round(lon, 4)
+
+
+def _situar_a_las(viajero, instante, tramos, alojamientos, destinos):
+    """Where one traveller is at ``instante``.
+
+    In this order, each one stronger than the next: on a leg that is under
+    way; in the lodging that covers the moment; where the last leg that had
+    landed took them; where the next leg leaves from, because somebody who has
+    not set off yet is still there; and the trip's declared destination.
+
+    The fourth goes above the fifth here, unlike in the day view. A day is
+    mostly spent at the destination, so «the destination» is the better guess
+    for a whole day; at eight in the morning before a ten o'clock flight, it
+    says somebody has arrived who is still at home.
+
+    Returns ``(origen, datos)``, where ``datos`` is the leg for ``en_transito``
+    and ``(ciudad, pais)`` otherwise; ``(None, None)`` when nothing says.
+    """
+    propios = _suyos(tramos, viajero)
+
+    en_marcha = next((t for t in propios if _en_marcha(t, instante)), None)
+    if en_marcha is not None:
+        return 'en_transito', en_marcha
+
+    for f in _suyos(alojamientos, viajero):
+        if as_aware_utc(f.check_in_utc) <= instante < as_aware_utc(f.check_out_utc):
+            return 'alojamiento', ciudad_del_catalogo(
+                location_id=f.location_id, nombres=(f.ciudad,), pais=f.pais,
+            )
+
+    llegados = [t for t in propios if as_aware_utc(t.llegada_utc) <= instante]
+    if llegados:
+        return 'tramo', _extremo(llegados[-1], 'destino')
+
+    pendientes = [t for t in propios if as_aware_utc(t.salida_utc) > instante]
+    if pendientes:
+        return 'antes_de_salir', _extremo(pendientes[0], 'origen')
+
+    for f in destinos:
+        if f.trip_id != viajero.trip_id:
+            continue
+        if f.inicio_utc is not None and as_aware_utc(f.inicio_utc) > instante:
+            continue
+        if f.fin_utc is not None and as_aware_utc(f.fin_utc) <= instante:
+            continue
+        return 'destino', ciudad_del_catalogo(
+            location_id=f.location_id, nombres=(f.ciudad,), pais=f.pais_codigo,
+        )
+
+    return None, None
+
+
+def donde_estan_a_las(actor, instante):
+    """Travellers at one instant: in a city, or along the leg they are on.
+
+    The same scoping, the same completeness rule as :func:`donde_estan`: who
+    cannot be placed is listed, never dropped, so ``total`` always equals the
+    people in cities plus those on legs plus those unplaced.
+    """
+    instante = as_aware_utc(instante)
+    vacio = {'instante': instante, 'ciudades': [], 'trayectos': [], 'sin_situar': [],
+             'sin_ubicacion': [], 'en_transito': [], 'total': 0, 'maximo': 0}
+
+    # A window that contains the instant: open on the right by a microsecond.
+    viajeros = _viajeros_en_curso(actor, instante, instante + timedelta(microseconds=1))
+    if not viajeros:
+        return vacio
+
+    trip_ids = list({d['viaje'].id for d in viajeros.values()})
+    tramos = _tramos_de(trip_ids)
+    alojamientos = Accommodation.query.filter(
+        Accommodation.trip_id.in_(trip_ids),
+        Accommodation.is_deleted.is_(False),
+        Accommodation.check_in_utc.isnot(None),
+        Accommodation.check_out_utc.isnot(None),
+    ).all()
+    destinos = TripDestination.query.filter(
+        TripDestination.trip_id.in_(trip_ids),
+        TripDestination.es_escala.is_(False),
+    ).order_by(TripDestination.orden.asc()).all()
+
+    ciudades, trayectos = {}, {}
+    sin_situar, sin_ubicacion, en_transito = [], [], []
+
+    for datos in viajeros.values():
+        viajero = datos['viajero']
+        persona = {
+            'nombre': datos['usuario'].nombre_completo,
+            'viaje_id': str(datos['viaje'].id),
+            'viaje': datos['viaje'].referencia,
+        }
+        origen, situacion = _situar_a_las(viajero, instante, tramos, alojamientos, destinos)
+
+        if origen is None:
+            sin_ubicacion.append(persona)
+            continue
+        persona['segun'] = origen
+
+        if origen == 'en_transito':
+            tramo = situacion
+            persona['llega'] = tramo.llegada_utc
+            en_transito.append(persona)
+            desde, hasta = _extremo(tramo, 'origen'), _extremo(tramo, 'destino')
+            p1, p2 = coordenadas_de(*desde), coordenadas_de(*hasta)
+            if p1 is None or p2 is None:
+                ciudad = hasta[0] if p2 is None else desde[0]
+                sin_situar.append({**persona, 'ciudad': ciudad, 'pais': None})
+                continue
+            entrada = trayectos.setdefault(tramo.id, _trayecto(tramo, desde, hasta,
+                                                                p1, p2, instante))
+            entrada['personas'].append(persona)
+            continue
+
+        ciudad, pais = situacion
+        punto = coordenadas_de(ciudad, pais)
+        if punto is None:
+            sin_situar.append({**persona, 'ciudad': ciudad, 'pais': pais})
+            continue
+        clave = (_sin_acentos(ciudad), (pais or '').upper())
+        entrada = ciudades.setdefault(clave, {
+            'ciudad': ciudad, 'pais': pais,
+            'latitud': punto[0], 'longitud': punto[1], 'personas': [],
+        })
+        entrada['personas'].append(persona)
+
+    filas = sorted(ciudades.values(),
+                   key=lambda c: (-len(c['personas']), _sin_acentos(c['ciudad'])))
+    for fila in filas:
+        fila['total'] = len(fila['personas'])
+        fila['x'], fila['y'] = proyectar(fila['latitud'], fila['longitud'])
+    lineas = sorted(trayectos.values(), key=lambda t: t['salida'])
+    for linea in lineas:
+        linea['total'] = len(linea['personas'])
+
+    return {
+        'instante': instante,
+        'ciudades': filas,
+        'trayectos': lineas,
+        'sin_situar': sin_situar,
+        'sin_ubicacion': sin_ubicacion,
+        'en_transito': en_transito,
+        'total': len(viajeros),
+        'maximo': max((f['total'] for f in filas), default=0),
+    }
+
+
+def _trayecto(tramo, desde, hasta, p1, p2, instante):
+    """One leg under way, ready to be drawn: both ends and the point between."""
+    salida, llegada = as_aware_utc(tramo.salida_utc), as_aware_utc(tramo.llegada_utc)
+    fraccion = (instante - salida) / (llegada - salida)
+    lat, lon = punto_intermedio(p1, p2, fraccion)
+    x1, y1 = proyectar(*p1)
+    x2, y2 = proyectar(*p2)
+    # Across the antimeridian the far end is moved a whole map width, so the
+    # line leaves by the near edge; ``cruza`` is the shift that draws it again
+    # coming in from the other edge, or the half that reaches the far city
+    # would be clipped away.
+    cruza = 0
+    if x2 - x1 > 50:
+        x2 -= 100
+        cruza = 100
+    elif x1 - x2 > 50:
+        x2 += 100
+        cruza = -100
+    x, y = proyectar(lat, lon)
+    return {
+        'origen': desde[0], 'destino': hasta[0],
+        'tipo': str(tramo.tipo) if tramo.tipo else 'vuelo',
+        'numero': tramo.numero,
+        'salida': salida, 'llegada': llegada,
+        'progreso': int(round(fraccion * 100)),
+        'x': x, 'y': y, 'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2,
+        'cruza': cruza,
+        'personas': [],
+    }
+
+
+def franja_del_dia(actor, dia, zona):
+    """People away and people on the move at each hour of ``dia``, in ``zona``.
+
+    What «en cada momento» needs: one glance at the day instead of
+    twenty-four maps. Read on the hour, the same instant the map draws when
+    the hour is chosen, so a bar and the map it links to never disagree.
+
+    Two queries for the whole day, not twenty-four calls of the map.
+    """
+    horas = [instante_de(dia, time(h, 0), zona) for h in range(24)]
+    primero, ultimo = horas[0], horas[-1] + timedelta(microseconds=1)
+
+    viajeros = _viajeros_en_curso(actor, primero, ultimo)
+    tramos = _tramos_de(list({d['viaje'].id for d in viajeros.values()})) if viajeros else []
+
+    franja = []
+    for hora, instante in enumerate(horas):
+        fuera = moviendose = 0
+        for datos in viajeros.values():
+            viajero, viaje = datos['viajero'], datos['viaje']
+            desde = _mayor(viajero.desde_utc, viaje.inicio_utc)
+            hasta = _menor(viajero.hasta_utc, viaje.fin_utc)
+            if (desde is not None and desde > instante) or \
+                    (hasta is not None and hasta <= instante):
+                continue
+            fuera += 1
+            if any(_en_marcha(t, instante) for t in _suyos(tramos, viajero)):
+                moviendose += 1
+        franja.append({'hora': hora, 'etiqueta': f'{hora:02d}',
+                       'fuera': fuera, 'en_camino': moviendose})
+
+    maximo = max((f['fuera'] for f in franja), default=0)
+    for f in franja:
+        f['alto'] = round(100 * f['fuera'] / maximo) if maximo else 0
+        f['alto_camino'] = round(100 * f['en_camino'] / maximo) if maximo else 0
+    return {'horas': franja, 'maximo': maximo, 'zona': zona,
+            'en_camino_max': max((f['en_camino'] for f in franja), default=0)}

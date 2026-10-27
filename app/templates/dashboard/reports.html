@@ -159,19 +159,48 @@
         </div>
     </div>
 
-    {% if mapa.total %}
+    {% set vista = momento if momento else mapa %}
+    {% if mapa.total or (momento and momento.total) %}
     <div class="card-body pt-3">
+        {% if momento %}
+        <p class="mapa-momento mb-2">
+            <i class="bi bi-clock me-1"></i>
+            A las <strong>{{ '%02d:%02d' | format(hora.hour, hora.minute) }}</strong>
+            ({{ zona }}):
+            <strong>{{ momento.total }}</strong>
+            {{ 'persona de viaje' if momento.total == 1 else 'personas de viaje' }}{% if momento.en_transito %},
+            <strong>{{ momento.en_transito | length }}</strong>
+            {{ 'en camino' }}{% endif %}.
+            <a href="{{ url_for('dashboard.reports', fecha=mapa.dia) }}" class="ms-1">Ver el día entero</a>
+        </p>
+        {% endif %}
         <div class="mapa">
             <img class="mapa-fondo" alt=""
                  src="{{ url_for('static', filename='img/mapa-mundi.svg') }}">
-            {% for ciudad in mapa.ciudades %}
+            {% if momento and momento.trayectos %}
+            {# The leg each person is on, end to end, so a marker in the middle
+               of the Atlantic reads as a flight and not as a place. Same
+               percentage box as the markers; the box clips a leg that crosses
+               the edge of the world. #}
+            <svg class="mapa-rutas" viewBox="0 0 100 100" preserveAspectRatio="none"
+                 aria-hidden="true">
+                {% for t in momento.trayectos %}
+                <line x1="{{ t.x1 }}" y1="{{ t.y1 }}" x2="{{ t.x2 }}" y2="{{ t.y2 }}"></line>
+                {% if t.cruza %}
+                <line x1="{{ t.x1 + t.cruza }}" y1="{{ t.y1 }}"
+                      x2="{{ t.x2 + t.cruza }}" y2="{{ t.y2 }}"></line>
+                {% endif %}
+                {% endfor %}
+            </svg>
+            {% endif %}
+            {% for ciudad in vista.ciudades %}
             {# Diámetro ∝ √personas, que es lo mismo que decir área ∝ personas:
                el ojo compara manchas. Absoluto y no relativo al máximo, o el
                día que solo haya una persona de viaje su burbuja sería la más
                grande del mapa. Suelo de 18 px para poder apuntarla y techo de
                46 para que una ciudad con mucha gente no tape media Europa. #}
             {% set lado = [[16 * (ciudad.total ** 0.5), 18] | max, 46] | min %}
-            <div class="mapa-punto{{ ' es-mayor' if ciudad.total == mapa.maximo }}"
+            <div class="mapa-punto{{ ' es-mayor' if ciudad.total == vista.maximo }}"
                  style="left: {{ ciudad.x }}%; top: {{ ciudad.y }}%;
                         width: {{ lado | round(1) }}px; height: {{ lado | round(1) }}px">
                 <span class="mapa-globo">
@@ -181,6 +210,7 @@
                         {% for persona in ciudad.personas[:6] %}
                         {{ persona.nombre }} · {{ persona.viaje }}{%
                             if persona.segun == 'en_transito' %} · de camino{%
+                            elif persona.segun == 'antes_de_salir' %} · aún no ha salido{%
                             endif %}<br>
                         {% endfor %}
                         {% if ciudad.personas | length > 6 %}
@@ -190,22 +220,95 @@
                 </span>
             </div>
             {% endfor %}
+            {% if momento %}
+            {% for t in momento.trayectos %}
+            <div class="mapa-punto es-trayecto"
+                 style="left: {{ t.x }}%; top: {{ t.y }}%;">
+                <i class="bi bi-{{ 'train-front' if t.tipo == 'tren' else 'airplane-fill' }}"></i>
+                {% if t.total > 1 %}<span class="mapa-trayecto-cifra">{{ t.total }}</span>{% endif %}
+                <span class="mapa-globo">
+                    <span class="mapa-globo-cifra">{{ t.total }}</span>
+                    <strong>{{ t.origen }} → {{ t.destino }}</strong>
+                    <span class="mapa-globo-lista">
+                        {% if t.numero %}{{ t.numero }} · {% endif %}{{ t.salida | local_time(zona) }}–{{ t.llegada | local_time(zona) }}
+                        · {{ t.progreso }} %<br>
+                        {% for persona in t.personas[:6] %}
+                        {{ persona.nombre }} · {{ persona.viaje }}<br>
+                        {% endfor %}
+                        {% if t.personas | length > 6 %}y {{ t.personas | length - 6 }} más{% endif %}
+                    </span>
+                </span>
+            </div>
+            {% endfor %}
+            {% endif %}
         </div>
 
         {# La tabla no es un extra: es la versión que se lee sin ratón, sin
            color y en voz alta, y la que permite copiar una cifra. #}
         <div class="mapa-ciudades">
-            {% for ciudad in mapa.ciudades %}
+            {% for ciudad in vista.ciudades %}
             <span class="mapa-ciudad">
                 <span class="mapa-ciudad-punto"></span>
                 {{ ciudad.ciudad }}
                 <strong>{{ ciudad.total }}</strong>
             </span>
             {% endfor %}
+            {% if momento %}
+            {% for t in momento.trayectos %}
+            <span class="mapa-ciudad">
+                <i class="bi bi-{{ 'train-front' if t.tipo == 'tren' else 'airplane' }}"></i>
+                {{ t.origen }} → {{ t.destino }}
+                <strong>{{ t.total }}</strong>
+            </span>
+            {% endfor %}
+            {% endif %}
         </div>
     </div>
+    {% elif momento %}
+    <div class="card-body pt-3 empty-state">
+        <i class="bi bi-clock"></i>
+        <p>A las {{ '%02d:%02d' | format(hora.hour, hora.minute) }} no había nadie de viaje.</p>
+    </div>
+    {% endif %}
 
+    {% if franja.maximo %}
+    {# Cuántas personas hay fuera a cada hora del día, y cuántas de ellas van de
+       camino. Una barra por hora que enlaza al mapa de esa hora: es lo que
+       contesta «en cada momento» sin abrir veinticuatro mapas. #}
+    <div class="card-body pt-0">
+        <div class="franja" role="list" aria-label="Personas de viaje por hora">
+            {% for h in franja.horas %}
+            <a class="franja-hora{{ ' es-la-elegida' if hora and hora.hour == h.hora and hora.minute == 0 }}"
+               role="listitem"
+               href="{{ url_for('dashboard.reports', fecha=mapa.dia, hora=h.etiqueta ~ ':00') }}"
+               title="{{ h.etiqueta }}:00 — {{ h.fuera }} de viaje, {{ h.en_camino }} en camino">
+                <span class="franja-barra" style="height: {{ h.alto }}%">
+                    <span class="franja-camino" style="height: {{ (100 * h.en_camino / h.fuera) | round if h.fuera else 0 }}%"></span>
+                </span>
+                <span class="franja-etiqueta">{{ h.etiqueta }}</span>
+            </a>
+            {% endfor %}
+        </div>
+        <p class="small text-muted mb-0 mt-1">
+            <span class="franja-leyenda"></span> De viaje
+            <span class="franja-leyenda es-camino ms-2"></span> En camino
+            · hora de {{ franja.zona }}; pulse una hora para ver el mapa en ese momento.
+        </p>
+    </div>
+    {% endif %}
+
+    {% if mapa.total or (momento and momento.total) %}
     <div class="card-footer small text-muted">
+        {% if momento %}
+        <p class="mb-1">
+            En ese momento se sitúa a cada persona en el trayecto que esté
+            haciendo, en el punto de la ruta que le corresponde por la hora; si
+            no viaja, en el alojamiento que cubre ese momento; si no, donde la
+            dejó el último trayecto que había llegado; si aún no ha salido,
+            donde sale el siguiente; y en último lugar, en el destino declarado
+            del viaje.
+        </p>
+        {% else %}
         <p class="mb-1">
             {{ mapa.total }}
             {{ 'persona' if mapa.total == 1 else 'personas' }} de viaje ese día.
@@ -232,23 +335,24 @@
             {% endfor %}
         </p>
         {% endif %}
-        {% if mapa.sin_situar or mapa.sin_ubicacion %}
+        {% endif %}
+        {% if vista.sin_situar or vista.sin_ubicacion %}
         {# Nunca se descartan en silencio: un mapa al que le faltan tres
            personas contesta la pregunta con una seguridad que no tiene. #}
         <p class="mb-0 text-warning-emphasis">
             <i class="bi bi-exclamation-triangle me-1"></i>
-            {% if mapa.sin_situar %}
-            {{ mapa.sin_situar | length }} en ciudades que el catálogo no sabe
-            situar ({{ mapa.sin_situar | map(attribute='ciudad') | unique | join(', ') }}).
+            {% if vista.sin_situar %}
+            {{ vista.sin_situar | length }} en ciudades que el catálogo no sabe
+            situar ({{ vista.sin_situar | map(attribute='ciudad') | unique | join(', ') }}).
             {% endif %}
-            {% if mapa.sin_ubicacion %}
-            {{ mapa.sin_ubicacion | length }} sin nada en el itinerario que diga
+            {% if vista.sin_ubicacion %}
+            {{ vista.sin_ubicacion | length }} sin nada en el itinerario que diga
             dónde estaban.
             {% endif %}
         </p>
         {% endif %}
     </div>
-    {% else %}
+    {% elif not momento %}
     <div class="card-body pt-3 empty-state">
         <i class="bi bi-geo"></i>
         <p>Nadie de viaje el {{ mapa.dia | fecha_larga }}.

@@ -991,6 +991,108 @@ a.stat-card { transition: border-color .12s ease, box-shadow .12s ease, transfor
 }
 .mapa-ciudad strong { font-variant-numeric: tabular-nums; }
 
+/* ---------- El mapa en un momento ----------
+   Quien va de camino no está en ninguna ciudad: se dibuja su trayecto entero,
+   discontinuo, y encima un avión en el punto de la ruta que le toca por la
+   hora. Otro tono que las ciudades, porque es otra cosa: alguien moviéndose. */
+.mapa-momento { font-size: .9rem; }
+.mapa-rutas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+.mapa-rutas line {
+    stroke: var(--viz-2);
+    stroke-width: 1.5;
+    stroke-dasharray: 4 3;
+    /* El SVG se estira con el panel; sin esto la línea engordaría con él. */
+    vector-effect: non-scaling-stroke;
+    opacity: .7;
+}
+.mapa-punto.es-trayecto {
+    width: 22px;
+    height: 22px;
+    background: var(--viz-surface);
+    color: var(--viz-2);
+    box-shadow: 0 0 0 1.5px var(--viz-2);
+    font-size: .75rem;
+    z-index: 2;
+}
+.mapa-trayecto-cifra {
+    position: absolute;
+    top: -.55rem;
+    right: -.55rem;
+    min-width: 1rem;
+    padding: 0 .2rem;
+    border-radius: 999px;
+    background: var(--viz-2);
+    color: #fff;
+    font-size: .62rem;
+    font-weight: 700;
+    line-height: 1rem;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Franja de las 24 horas ----------
+   Una barra por hora, alta según cuánta gente está fuera; dentro, la parte de
+   quien va de camino. Cada barra lleva al mapa de esa hora. */
+.franja {
+    display: grid;
+    grid-template-columns: repeat(24, minmax(0, 1fr));
+    gap: 2px;
+    align-items: end;
+}
+.franja-hora {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    text-decoration: none;
+    color: var(--text-muted);
+}
+.franja-barra {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    min-height: 2px;
+    margin-top: auto;
+    background: color-mix(in srgb, var(--viz-o3) 55%, transparent);
+    border-radius: 2px 2px 0 0;
+    overflow: hidden;
+}
+.franja-hora { height: 64px; justify-content: flex-end; }
+.franja-camino { display: block; background: var(--viz-2); }
+.franja-etiqueta {
+    /* Flex rather than text-align: on a phone the column is narrower than
+       «00», and centred flex content overflows evenly to both sides instead
+       of wrapping into «0» over «0». */
+    display: flex;
+    justify-content: center;
+    white-space: nowrap;
+    font-size: .62rem;
+    font-variant-numeric: tabular-nums;
+    margin-top: 2px;
+}
+.franja-hora:hover .franja-barra,
+.franja-hora.es-la-elegida .franja-barra { outline: 2px solid var(--text); }
+.franja-hora.es-la-elegida .franja-etiqueta { color: var(--text); font-weight: 700; }
+.franja-leyenda {
+    display: inline-block;
+    width: .7rem;
+    height: .7rem;
+    border-radius: 2px;
+    vertical-align: -1px;
+    background: color-mix(in srgb, var(--viz-o3) 55%, transparent);
+}
+.franja-leyenda.es-camino { background: var(--viz-2); }
+@media (max-width: 576px) {
+    /* Veinticuatro etiquetas no caben: queda una de cada tres. */
+    .franja-hora:not(:nth-child(3n + 1)) .franja-etiqueta { visibility: hidden; }
+}
+
 /* ---------- Calendario de días con gente fuera ----------
    El mapa contesta por un día; sin esto había que ir probando fechas hasta
    dar con las que tienen a alguien. Un solo tono, más oscuro cuanta más

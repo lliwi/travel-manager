@@ -681,3 +681,204 @@ class TestElCalendarioEnLaPantalla:
 
         assert 'type="date"' not in html
         assert 'calendario-rejilla' in html
+
+
+def _tramo(trip, origen, destino, salida, llegada, tz='Europe/Madrid', traveler=None,
+           numero='IB3210'):
+    from app.extensions import db
+    from app.models.itinerary import TravelSegment
+
+    fila = TravelSegment(
+        trip_id=trip.id,
+        trip_traveler_id=traveler.id if traveler is not None else None,
+        numero=numero, origen_codigo=origen, destino_codigo=destino,
+    )
+    set_instant(fila, 'salida', salida, tz)
+    set_instant(fila, 'llegada', llegada, tz)
+    db.session.add(fila)
+    db.session.commit()
+    return fila
+
+
+def _a_las(actor, hora, minuto=0, dia=date(2026, 6, 1)):
+    from datetime import time
+
+    return map_service.donde_estan_a_las(
+        actor, map_service.instante_de(dia, time(hora, minuto), 'Europe/Madrid'))
+
+
+class TestEnUnMomento:
+    """«How many people do we have on the move right now.»
+
+    The day view draws a flight as its two ends. At one instant somebody in
+    the air is in no city: they are somewhere along the leg.
+    """
+
+    def test_quien_vuela_esta_en_la_ruta_y_no_en_una_ciudad(
+        self, app, seeded, gestor, trip, traveler_row,
+    ):
+        _tramo(trip, 'MAD', 'BER', datetime(2026, 6, 1, 10, 0),
+               datetime(2026, 6, 1, 14, 0))
+
+        momento = _a_las(gestor, 12)
+
+        assert momento['ciudades'] == []
+        (trayecto,) = momento['trayectos']
+        assert trayecto['total'] == 1
+        assert trayecto['progreso'] == 50
+        assert len(momento['en_transito']) == 1
+
+    def test_el_avion_cae_entre_las_dos_ciudades(
+        self, app, seeded, gestor, trip, traveler_row,
+    ):
+        _tramo(trip, 'MAD', 'BER', datetime(2026, 6, 1, 10, 0),
+               datetime(2026, 6, 1, 14, 0))
+
+        (t,) = _a_las(gestor, 12)['trayectos']
+
+        assert min(t['x1'], t['x2']) < t['x'] < max(t['x1'], t['x2'])
+        assert min(t['y1'], t['y2']) < t['y'] < max(t['y1'], t['y2'])
+
+    def test_antes_de_salir_sigue_en_el_origen(
+        self, app, seeded, gestor, trip, traveler_row,
+    ):
+        """At eight, before a ten o'clock flight, nobody has arrived yet."""
+        _tramo(trip, 'MAD', 'BER', datetime(2026, 6, 1, 10, 0),
+               datetime(2026, 6, 1, 14, 0))
+
+        momento = _a_las(gestor, 9)
+
+        (ciudad,) = momento['ciudades']
+        assert ciudad['ciudad'] == 'Madrid'
+        assert ciudad['personas'][0]['segun'] == 'antes_de_salir'
+
+    def test_al_aterrizar_ya_esta_en_destino(
+        self, app, seeded, gestor, trip, traveler_row,
+    ):
+        _tramo(trip, 'MAD', 'BER', datetime(2026, 6, 1, 10, 0),
+               datetime(2026, 6, 1, 14, 0))
+
+        (ciudad,) = _a_las(gestor, 15)['ciudades']
+
+        assert ciudad['ciudad'] == 'Berlín'
+
+    def test_dos_en_el_mismo_vuelo_son_un_solo_avion(
+        self, app, seeded, gestor, trip, traveler_row, otro_viajero,
+    ):
+        from app.services import trip_service
+
+        trip_service.add_traveler(gestor, trip, otro_viajero)
+        _tramo(trip, 'MAD', 'BER', datetime(2026, 6, 1, 10, 0),
+               datetime(2026, 6, 1, 14, 0))
+
+        (trayecto,) = _a_las(gestor, 12)['trayectos']
+
+        assert trayecto['total'] == 2
+
+    def test_la_suma_cuadra_tambien_en_un_momento(
+        self, app, seeded, gestor, trip, traveler_row,
+    ):
+        _tramo(trip, 'MAD', 'BER', datetime(2026, 6, 1, 10, 0),
+               datetime(2026, 6, 1, 14, 0))
+
+        for hora in (9, 12, 15):
+            m = _a_las(gestor, hora)
+            situadas = (sum(c['total'] for c in m['ciudades'])
+                        + sum(t['total'] for t in m['trayectos'])
+                        + len(m['sin_situar']) + len(m['sin_ubicacion']))
+            assert situadas == m['total'], hora
+
+    def test_el_viajero_solo_se_ve_a_si_mismo(
+        self, app, seeded, gestor, trip, traveler_row, otro_viajero,
+    ):
+        from app.services import trip_service
+
+        trip_service.add_traveler(gestor, trip, otro_viajero)
+        _tramo(trip, 'MAD', 'BER', datetime(2026, 6, 1, 10, 0),
+               datetime(2026, 6, 1, 14, 0))
+
+        assert _a_las(otro_viajero, 12)['total'] == 1
+
+
+class TestCruzarElAntimeridiano:
+    def test_se_va_por_el_camino_corto(self):
+        tokio, los_angeles = (35.68, 139.69), (34.05, -118.24)
+
+        lat, lon = map_service.punto_intermedio(tokio, los_angeles, 0.5)
+
+        # Halfway across the Pacific, not over Europe.
+        assert lon > 150 or lon < -150
+
+
+class TestLaFranjaDelDia:
+    def test_cuenta_quien_esta_fuera_y_quien_va_de_camino(
+        self, app, seeded, gestor, trip, traveler_row,
+    ):
+        _tramo(trip, 'MAD', 'BER', datetime(2026, 6, 1, 10, 0),
+               datetime(2026, 6, 1, 14, 0))
+
+        horas = map_service.franja_del_dia(gestor, date(2026, 6, 1),
+                                           'Europe/Madrid')['horas']
+
+        assert horas[12]['fuera'] == 1 and horas[12]['en_camino'] == 1
+        assert horas[16]['en_camino'] == 0
+        # The fixture trip starts at 08:00.
+        assert horas[7]['fuera'] == 0
+
+    def test_cada_barra_dice_lo_mismo_que_el_mapa_de_su_hora(
+        self, app, seeded, gestor, trip, traveler_row,
+    ):
+        _tramo(trip, 'MAD', 'BER', datetime(2026, 6, 1, 10, 0),
+               datetime(2026, 6, 1, 14, 0))
+
+        horas = map_service.franja_del_dia(gestor, date(2026, 6, 1),
+                                           'Europe/Madrid')['horas']
+        for hora in range(24):
+            m = _a_las(gestor, hora)
+            assert (horas[hora]['fuera'], horas[hora]['en_camino']) == \
+                (m['total'], len(m['en_transito'])), hora
+
+
+class TestElMomentoEnLaPantalla:
+    def test_la_hora_dibuja_el_trayecto(self, as_user, gestor, trip, traveler_row):
+        _tramo(trip, 'MAD', 'BER', datetime(2026, 6, 1, 10, 0),
+               datetime(2026, 6, 1, 14, 0))
+
+        with as_user(gestor) as client:
+            html = client.get(
+                '/dashboard/informes?fecha=2026-06-01&hora=12:00').get_data(as_text=True)
+
+        assert 'mapa-rutas' in html
+        assert 'Madrid → Berlín' in html
+        assert 'en camino' in html
+
+    def test_sin_hora_sigue_siendo_el_dia_y_trae_la_franja(
+        self, as_user, gestor, trip, traveler_row,
+    ):
+        with as_user(gestor) as client:
+            html = client.get('/dashboard/informes?fecha=2026-06-02').get_data(as_text=True)
+
+        assert 'mapa-rutas' not in html
+        assert 'class="franja"' in html
+        assert 'hora=12:00' in html
+
+    def test_una_hora_inventada_vuelve_al_dia(self, as_user, gestor, trip, traveler_row):
+        with as_user(gestor) as client:
+            respuesta = client.get('/dashboard/informes?fecha=2026-06-02&hora=nada')
+
+        assert respuesta.status_code == 200
+        assert 'mapa-rutas' not in respuesta.get_data(as_text=True)
+
+
+class TestLaRutaQueCruzaElBorde:
+    def test_se_dibuja_tambien_entrando_por_el_otro_lado(
+        self, app, seeded, gestor, trip, traveler_row,
+    ):
+        _tramo(trip, 'LAX', 'NRT', datetime(2026, 6, 1, 11, 0),
+               datetime(2026, 6, 2, 15, 0), tz='America/Los_Angeles')
+
+        (t,) = _a_las(gestor, 23)['trayectos']
+
+        assert t['x2'] < 0, 'sale por el borde izquierdo, hacia el oeste'
+        assert t['cruza'] == 100
+        assert 0 < t['x2'] + t['cruza'] < 100, 'y llega a Tokio por el derecho'
