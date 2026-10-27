@@ -336,7 +336,7 @@ def approve(actor, extraction, correcciones=None, comentario=None):
         servicios_a_aplicar = servicios
 
     for indice, servicio in enumerate(servicios_a_aplicar):
-        entity, outcome, applied_fields = _apply_to_itinerary(
+        entity, outcome, applied_fields, motivo = _apply_to_itinerary(
             actor, document, extraction, target_kind, model, servicio, indice
         )
 
@@ -346,7 +346,7 @@ def approve(actor, extraction, correcciones=None, comentario=None):
             entidad_id=entity.id if entity is not None else None,
             resultado=outcome,
             campos_aplicados=applied_fields,
-            motivo=(
+            motivo=motivo or (
                 None if entity is not None
                 else 'No había datos suficientes que aplicar.'
             ),
@@ -468,8 +468,11 @@ def _apply_corrections(actor, extraction, correcciones):
     ``correcciones`` is keyed by service index, so a correction to the return
     flight cannot land on the outbound one.
     """
+    from app.services.normalization_service import _instrucciones
+
     servicios = [
         {
+            **_instrucciones(s),
             'campos': dict(s.get('campos') or {}),
             'confianzas': dict(s.get('confianzas') or {}),
             'procedencias': dict(s.get('procedencias') or {}),
@@ -549,10 +552,23 @@ def _apply_to_itinerary(actor, document, extraction, kind, model, servicio, indi
     Matched by ``(documento_origen_id, documento_origen_indice)``: re-approving
     updates the row this service created before rather than adding a second
     one, and the index is what keeps a return booking's two flights apart.
+
+    Two more matches, both about the agency's sale stub (``talon_service``),
+    which prices a service without saying when it leaves:
+
+    - A stub's service *completes* the row another document already created
+      for it -- only its empty fields, so a confirmed departure time is never
+      replaced by the stub's midnight -- and creates one, marked provisional,
+      only when there is none.
+    - Any later document describing that service *adopts* the provisional row
+      instead of adding a second one, and overwrites it, because it knows
+      more than the stub did.
+
+    Returns ``(entity, outcome, applied_fields, motivo)``.
     """
     campos = (servicio.get('campos') or {}) if isinstance(servicio, dict) else {}
     if not campos:
-        return None, ApplicationOutcome.IGNORADA, []
+        return None, ApplicationOutcome.IGNORADA, [], None
 
     mapping = FIELD_MAPPINGS.get(kind, {})
     instants = INSTANT_MAPPINGS.get(kind, {})
@@ -564,6 +580,25 @@ def _apply_to_itinerary(actor, document, extraction, kind, model, servicio, indi
         is_deleted=False,
     ).first()
 
+    completa = bool(servicio.get('completa_existente'))
+    solo_huecos = False
+    if existing is None and completa:
+        existing = _coincidente(model, kind, document, campos)
+        solo_huecos = existing is not None
+    elif existing is None:
+        existing = _coincidente(model, kind, document, campos, solo_provisional=True)
+        if existing is not None:
+            existing.documento_origen_id = document.id
+            existing.documento_origen_indice = indice
+            existing.datos = {k: v for k, v in (existing.datos or {}).items()
+                              if k != 'provisional'}
+
+    if existing is None and servicio.get('solo_si_existe'):
+        return None, ApplicationOutcome.IGNORADA, [], (
+            'El documento no da fecha a este trayecto; se completará cuando su '
+            'confirmación esté en el itinerario.'
+        )
+
     entity = existing or model(
         trip_id=document.trip_id,
         trip_traveler_id=document.trip_traveler_id,
@@ -571,6 +606,8 @@ def _apply_to_itinerary(actor, document, extraction, kind, model, servicio, indi
         documento_origen_indice=indice,
     )
     outcome = ApplicationOutcome.ACTUALIZADA if existing else ApplicationOutcome.CREADA
+    if existing is None and completa:
+        entity.datos = {**(entity.datos or {}), 'provisional': PROVISIONAL_TALON}
 
     _set_required_defaults(entity, kind, document, campos)
 
@@ -589,6 +626,8 @@ def _apply_to_itinerary(actor, document, extraction, kind, model, servicio, indi
             continue
         value = campos[source]
         if value is None or not hasattr(entity, target):
+            continue
+        if solo_huecos and getattr(entity, target) not in (None, ''):
             continue
 
         setattr(entity, target, value)
@@ -610,6 +649,8 @@ def _apply_to_itinerary(actor, document, extraction, kind, model, servicio, indi
     for nombre in EXTRA_FIELDS.get(kind, ()):
         valor = campos.get(nombre)
         if valor in (None, '', {}, []):
+            continue
+        if solo_huecos and (entity.datos or {}).get(nombre) not in (None, '', {}, []):
             continue
         if nombre == 'pasajeros':
             valor = [
@@ -637,6 +678,8 @@ def _apply_to_itinerary(actor, document, extraction, kind, model, servicio, indi
         local_dt = _parse_local(instant['local'])
         if local_dt is None:
             continue
+        if solo_huecos and getattr(entity, f'{prefix}_local', None) is not None:
+            continue
 
         set_instant(entity, prefix, local_dt, instant.get('zona_horaria'))
         applied.append(prefix)
@@ -651,7 +694,91 @@ def _apply_to_itinerary(actor, document, extraction, kind, model, servicio, indi
         )
 
     db.session.flush()
-    return entity, outcome, applied
+    return entity, outcome, applied, _motivo_de_completar(entity, kind, campos, solo_huecos)
+
+
+def _motivo_de_completar(entity, kind, campos, solo_huecos):
+    """Say so when a document completed a row that another one created.
+
+    The match is by day and place, not by name, so a stay booked as «Enso
+    Hotel» can complete one that says «Hotel Bayerischer Hof» -- usually the
+    same booking spelt twice, sometimes a hotel that was changed. Which one it
+    is, a person decides; the record has to say that the names disagreed.
+    """
+    if not solo_huecos:
+        return None
+    motivo = 'Completa un servicio que ya estaba en el itinerario.'
+    nombre = campos.get('nombre')
+    if kind == 'alojamiento' and nombre and entity.nombre:
+        if not (_palabras_del_nombre(nombre) & _palabras_del_nombre(entity.nombre)):
+            motivo += (f' El documento dice «{nombre}» y el itinerario '
+                       f'«{entity.nombre}»: compruebe que es la misma reserva.')
+    return motivo[:400]
+
+
+#: Words that name a kind of lodging rather than a particular one.
+_GENERICOS_DE_ALOJAMIENTO = {
+    'hotel', 'hoteles', 'hostal', 'hotels', 'the', 'el', 'la', 'de', 'resort',
+    'suites', 'apartamentos', 'apartments', 'inn', 'by',
+}
+
+
+def _palabras_del_nombre(nombre):
+    """«Enso Hotel» and «Hotel Enso» are one name; «Hotel Arts» is another."""
+    from app.services.talon_service import _plano
+
+    palabras = set(re.findall(r'[a-z0-9]+', _plano(nombre)))
+    return palabras - _GENERICOS_DE_ALOJAMIENTO
+
+
+#: What ``datos['provisional']`` says on a row only a sale stub has described.
+PROVISIONAL_TALON = 'talon_venta'
+
+
+def _coincidente(model, kind, document, campos, solo_provisional=False):
+    """The row of another document that describes the same service, or None.
+
+    A leg by its route and, when known, its day; a stay by its check-in day.
+    Only an unambiguous match counts: two candidates means the documents do
+    not say which one, and completing the wrong flight is worse than adding a
+    row a manager can delete.
+    """
+    if kind not in ('segmento', 'alojamiento'):
+        return None
+
+    candidatos = model.query.filter(
+        model.trip_id == document.trip_id,
+        model.is_deleted.is_(False),
+        db.or_(model.documento_origen_id.is_(None),
+               model.documento_origen_id != document.id),
+    ).all()
+
+    def dia(instante):
+        local = (instante or {}).get('local') if isinstance(instante, dict) else None
+        return str(local)[:10] if local else None
+
+    def coincide(fila):
+        if document.trip_traveler_id and fila.trip_traveler_id not in (
+                None, document.trip_traveler_id):
+            return False
+        if solo_provisional and (fila.datos or {}).get('provisional') != PROVISIONAL_TALON:
+            return False
+        if kind == 'segmento':
+            if not campos.get('origen_codigo') or not campos.get('destino_codigo'):
+                return False
+            if (fila.origen_codigo or '').upper() != str(campos['origen_codigo']).upper():
+                return False
+            if (fila.destino_codigo or '').upper() != str(campos['destino_codigo']).upper():
+                return False
+            buscado = dia(campos.get('salida'))
+            return buscado is None or fila.salida_local is None \
+                or fila.salida_local.date().isoformat() == buscado
+        buscado = dia(campos.get('check_in'))
+        return buscado is not None and fila.check_in_local is not None \
+            and fila.check_in_local.date().isoformat() == buscado
+
+    coincidentes = [f for f in candidatos if coincide(f)]
+    return coincidentes[0] if len(coincidentes) == 1 else None
 
 
 def _set_required_defaults(entity, kind, document, campos):
@@ -769,8 +896,9 @@ FIELD_MAPPINGS = {
 #: seats on a booking -- that only some documents carry, and giving each a
 #: column would be a migration per document type.
 EXTRA_FIELDS = {
-    'segmento': ('pasajeros', 'pasajero', 'coche'),
-    'alojamiento': ('huesped',),
+    'segmento': ('pasajeros', 'pasajero', 'coche',
+                 'numero_billete', 'bono', 'expediente', 'cargos'),
+    'alojamiento': ('huesped', 'bono', 'expediente', 'cargos'),
     'vehiculo': (),
     'servicio': (
         'tipo', 'tipo_servicio', 'titular', 'entradas', 'estancia_maxima_dias',
@@ -838,6 +966,9 @@ _LABELS = {
     'horario_ida': 'Horario preferido de ida',
     'horario_vuelta': 'Horario preferido de vuelta',
     'fecha_solicitud': 'Fecha de la solicitud',
+    # Talón de venta
+    'numero_billete': 'Número de billete', 'bono': 'Bono de la agencia',
+    'expediente': 'Expediente', 'cargos': 'Cargos añadidos',
 }
 
 

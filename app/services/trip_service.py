@@ -581,7 +581,11 @@ def _punto_de_partida(tramos):
     con_hora = [s for s in tramos if s.salida_utc is not None and s.origen_codigo]
     if not con_hora:
         return None
-    return min(con_hora, key=lambda s: s.salida_utc).origen_codigo
+    from app.utils.timeutil import as_aware_utc
+
+    # A row read back from the database and one just written can differ in
+    # whether they carry a zone; compared raw, min() raises.
+    return min(con_hora, key=lambda s: as_aware_utc(s.salida_utc)).origen_codigo
 
 
 def _es_escala(segmento, tramos):

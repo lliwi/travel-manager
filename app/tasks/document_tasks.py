@@ -396,11 +396,16 @@ def classify_document(self, document_id):
     origen = ProvenanceOrigin.DOCUMENTO
     threshold = _classification_threshold()
 
+    talon = _talon_de_venta(document)
     if _es_solicitud_interna(document):
         # Before the booking rules, which would read a ticked «AVIÓN» box as a
         # flight and «HOTEL» as a stay.
         clasificacion, confianza = DocumentClassification.SOLICITUD, 1.0
         document.tipo = DocumentType.SOLICITUD_INTERNA
+    elif talon is not None:
+        from app.services import talon_service
+
+        clasificacion, confianza = talon_service.clasificacion(talon.contenido), 1.0
     else:
         clasificacion, confianza = classify_by_rules(texto, document.nombre_original)
 
@@ -431,6 +436,24 @@ def classify_document(self, document_id):
 
     document_service.transition(document, S.CLASIFICADO, tarea='classify', commit=True)
     return document_id
+
+
+def _lector_por_reglas(document):
+    """The rule-based reader for this document, when it has one."""
+    from app.services import solicitud_service, talon_service
+
+    if document.clasificacion is DocumentClassification.SOLICITUD:
+        return solicitud_service
+    if _talon_de_venta(document) is not None:
+        return talon_service
+    return None
+
+
+def _talon_de_venta(document):
+    """The page that is an agency sale stub, or None."""
+    from app.services import talon_service
+
+    return next((p for p in document.pages if talon_service.es_talon(p.contenido)), None)
 
 
 def _es_solicitud_interna(document):
@@ -486,12 +509,12 @@ def ai_extract_document(self, document_id):
     from app.services import ai_service, extraction_service
     from app.utils.errors import AIContractError, AIError, AIPolicyBlocked
 
-    if document.clasificacion is DocumentClassification.SOLICITUD:
-        from app.services import solicitud_service
-
-        # A form with labelled boxes is read, not interpreted: the rules give
-        # the same answer every time and send nothing anywhere.
-        datos = solicitud_service.extraer(document)
+    lector = _lector_por_reglas(document)
+    if lector is not None:
+        # A form with labelled boxes, or a stub in a fixed layout, is read
+        # rather than interpreted: the rules give the same answer every time
+        # and send nothing anywhere.
+        datos = lector.extraer(document)
         extraction_service.create_version(
             document,
             payload=datos,

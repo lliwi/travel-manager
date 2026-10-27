@@ -89,12 +89,23 @@ def normalize(payload, clasificacion=None):
         avisos.extend(f'{prefijo}{a}' for a in propios)
 
         normalizados.append({
+            # How a service is to be applied travels with it, or a rule-based
+            # reader's instructions would be lost on the way to approval.
+            **_instrucciones(servicio),
             'campos': campos,
             'confianzas': confianzas,
             'procedencias': dict(servicio.get('procedencias') or {}),
         })
 
     return NormalizationResult(normalizados, avisos, resueltos)
+
+
+def _instrucciones(servicio):
+    """A service's keys other than its fields, confidences and provenance."""
+    if not isinstance(servicio, dict):
+        return {}
+    return {k: v for k, v in servicio.items()
+            if k not in ('campos', 'confianzas', 'procedencias')}
 
 
 def _servicios_del_payload(payload):
