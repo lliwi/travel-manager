@@ -51,6 +51,15 @@
     </div>
     {% endif %}
 
+    {% if not campos %}
+    <div class="alert alert-secondary">
+        <i class="bi bi-inbox me-2"></i>
+        No se ha encontrado ninguna reserva ni servicio en este documento.
+        Aprobarlo no añade nada al {{ 'viaje' if document.clasificacion.value == 'solicitud' else 'itinerario' }};
+        si no aporta nada, descártelo.
+    </div>
+    {% endif %}
+
     {% for grupo in campos %}
     <div class="card mb-3">
         <div class="card-header d-flex justify-content-between align-items-center">

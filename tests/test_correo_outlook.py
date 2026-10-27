@@ -226,3 +226,154 @@ class TestExtraccion:
 
         with pytest.raises(PermanentError):
             self._extraer(ocr_service.CABECERA_OLE + b'\x00' * 2000)
+
+
+def _adjunto(nombre, datos, indice=0):
+    almacen = f'__attach_version1.0_#{indice:08X}'
+    return {
+        **_texto(0x3707, nombre, almacen),
+        f'{almacen}/__substg1.0_37010102': datos,
+    }
+
+
+@pytest.mark.unit
+class TestAdjuntos:
+    """A booking is usually a PDF attached to a two-line email."""
+
+    def _paginas(self, datos, mime=ocr_service.MIME_OUTLOOK):
+        return ocr_service.extract(io.BytesIO(datos), mime).pages
+
+    def test_un_pdf_adjunto_se_lee_tras_el_mensaje(self, app, booking_pdf):
+        datos = _mensaje(
+            _texto(0x0037, 'Te paso la reserva'),
+            _texto(0x1000, 'Adjunto la confirmación.'),
+            _adjunto('reserva.pdf', booking_pdf),
+        )
+
+        mensaje, adjunto = self._paginas(datos)
+
+        assert 'Adjuntos: reserva.pdf' in mensaje.contenido
+        assert adjunto.numero == 2
+        assert adjunto.contenido.startswith('Adjunto: reserva.pdf')
+        assert 'IB3210' in adjunto.contenido
+
+    def test_un_adjunto_ilegible_no_hunde_el_mensaje(self, app):
+        datos = _mensaje(
+            _texto(0x1000, 'Va adjunto.'),
+            _adjunto('roto.pdf', b'%PDF-1.4 esto no es un PDF'),
+        )
+
+        mensaje, adjunto = self._paginas(datos)
+
+        assert 'Va adjunto.' in mensaje.contenido
+        assert 'no se ha podido leer' in adjunto.contenido
+
+    def test_lo_que_no_se_sabe_leer_solo_se_nombra(self, app):
+        datos = _mensaje(_texto(0x1000, 'Foto.'), _adjunto('foto.bin', b'\x00\x01'))
+
+        assert len(self._paginas(datos)) == 1
+
+    def test_tambien_en_un_eml(self, app, booking_pdf):
+        from email.message import EmailMessage
+
+        correo = EmailMessage()
+        correo['Subject'] = 'Reserva'
+        correo.set_content('Adjunto la reserva.')
+        correo.add_attachment(booking_pdf, maintype='application', subtype='pdf',
+                              filename='reserva.pdf')
+
+        paginas = self._paginas(correo.as_bytes(), mime='message/rfc822')
+
+        assert len(paginas) == 2
+        assert 'IB3210' in paginas[1].contenido
+
+    def test_una_solicitud_adjunta_se_reconoce(self, gestor, trip):
+        """«Te paso la solicitud», with the spreadsheet attached."""
+        from email.message import EmailMessage
+
+        from app.models.enums import DocumentClassification
+        from tests.test_solicitud_interna import _plantilla
+
+        correo = EmailMessage()
+        correo['Subject'] = 'Solicitud viaje a Ingolstadt'
+        correo.set_content('Te paso la solicitud.')
+        correo.add_attachment(
+            _plantilla(), maintype='application',
+            subtype='vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            filename='solicitud.xlsx',
+        )
+        storage = FileStorage(stream=io.BytesIO(correo.as_bytes()),
+                              filename='solicitud.eml', content_type='message/rfc822')
+        document = document_service.upload(gestor, trip, storage,
+                                           tipo=DocumentType.RESERVA, commit=False)
+        db.session.commit()
+
+        from app.tasks import document_tasks
+
+        for _, task in document_tasks.PIPELINE:
+            task.run(str(document.id))
+        db.session.refresh(document)
+
+        assert document.clasificacion is DocumentClassification.SOLICITUD
+        assert document.current_extraction.datos['servicios'][0]['campos']['proyecto'] \
+            == 'OT-4471'
+
+
+@pytest.mark.unit
+class TestNadaQueExtraer:
+    """A document with no booking in it is an answer, not a broken contract.
+
+    Refusing «servicios: []» left the document in «error» for ever, and a retry
+    only asked the model the same question again.
+    """
+
+    def _modelo_sin_servicios(self, monkeypatch):
+        from app.models.enums import AITask
+        from app.services import ai_service
+        from app.services.ai.base import AIResponse
+
+        class _Run:
+            id = None
+            modelo = 'x'
+            proveedor = 'stub'
+
+        def _falso(tarea, request, **kwargs):
+            if AITask.coerce(tarea) is not AITask.EXTRACT_DOCUMENT:
+                raise RuntimeError('solo se simula la extracción')
+            return AIResponse(contenido='{"servicios": []}', modelo='x'), _Run()
+
+        monkeypatch.setattr(ai_service, '_run', _falso)
+
+    def _procesar(self, gestor, trip):
+        from app.tasks import document_tasks
+
+        datos = _mensaje(_texto(0x0037, 'Solicitud viaje a Ingolstadt'),
+                         _texto(0x1000, 'Hola, ¿podéis organizarlo?'))
+        document = _upload(gestor, trip, datos)
+        for _, task in document_tasks.PIPELINE:
+            task.run(str(document.id))
+        db.session.refresh(document)
+        return document
+
+    def test_el_documento_llega_a_revision_con_un_aviso(
+        self, gestor, trip, monkeypatch
+    ):
+        from app.services.ai_service import SIN_SERVICIOS
+
+        self._modelo_sin_servicios(monkeypatch)
+
+        document = self._procesar(gestor, trip)
+
+        assert document.estado_proceso is S.PENDIENTE_REVISION
+        assert SIN_SERVICIOS in document.current_extraction.avisos
+
+    def test_no_se_aprueba_solo(self, gestor, trip, monkeypatch):
+        """Approving nothing would file it as done without asking anybody."""
+        from app.services import settings_service
+
+        settings_service.set_value('DOCUMENTOS_AUTO_APROBAR', True)
+        self._modelo_sin_servicios(monkeypatch)
+
+        document = self._procesar(gestor, trip)
+
+        assert document.estado_proceso is S.PENDIENTE_REVISION

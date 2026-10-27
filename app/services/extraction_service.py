@@ -911,6 +911,11 @@ def puede_aprobarse_sola(extraction):
     if extraction.estado is ExtractionState.APROBADA:
         return False, 'ya estaba aprobada'
 
+    if not servicios_de(extraction):
+        # Approving nothing would file the document as done, and nobody would
+        # be asked whether it should have been discarded instead.
+        return False, 'no describe ningún servicio'
+
     minima = confianza_minima(extraction)
     detalle = (
         f'el campo menos fiable está en {minima:.2f}' if minima is not None

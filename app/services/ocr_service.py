@@ -7,6 +7,7 @@ Text is taken from a PDF's text layer when there is one, and OCR is used only
 when there is not -- OCR is slow and lossy, so running it on a digitally
 generated booking PDF would make extraction worse, not better.
 """
+import io
 import logging
 import re
 import struct
@@ -208,7 +209,7 @@ def _extract_image(stream):
 
 
 def _extract_email(stream):
-    """Read the text parts of an EML message."""
+    """Read the text parts of an EML message, and its readable attachments."""
     import email
     from email import policy
 
@@ -233,15 +234,15 @@ def _extract_email(stream):
         parts.append(content.strip())
 
     attachments = [
-        part.get_filename() for part in message.iter_attachments()
+        (part.get_filename(), part.get_payload(decode=True))
+        for part in message.iter_attachments()
         if part.get_filename()
     ]
     if attachments:
-        parts.append('Adjuntos: ' + ', '.join(attachments))
+        parts.append('Adjuntos: ' + ', '.join(nombre for nombre, _ in attachments))
 
-    page = PageText(1, '\n\n'.join(p for p in parts if p))
-    return ExtractedText([page], motor='email', uso_ocr=False,
-                         idioma=_detect_language([page]))
+    return _mensaje_con_adjuntos('\n\n'.join(p for p in parts if p), attachments,
+                                 motor='email')
 
 
 # MAPI property ids ([MS-OXPROPS]) read from an Outlook message.
@@ -255,6 +256,7 @@ _PR_DISPLAY_TO = 0x0E04
 _PR_BODY = 0x1000
 _PR_BODY_HTML = 0x1013
 _PR_DISPLAY_NAME = 0x3001
+_PR_ATTACH_DATA = 0x3701
 _PR_ATTACH_FILENAME = 0x3704
 _PR_ATTACH_LONG_FILENAME = 0x3707
 _PR_SENDER_SMTP_ADDRESS = 0x5D01
@@ -289,8 +291,8 @@ def _extract_outlook(stream):
 
     A .msg is a compound file of MAPI properties, not MIME, so the ``email``
     package cannot open it. The text is laid out as the EML path lays it out
-    -- headers, body, attachment names -- so extraction sees one shape of
-    message whichever client exported it.
+    -- headers, body, attachment names, then the attachments that can be read
+    -- so extraction sees one shape of message whichever client exported it.
     """
     try:
         import olefile
@@ -305,11 +307,9 @@ def _extract_outlook(stream):
             'El archivo no es un mensaje de Outlook legible.'
         ) from exc
     with ole:
-        texto = _texto_outlook(ole)
+        texto, adjuntos = _texto_outlook(ole)
 
-    page = PageText(1, texto)
-    return ExtractedText([page], motor='outlook', uso_ocr=False,
-                         idioma=_detect_language([page]))
+    return _mensaje_con_adjuntos(texto, adjuntos, motor='outlook')
 
 
 def _texto_outlook(ole):
@@ -358,11 +358,13 @@ def _texto_outlook(ole):
                   or _propiedad_texto(ole, _PR_ATTACH_FILENAME, ruta[0])
                   or _propiedad_texto(ole, _PR_DISPLAY_NAME, ruta[0]))
         if nombre:
-            adjuntos.append(nombre)
+            # An embedded message keeps PR_ATTACH_DATA as a storage, not a
+            # stream, and so yields no bytes here: it is named and not read.
+            adjuntos.append((nombre, _propiedad_binaria(ole, _PR_ATTACH_DATA, ruta[0])))
     if adjuntos:
-        parts.append('Adjuntos: ' + ', '.join(adjuntos))
+        parts.append('Adjuntos: ' + ', '.join(nombre for nombre, _ in adjuntos))
 
-    return '\n\n'.join(p for p in parts if p)
+    return '\n\n'.join(p for p in parts if p), adjuntos
 
 
 def _propiedad_texto(ole, propiedad, almacen=None):
@@ -377,6 +379,57 @@ def _propiedad_texto(ole, propiedad, almacen=None):
 def _propiedad_binaria(ole, propiedad, almacen=None):
     return (_leer_flujo(ole, f'__substg1.0_{propiedad:04X}0102', almacen)
             or _leer_flujo(ole, f'__substg1.0_{propiedad:04X}001F', almacen))
+
+
+#: How many attachments of one message are read. A thread forwarded with its
+#: whole history can carry dozens, and each PDF may need OCR.
+ADJUNTOS_MAX = 5
+
+
+def _mensaje_con_adjuntos(texto, adjuntos, motor):
+    """The message as page 1, and each readable attachment after it.
+
+    A booking is usually sent as a PDF attached to a two-line email, and an
+    internal request as the spreadsheet attached to «te paso la solicitud».
+    Reading only the body left nothing to extract, and the document failed
+    with the booking sitting inside it.
+
+    An attachment that cannot be read is said so in the text rather than
+    failing the message: the body may still be what matters.
+    """
+    paginas = [PageText(1, texto)]
+    uso_ocr = False
+    for nombre, datos in [a for a in adjuntos if a[1]][:ADJUNTOS_MAX]:
+        lector = _lector_de_adjunto(datos)
+        if lector is None:
+            continue
+        try:
+            leido = lector(io.BytesIO(datos))
+        except Exception as exc:  # one bad attachment must not sink the message
+            logger.info('No se pudo leer el adjunto %s: %s', nombre, exc)
+            paginas.append(PageText(len(paginas) + 1,
+                                    f'Adjunto: {nombre} (no se ha podido leer)'))
+            continue
+        uso_ocr = uso_ocr or leido.uso_ocr
+        for pagina in leido.pages:
+            paginas.append(PageText(
+                len(paginas) + 1, f'Adjunto: {nombre}\n{pagina.contenido}',
+                uso_ocr=pagina.uso_ocr, confianza=pagina.confianza,
+            ))
+    return ExtractedText(paginas, motor=motor, uso_ocr=uso_ocr,
+                         idioma=_detect_language(paginas))
+
+
+def _lector_de_adjunto(datos):
+    """How to read an attachment, decided by its bytes like an upload is."""
+    if datos.startswith(b'%PDF-'):
+        return _extract_pdf
+    if datos.startswith(CABECERA_ZIP):
+        return lambda stream: (
+            _extract_xlsx(stream) if tipo_de_zip(stream) == MIME_XLSX
+            else ExtractedText([], motor='zip')
+        )
+    return None
 
 
 def _leer_flujo(ole, nombre, almacen=None):

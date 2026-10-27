@@ -336,7 +336,9 @@ def extract_document(document, clasificacion=None, actor=None):
         referencias={'document_id': str(document.id), 'paginas': len(blocks)},
     )
 
-    datos = _parse(response, 'extract_document', esquema)
+    datos = _parse(response, 'extract_document', _admite_ninguno(esquema))
+    if not datos.get('servicios'):
+        datos.setdefault('avisos', []).append(SIN_SERVICIOS)
     _ground_in_document(datos, blocks)
 
     if truncated:
@@ -345,6 +347,33 @@ def extract_document(document, clasificacion=None, actor=None):
         )
 
     return {'datos': datos, 'run': run, 'response': response}
+
+
+#: Said when a document describes nothing to book: a request, a thread about
+#: dates, an email whose booking is in an attachment that could not be read.
+SIN_SERVICIOS = (
+    'El documento no describe ninguna reserva ni servicio. Si la reserva va en '
+    'otro archivo, súbalo por separado; si no, descarte este.'
+)
+
+
+def _admite_ninguno(esquema):
+    """The extraction schema, accepting an empty list of services.
+
+    The decoding schema still asks for at least one, which is what stops a
+    model from answering «nothing» to avoid the work. But when a model says it
+    anyway and the document really holds no booking, that is the truth, not a
+    broken contract: refusing it left the document in «error» for ever, and a
+    retry only asked the same question again.
+    """
+    import copy
+
+    servicios = (esquema.get('properties') or {}).get('servicios')
+    if not isinstance(servicios, dict) or 'minItems' not in servicios:
+        return esquema
+    permisivo = copy.deepcopy(esquema)
+    permisivo['properties']['servicios'].pop('minItems')
+    return permisivo
 
 
 #: Confidence given to a value found literally in the document, and to one the
