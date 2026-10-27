@@ -216,6 +216,9 @@ class DocumentType(LabeledEnum):
     FACTURA = ('factura', 'Factura')
     IDENTIDAD = ('identidad', 'Documento de identidad')
     CORRESPONDENCIA = ('correspondencia', 'Correspondencia / Confirmación')
+    #: El formulario que rellena quien pide el viaje. No es una reserva: al
+    #: aprobarlo completa el viaje, no el itinerario.
+    SOLICITUD_INTERNA = ('solicitud_interna', 'Solicitud interna')
     OTRO = ('otro', 'Otro')
 
 
@@ -228,6 +231,7 @@ class DocumentClassification(LabeledEnum):
     VEHICULO = ('vehiculo', 'Alquiler de vehículo')
     SEGURO = ('seguro', 'Seguro')
     VISADO = ('visado', 'Visado')
+    SOLICITUD = ('solicitud', 'Solicitud de viaje')
     OTRO = ('otro', 'Otro')
     DESCONOCIDO = ('desconocido', 'Sin clasificar')
 

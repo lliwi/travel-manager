@@ -25,6 +25,22 @@ MIME_OUTLOOK = 'application/vnd.ms-outlook'
 #: .doc or an Excel .xls, so the header alone does not say which.
 CABECERA_OLE = b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'
 
+MIME_XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+
+#: An .xlsx is a ZIP, and so are a .docx, a .jar and an archive of anything.
+CABECERA_ZIP = b'PK\x03\x04'
+
+#: What a workbook may expand to. A few hundred kilobytes of ZIP can inflate
+#: to gigabytes, and the worker that opens it is the one that falls over.
+XLSX_MAX_DESCOMPRIMIDO = 64 * 1024 * 1024
+
+#: How much of each sheet is read. A request form fits in a corner of the
+#: first sheet; a sheet formatted down to row a million would otherwise be
+#: walked cell by cell.
+XLSX_MAX_HOJAS = 20
+XLSX_MAX_FILAS = 500
+XLSX_MAX_COLUMNAS = 40
+
 
 class PageText:
     """The text of one page."""
@@ -89,6 +105,8 @@ def extract(stream, mime, filename=None):
         return _extract_email(stream)
     if mime == MIME_OUTLOOK:
         return _extract_outlook(stream)
+    if mime == MIME_XLSX:
+        return _extract_xlsx(stream)
 
     raise PermanentError(f'No se sabe extraer texto de un archivo {mime}.')
 
@@ -392,6 +410,100 @@ def _decodificar(crudo):
         return crudo.decode('utf-8')
     except UnicodeDecodeError:
         return crudo.decode('cp1252', errors='replace')
+
+
+def tipo_de_zip(stream):
+    """The real type of a ZIP: an Excel workbook, or just a ZIP.
+
+    Raises :class:`PermanentError` for a workbook that must not be opened --
+    one carrying macros, or one that inflates past the limit -- because those
+    are refusals worth explaining, not merely an unexpected type.
+    """
+    import zipfile
+
+    stream.seek(0)
+    try:
+        with zipfile.ZipFile(stream) as archivo:
+            miembros = archivo.infolist()
+    except zipfile.BadZipFile:
+        return 'application/zip'
+    finally:
+        stream.seek(0)
+
+    nombres = {m.filename for m in miembros}
+    if 'xl/workbook.xml' not in nombres:
+        return 'application/zip'
+    if any(n.lower().endswith('vbaproject.bin') for n in nombres):
+        raise PermanentError(
+            'El libro de Excel contiene macros y no se admite. Guárdelo como '
+            '.xlsx sin macros y vuelva a subirlo.'
+        )
+    if sum(m.file_size for m in miembros) > XLSX_MAX_DESCOMPRIMIDO:
+        raise PermanentError('El libro de Excel es demasiado grande una vez descomprimido.')
+    return MIME_XLSX
+
+
+def _extract_xlsx(stream):
+    """One page per visible sheet, one line per row, ``|`` between cells.
+
+    Cached values, not formulas: a reviewer reading «=SUM(J34,J29)» learns
+    nothing, and the request form's second sheet is mostly references to the
+    first. A hidden sheet is skipped, since nobody looking at the workbook
+    would see what it says.
+    """
+    try:
+        import openpyxl
+    except ImportError as exc:
+        raise ProcessingError('openpyxl no está instalado.') from exc
+
+    stream.seek(0)
+    try:
+        libro = openpyxl.load_workbook(stream, data_only=True)
+    except Exception as exc:  # openpyxl raises whatever a damaged file trips
+        raise PermanentError('El libro de Excel está dañado y no puede leerse.') from exc
+
+    pages = []
+    try:
+        for hoja in libro.worksheets[:XLSX_MAX_HOJAS]:
+            if hoja.sheet_state != 'visible':
+                continue
+            lineas = [f'Hoja: {hoja.title}']
+            for fila in hoja.iter_rows(max_row=XLSX_MAX_FILAS,
+                                       max_col=XLSX_MAX_COLUMNAS, values_only=True):
+                celdas = [_celda(v) for v in fila]
+                celdas = [c for c in celdas if c]
+                if celdas:
+                    lineas.append(' | '.join(celdas))
+            pages.append(PageText(len(pages) + 1, '\n'.join(lineas)))
+    finally:
+        libro.close()
+
+    if not pages:
+        raise PermanentError('El libro de Excel no tiene ninguna hoja visible.')
+    return ExtractedText(pages, motor='hoja_calculo', uso_ocr=False,
+                         idioma=_detect_language(pages))
+
+
+def _celda(valor):
+    """A cell as text, with dates in ISO so nothing downstream has to guess."""
+    from datetime import date, time
+
+    if valor is None:
+        return ''
+    if isinstance(valor, bool):
+        return 'Sí' if valor else 'No'
+    if isinstance(valor, datetime):
+        if valor.time() == time(0, 0):
+            return valor.date().isoformat()
+        return valor.isoformat(sep=' ', timespec='minutes')
+    if isinstance(valor, date):
+        return valor.isoformat()
+    if isinstance(valor, time):
+        return valor.strftime('%H:%M')
+    if isinstance(valor, float) and valor.is_integer():
+        return str(int(valor))
+    # The separator is reserved for cell boundaries.
+    return ' '.join(str(valor).replace('|', '/').split())
 
 
 #: Page segmentation modes worth trying, in the order they tend to win.

@@ -90,10 +90,10 @@ class TripForm(Formulario):
         validators=[Optional()],
         description=(
             'Opcional. Adjunte las reservas que ya tenga (PDF, imágenes o '
-            'correos EML o MSG) y el sistema extraerá de ellas los datos del '
+            'correos EML o MSG, o la solicitud interna en XLSX) y el sistema extraerá de ellas los datos del '
             'itinerario. Los revisará antes de que se apliquen.'
         ),
-        render_kw={'accept': '.pdf,.jpg,.jpeg,.png,.tiff,.tif,.eml,.msg'},
+        render_kw={'accept': '.pdf,.jpg,.jpeg,.png,.tiff,.tif,.eml,.msg,.xlsx'},
     )
 
     submit = SubmitField('Guardar')

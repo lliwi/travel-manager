@@ -24,7 +24,13 @@
     <i class="bi bi-info-circle me-2"></i>
     Revise cada campo antes de aprobarlo. Los valores que corrija se registrarán como
     <strong>manuales</strong> y quedará constancia de que fue usted quien los confirmó.
+    {% if document.clasificacion.value == 'solicitud' %}
+    Es una solicitud interna: al aprobarla se completan los datos del viaje que
+    estén vacíos (motivo, proyecto, fechas, destino y persona viajera). No se
+    añade nada al itinerario.
+    {% else %}
     Nada entra en el itinerario hasta que apruebe.
+    {% endif %}
 </div>
 
 {% if extraction.avisos %}
@@ -124,7 +130,7 @@
 
     <div class="d-flex gap-2">
         <button type="submit" name="accion" value="aprobar" class="btn btn-success">
-            <i class="bi bi-check-lg me-1"></i>Aprobar y aplicar al itinerario{% if campos | length > 1 %} ({{ campos | length }} servicios){% endif %}
+            <i class="bi bi-check-lg me-1"></i>Aprobar y aplicar al {{ 'viaje' if document.clasificacion.value == 'solicitud' else 'itinerario' }}{% if campos | length > 1 %} ({{ campos | length }} servicios){% endif %}
         </button>
         <button type="submit" name="accion" value="descartar" class="btn btn-outline-danger"
                 data-confirm="¿Descartar estos datos extraídos? El documento original se conserva.">

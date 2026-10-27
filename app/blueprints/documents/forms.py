@@ -8,7 +8,7 @@ from app.utils.forms import Formulario
 
 #: Mirrors ``ALLOWED_DOCUMENT_EXTENSIONS``; enforced again server-side by
 #: magic-byte inspection, because a client-side extension check proves nothing.
-ALLOWED_EXTENSIONS = ('pdf', 'jpg', 'jpeg', 'png', 'tiff', 'tif', 'eml', 'msg')
+ALLOWED_EXTENSIONS = ('pdf', 'jpg', 'jpeg', 'png', 'tiff', 'tif', 'eml', 'msg', 'xlsx')
 
 
 
@@ -21,7 +21,7 @@ class DocumentUploadForm(Formulario):
             FileRequired(message='Seleccione un archivo.'),
             FileAllowed(
                 ALLOWED_EXTENSIONS,
-                message='Formato no admitido. Se aceptan PDF, imágenes y correos EML o MSG.',
+                message='Formato no admitido. Se aceptan PDF, imágenes, correos EML o MSG y hojas XLSX.',
             ),
         ],
     )

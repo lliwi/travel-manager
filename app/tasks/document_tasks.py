@@ -22,6 +22,7 @@ from app.models.enums import (
     AntivirusStatus,
     DocumentClassification,
     DocumentProcessState,
+    DocumentType,
     ExtractionMethod,
     ProvenanceOrigin,
 )
@@ -101,6 +102,8 @@ def validate_document(self, document_id):
             mime = (ocr_service.MIME_OUTLOOK
                     if ocr_service.es_mensaje_outlook(stream)
                     else 'application/x-ole-storage')
+        elif head.startswith(ocr_service.CABECERA_ZIP):
+            mime = ocr_service.tipo_de_zip(stream)
         hallazgos = {}
 
         # The declared type is a claim; the magic bytes are evidence. A file
@@ -390,10 +393,16 @@ def classify_document(self, document_id):
     from app.services.classification_service import classify_by_rules
 
     texto = document.texto.contenido if document.texto else ''
-    clasificacion, confianza = classify_by_rules(texto, document.nombre_original)
-
     origen = ProvenanceOrigin.DOCUMENTO
     threshold = _classification_threshold()
+
+    if _es_solicitud_interna(document):
+        # Before the booking rules, which would read a ticked «AVIÓN» box as a
+        # flight and «HOTEL» as a stay.
+        clasificacion, confianza = DocumentClassification.SOLICITUD, 1.0
+        document.tipo = DocumentType.SOLICITUD_INTERNA
+    else:
+        clasificacion, confianza = classify_by_rules(texto, document.nombre_original)
 
     if confianza < threshold:
         # Rules were not sure; ask a model, but keep the rules' answer if the
@@ -422,6 +431,19 @@ def classify_document(self, document_id):
 
     document_service.transition(document, S.CLASIFICADO, tarea='classify', commit=True)
     return document_id
+
+
+def _es_solicitud_interna(document):
+    """Declared as a request, or plainly the request form whatever it was filed as.
+
+    Recognised from any page, since the form is often one sheet of a workbook
+    whose other sheet is the purchasing department's budget.
+    """
+    from app.services import solicitud_service
+
+    if document.tipo is DocumentType.SOLICITUD_INTERNA:
+        return True
+    return any(solicitud_service.es_solicitud(p.contenido) for p in document.pages)
 
 
 def _marcar_si_es_tarjeta_de_embarque(document, texto):
@@ -463,6 +485,23 @@ def ai_extract_document(self, document_id):
 
     from app.services import ai_service, extraction_service
     from app.utils.errors import AIContractError, AIError, AIPolicyBlocked
+
+    if document.clasificacion is DocumentClassification.SOLICITUD:
+        from app.services import solicitud_service
+
+        # A form with labelled boxes is read, not interpreted: the rules give
+        # the same answer every time and send nothing anywhere.
+        datos = solicitud_service.extraer(document)
+        extraction_service.create_version(
+            document,
+            payload=datos,
+            metodo=ExtractionMethod.REGLAS,
+            confianza_global=datos.get('confianza_global'),
+            avisos=datos.get('avisos') or [],
+            commit=False,
+        )
+        document_service.transition(document, S.EXTRAIDO, tarea='ai_extract', commit=True)
+        return document_id
 
     try:
         result = ai_service.extract_document(document, document.clasificacion)

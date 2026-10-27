@@ -247,6 +247,10 @@ def _titulo_servicio(servicio, indice):
     if nombre:
         return str(nombre)
 
+    if 'motivo' in campos or 'empleado' in campos:
+        quien = campos.get('empleado')
+        return f'Solicitud de viaje de {quien}' if quien else 'Solicitud de viaje'
+
     return f'Servicio {indice + 1}'
 
 
@@ -312,15 +316,26 @@ def approve(actor, extraction, correcciones=None, comentario=None):
         # A correction is a new version, never an edit of the machine's answer.
         extraction = _apply_corrections(actor, extraction, correcciones)
 
-    target_kind, model = TARGET_BY_CLASSIFICATION.get(
-        document.clasificacion, ('servicio', OtherService)
-    )
-
     servicios = servicios_de(extraction)
     applications = []
     entities = []
+    entity = None
 
-    for indice, servicio in enumerate(servicios):
+    if document.clasificacion is DocumentClassification.SOLICITUD:
+        # A request completes the trip; it describes nothing to book.
+        from app.services import solicitud_service
+
+        target_kind, model = 'viaje', None
+        campos = servicios[0].get('campos') if servicios else {}
+        applications = solicitud_service.aplicar(actor, document, extraction, campos or {})
+        servicios_a_aplicar = []
+    else:
+        target_kind, model = TARGET_BY_CLASSIFICATION.get(
+            document.clasificacion, ('servicio', OtherService)
+        )
+        servicios_a_aplicar = servicios
+
+    for indice, servicio in enumerate(servicios_a_aplicar):
         entity, outcome, applied_fields = _apply_to_itinerary(
             actor, document, extraction, target_kind, model, servicio, indice
         )
@@ -342,11 +357,12 @@ def approve(actor, extraction, correcciones=None, comentario=None):
     # A re-approval that found fewer services than the previous one leaves rows
     # describing something the document no longer says. They are withdrawn
     # rather than left behind, and the withdrawal is recorded.
-    applications.extend(
-        _retirar_sobrantes(
-            actor, document, extraction, model, target_kind, len(servicios)
+    if model is not None:
+        applications.extend(
+            _retirar_sobrantes(
+                actor, document, extraction, model, target_kind, len(servicios)
+            )
         )
-    )
 
     for application in applications:
         db.session.add(application)
@@ -813,6 +829,15 @@ _LABELS = {
     'numero': 'Número', 'tipo': 'Tipo', 'titular': 'Titular',
     'pais_emisor': 'País emisor', 'fecha_emision': 'Fecha de emisión',
     'fecha_caducidad': 'Fecha de caducidad',
+    # Solicitud interna
+    'empleado': 'Empleado', 'departamento': 'Departamento',
+    'solicitante': 'Solicitante', 'motivo': 'Motivo del viaje',
+    'proyecto': 'Proyecto / OT', 'destino': 'Destino',
+    'a_cargo_de': 'A cargo de', 'medios': 'Medios solicitados',
+    'ida': 'Ida (inicio del viaje)', 'vuelta': 'Vuelta (fin del viaje)',
+    'horario_ida': 'Horario preferido de ida',
+    'horario_vuelta': 'Horario preferido de vuelta',
+    'fecha_solicitud': 'Fecha de la solicitud',
 }
 
 
