@@ -84,7 +84,7 @@ def validate_document(self, document_id):
         return document_id
 
     try:
-        from app.services import storage_service
+        from app.services import ocr_service, storage_service
 
         _, quarantine = storage_service.buckets()
         stream = storage_service.get_backend().get(
@@ -94,6 +94,13 @@ def validate_document(self, document_id):
         stream.seek(0)
 
         mime = _sniff_mime(head, document.extension)
+        if head.startswith(ocr_service.CABECERA_OLE):
+            # libmagic names a compound file differently in each version
+            # (CDFV2, x-ole-storage, vnd.ms-outlook), and a .doc is one too:
+            # only its streams say whether it is an Outlook message.
+            mime = (ocr_service.MIME_OUTLOOK
+                    if ocr_service.es_mensaje_outlook(stream)
+                    else 'application/x-ole-storage')
         hallazgos = {}
 
         # The declared type is a claim; the magic bytes are evidence. A file

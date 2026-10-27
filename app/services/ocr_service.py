@@ -9,12 +9,21 @@ generated booking PDF would make extraction worse, not better.
 """
 import logging
 import re
+import struct
+from datetime import UTC, datetime, timedelta
+from email.utils import format_datetime
 
 from flask import current_app
 
 from app.utils.errors import PermanentError, ProcessingError
 
 logger = logging.getLogger(__name__)
+
+MIME_OUTLOOK = 'application/vnd.ms-outlook'
+
+#: Every compound file starts like this: an Outlook .msg, but also a Word 97
+#: .doc or an Excel .xls, so the header alone does not say which.
+CABECERA_OLE = b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'
 
 
 class PageText:
@@ -78,6 +87,8 @@ def extract(stream, mime, filename=None):
         return _extract_image(stream)
     if mime in ('message/rfc822', 'text/plain'):
         return _extract_email(stream)
+    if mime == MIME_OUTLOOK:
+        return _extract_outlook(stream)
 
     raise PermanentError(f'No se sabe extraer texto de un archivo {mime}.')
 
@@ -213,6 +224,174 @@ def _extract_email(stream):
     page = PageText(1, '\n\n'.join(p for p in parts if p))
     return ExtractedText([page], motor='email', uso_ocr=False,
                          idioma=_detect_language([page]))
+
+
+# MAPI property ids ([MS-OXPROPS]) read from an Outlook message.
+_PR_MESSAGE_CLASS = 0x001A
+_PR_SUBJECT = 0x0037
+_PR_CLIENT_SUBMIT_TIME = 0x0039
+_PR_SENDER_NAME = 0x0C1A
+_PR_SENDER_EMAIL = 0x0C1F
+_PR_DISPLAY_CC = 0x0E03
+_PR_DISPLAY_TO = 0x0E04
+_PR_BODY = 0x1000
+_PR_BODY_HTML = 0x1013
+_PR_DISPLAY_NAME = 0x3001
+_PR_ATTACH_FILENAME = 0x3704
+_PR_ATTACH_LONG_FILENAME = 0x3707
+_PR_SENDER_SMTP_ADDRESS = 0x5D01
+
+_PT_SYSTIME = 0x0040
+
+
+def es_mensaje_outlook(stream):
+    """Whether a compound file is an Outlook message and not some other one.
+
+    Only the streams inside tell a .msg from a .doc; a message always carries
+    its class, and every message class starts with ``IPM.``.
+    """
+    try:
+        import olefile
+    except ImportError as exc:
+        raise ProcessingError('olefile no está instalado.') from exc
+
+    stream.seek(0)
+    try:
+        with olefile.OleFileIO(stream) as ole:
+            clase = _propiedad_texto(ole, _PR_MESSAGE_CLASS) or ''
+            return clase.upper().startswith('IPM.')
+    except Exception:  # olefile raises whatever a damaged file trips
+        return False
+    finally:
+        stream.seek(0)
+
+
+def _extract_outlook(stream):
+    """Read an Outlook .msg the way :func:`_extract_email` reads an EML.
+
+    A .msg is a compound file of MAPI properties, not MIME, so the ``email``
+    package cannot open it. The text is laid out as the EML path lays it out
+    -- headers, body, attachment names -- so extraction sees one shape of
+    message whichever client exported it.
+    """
+    try:
+        import olefile
+    except ImportError as exc:
+        raise ProcessingError('olefile no está instalado.') from exc
+
+    stream.seek(0)
+    try:
+        ole = olefile.OleFileIO(stream)
+    except Exception as exc:  # see es_mensaje_outlook
+        raise PermanentError(
+            'El archivo no es un mensaje de Outlook legible.'
+        ) from exc
+    with ole:
+        texto = _texto_outlook(ole)
+
+    page = PageText(1, texto)
+    return ExtractedText([page], motor='outlook', uso_ocr=False,
+                         idioma=_detect_language([page]))
+
+
+def _texto_outlook(ole):
+    parts = []
+    headers = []
+
+    remitente = _propiedad_texto(ole, _PR_SENDER_NAME)
+    direccion = (_propiedad_texto(ole, _PR_SENDER_SMTP_ADDRESS)
+                 or _propiedad_texto(ole, _PR_SENDER_EMAIL))
+    # Inside an Exchange organisation the sender address is an X.500 path,
+    # which tells the reader nothing a name does not.
+    if direccion and '@' not in direccion:
+        direccion = None
+    if remitente and direccion and direccion != remitente:
+        remitente = f'{remitente} <{direccion}>'
+    remitente = remitente or direccion
+
+    fecha = _propiedad_fecha(ole, _PR_CLIENT_SUBMIT_TIME)
+    for header, value in (
+        ('From', remitente),
+        ('To', _propiedad_texto(ole, _PR_DISPLAY_TO)),
+        ('Cc', _propiedad_texto(ole, _PR_DISPLAY_CC)),
+        ('Subject', _propiedad_texto(ole, _PR_SUBJECT)),
+        ('Date', fecha and format_datetime(fecha)),
+    ):
+        if value:
+            headers.append(f'{header}: {value}')
+    if headers:
+        parts.append('\n'.join(headers))
+
+    # Outlook keeps a plain rendering beside the HTML one; when it is missing
+    # the HTML is flattened exactly as an HTML-only EML would be.
+    cuerpo = _propiedad_texto(ole, _PR_BODY)
+    if not cuerpo:
+        html = _propiedad_binaria(ole, _PR_BODY_HTML)
+        if html:
+            cuerpo = _strip_html(_decodificar(html))
+    if cuerpo:
+        parts.append(cuerpo.strip())
+
+    adjuntos = []
+    for ruta in ole.listdir(streams=False, storages=True):
+        if len(ruta) != 1 or not ruta[0].startswith('__attach_version1.0_'):
+            continue
+        nombre = (_propiedad_texto(ole, _PR_ATTACH_LONG_FILENAME, ruta[0])
+                  or _propiedad_texto(ole, _PR_ATTACH_FILENAME, ruta[0])
+                  or _propiedad_texto(ole, _PR_DISPLAY_NAME, ruta[0]))
+        if nombre:
+            adjuntos.append(nombre)
+    if adjuntos:
+        parts.append('Adjuntos: ' + ', '.join(adjuntos))
+
+    return '\n\n'.join(p for p in parts if p)
+
+
+def _propiedad_texto(ole, propiedad, almacen=None):
+    """A string property, Unicode (001F) or in the message's code page (001E)."""
+    for tipo, codec in (('001F', 'utf-16-le'), ('001E', 'cp1252')):
+        crudo = _leer_flujo(ole, f'__substg1.0_{propiedad:04X}{tipo}', almacen)
+        if crudo is not None:
+            return crudo.decode(codec, errors='replace').rstrip('\x00').strip()
+    return None
+
+
+def _propiedad_binaria(ole, propiedad, almacen=None):
+    return (_leer_flujo(ole, f'__substg1.0_{propiedad:04X}0102', almacen)
+            or _leer_flujo(ole, f'__substg1.0_{propiedad:04X}001F', almacen))
+
+
+def _leer_flujo(ole, nombre, almacen=None):
+    ruta = f'{almacen}/{nombre}' if almacen else nombre
+    if not ole.exists(ruta):
+        return None
+    return ole.openstream(ruta).read()
+
+
+def _propiedad_fecha(ole, propiedad):
+    """A PT_SYSTIME property from the message's fixed-size property stream.
+
+    The stream opens with a 32-byte header, then one 16-byte entry per
+    property: tag (type in the low word, id in the high one), flags, value.
+    """
+    crudo = _leer_flujo(ole, '__properties_version1.0')
+    if not crudo:
+        return None
+    buscada = (propiedad << 16) | _PT_SYSTIME
+    for inicio in range(32, len(crudo) - 15, 16):
+        etiqueta, _, valor = struct.unpack_from('<IIQ', crudo, inicio)
+        if etiqueta == buscada and valor:
+            # FILETIME: hundreds of nanoseconds since 1601, always UTC.
+            return (datetime(1601, 1, 1, tzinfo=UTC)
+                    + timedelta(microseconds=valor // 10))
+    return None
+
+
+def _decodificar(crudo):
+    try:
+        return crudo.decode('utf-8')
+    except UnicodeDecodeError:
+        return crudo.decode('cp1252', errors='replace')
 
 
 #: Page segmentation modes worth trying, in the order they tend to win.

@@ -183,7 +183,7 @@ class Config:
     ALLOWED_DOCUMENT_EXTENSIONS = tuple(
         e.strip().lower()
         for e in os.environ.get(
-            'ALLOWED_DOCUMENT_EXTENSIONS', 'pdf,jpg,jpeg,png,tiff,tif,eml'
+            'ALLOWED_DOCUMENT_EXTENSIONS', 'pdf,jpg,jpeg,png,tiff,tif,eml,msg'
         ).split(',')
         if e.strip()
     )
@@ -193,6 +193,7 @@ class Config:
         'image/png',
         'image/tiff',
         'message/rfc822',
+        'application/vnd.ms-outlook',
     )
 
     # ------------------------------------------------------------------

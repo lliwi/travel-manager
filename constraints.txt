@@ -70,6 +70,7 @@ Mako==1.4.1
 markdown-it-py==4.2.0
 MarkupSafe==3.0.3
 mdurl==0.1.2
+olefile==0.47
 openapi-schema-validator==0.9.0
 openapi-spec-validator==0.9.0
 ordered-set==4.1.0
