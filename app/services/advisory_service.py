@@ -6,7 +6,10 @@ validates one before travellers can see it, so an unvalidated draft is invisible
 to the ``usuario`` role by construction, not by a template check.
 """
 import logging
+import re
+import unicodedata
 from datetime import timedelta
+from difflib import SequenceMatcher
 
 from app.extensions import db
 from app.models.advisory import DISCLAIMER, SecurityAdvisory
@@ -82,6 +85,9 @@ def generate_for_trip(actor, trip, categorias=None):
     retiradas = _retirar_anteriores(actor, trip)
 
     created = []
+    #: What this run has already said, so a second destination saying it
+    #: again adds to the first advisory instead of repeating it.
+    dichas = []
     for destino in destinos:
         try:
             fuentes = _consultar_fuentes(destino, trip, actor)
@@ -125,9 +131,15 @@ def generate_for_trip(actor, trip, categorias=None):
                     destino.pais_codigo, ajeno,
                 )
                 continue
-            created.append(_build_advisory(actor, trip, destino, riesgo, fuentes,
-                                           analysis.get('run_id')))
             aceptados += 1
+            repetida = _ya_dicha(riesgo, dichas)
+            if repetida is not None:
+                _fusionar(repetida, riesgo, fuentes)
+                continue
+            advisory = _build_advisory(actor, trip, destino, riesgo, fuentes,
+                                       analysis.get('run_id'))
+            dichas.append(advisory)
+            created.append(advisory)
 
         if not aceptados:
             created.append(_no_sources_advisory(
@@ -458,33 +470,100 @@ def _build_advisory(actor, trip, destino, riesgo, fuentes, run_id):
         nivel=AdvisoryLevel.coerce(riesgo.get('nivel'), AdvisoryLevel.NORMAL),
         titulo=str(riesgo.get('titulo', 'Recomendación'))[:300],
         contenido=riesgo.get('descripcion', ''),
-        recomendaciones=riesgo.get('acciones') or [],
+        recomendaciones=_sin_repetir(riesgo.get('acciones') or []),
         aplica_desde=trip.inicio_utc,
         aplica_hasta=trip.fin_utc,
         fuente=matched.get('fuente'),
         fuente_url=matched.get('url'),
         consultado_en=utcnow(),
         confianza=riesgo.get('confianza'),
-        fuentes=[
-            {
-                'url': f['url'],
-                'titulo': f.get('titulo'),
-                'fuente': f.get('fuente'),
-                'es_oficial': f.get('es_oficial', False),
-                'consultado_en': f.get('consultado_en'),
-                # The exact state of the page this advice was written from.
-                # Without it «¿sigue diciendo lo mismo?» has no answer, and an
-                # advisory quietly becomes a description of last month.
-                'huella': huella_de(f.get('contenido')),
-            }
-            for f in fuentes
-        ],
+        fuentes=_fuentes_citadas(fuentes),
         caduca_en=_expiry(),
         estado_validacion=_estado_inicial(),
         generado_por_id=actor.id,
     )
     db.session.add(advisory)
     return advisory
+
+
+def _fuentes_citadas(fuentes):
+    return [
+        {
+            'url': f['url'],
+            'titulo': f.get('titulo'),
+            'fuente': f.get('fuente'),
+            'es_oficial': f.get('es_oficial', False),
+            'consultado_en': f.get('consultado_en'),
+            # The exact state of the page this advice was written from.
+            # Without it «¿sigue diciendo lo mismo?» has no answer, and an
+            # advisory quietly becomes a description of last month.
+            'huella': huella_de(f.get('contenido')),
+        }
+        for f in fuentes
+    ]
+
+
+#: How alike two titles must be to count as the same recommendation. High on
+#: purpose: merging two different pieces of advice hides one of them, which
+#: is worse than showing the same one twice.
+SIMILITUD_MINIMA = 0.9
+
+
+def _normalizado(texto):
+    sin_tildes = unicodedata.normalize('NFKD', str(texto or ''))
+    sin_tildes = ''.join(c for c in sin_tildes if not unicodedata.combining(c))
+    return re.sub(r'[^a-z0-9]+', ' ', sin_tildes.lower()).strip()
+
+
+def _ya_dicha(riesgo, dichas):
+    """The advisory of this run that already says what ``riesgo`` says.
+
+    Each destination is analysed with the whole itinerary in front of the
+    model, so whatever concerns the trip rather than the place -- a tight
+    connection, the documents for a country visited twice -- comes back once
+    per destination, usually with the same title or nearly.
+    """
+    titulo = _normalizado(riesgo.get('titulo'))
+    if not titulo:
+        return None
+    for advisory in dichas:
+        otro = _normalizado(advisory.titulo)
+        if otro == titulo or SequenceMatcher(None, otro, titulo).ratio() >= SIMILITUD_MINIMA:
+            return advisory
+    return None
+
+
+def _fusionar(advisory, riesgo, fuentes):
+    """Fold a repetition into the advisory that said it first.
+
+    Nothing the repetition adds is lost: the more severe level wins, its
+    actions join the list, and its sources join the ones watched for changes.
+    """
+    nivel = AdvisoryLevel.coerce(riesgo.get('nivel'), AdvisoryLevel.NORMAL)
+    if nivel.rank > advisory.nivel.rank:
+        advisory.nivel = nivel
+
+    advisory.recomendaciones = _sin_repetir(
+        [*(advisory.recomendaciones or []), *(riesgo.get('acciones') or [])]
+    )
+
+    citadas = {f['url'] for f in advisory.fuentes or []}
+    advisory.fuentes = [
+        *(advisory.fuentes or []),
+        *(f for f in _fuentes_citadas(fuentes) if f['url'] not in citadas),
+    ]
+
+
+def _sin_repetir(acciones):
+    """The actions in their order, each once, however it was capitalised."""
+    vistas = set()
+    unicas = []
+    for accion in acciones:
+        clave = _normalizado(accion)
+        if clave and clave not in vistas:
+            vistas.add(clave)
+            unicas.append(accion)
+    return unicas
 
 
 def _no_sources_advisory(actor, trip, destino, motivo=None):

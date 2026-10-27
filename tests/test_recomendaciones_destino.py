@@ -524,6 +524,131 @@ class TestRegenerarRecomendaciones:
 
 
 @pytest.mark.unit
+class TestUnaRecomendacionUnaVezPorViaje:
+    """Each destination is analysed with the whole itinerary in view.
+
+    A trip to London and Manchester got «Autorización electrónica de viaje»
+    twice: whatever concerns the trip, or the country, comes back once per
+    destination.
+    """
+
+    def _dos_ciudades(self, gestor, trip):
+        from datetime import datetime
+
+        from app.services import trip_service
+        from app.utils.timeutil import set_instant
+
+        for ciudad in ('Londres', 'Mánchester'):
+            trip_service.add_destination(
+                gestor, trip, ciudad=ciudad, pais_codigo='GB',
+                pais_nombre='Reino Unido',
+            )
+        set_instant(trip, 'inicio', datetime(2026, 10, 31, 7, 55), 'Europe/Madrid')
+        set_instant(trip, 'fin', datetime(2026, 11, 2, 23, 5), 'Europe/Madrid')
+        db.session.commit()
+
+    def _responde(self, monkeypatch, *respuestas):
+        """The sources answer per city; the model answers ``respuestas`` in turn."""
+        from app.services import ai_service, web_research_service
+
+        monkeypatch.setattr(
+            web_research_service, 'pagina_del_lugar', lambda source, nombres, **k: {
+                'url': f'https://www.gov.uk/{nombres[1].lower()}',
+                'contenido': 'Reino Unido exige una ETA.',
+                'es_oficial': True, 'fuente': 'gov.uk',
+            },
+        )
+        pendientes = list(respuestas)
+        monkeypatch.setattr(ai_service, 'analyze_risks', lambda *a, **k: {
+            'riesgos': pendientes.pop(0), 'run_id': 'x',
+        })
+
+    def _eta(self, titulo='Autorización electrónica de viaje', nivel='normal',
+             acciones=('Solicitar la ETA',)):
+        return {
+            'titulo': titulo, 'descripcion': 'Reino Unido exige una ETA.',
+            'nivel': nivel, 'categoria': 'entrada', 'acciones': list(acciones),
+        }
+
+    def _vivas(self, trip):
+        from app.models.advisory import SecurityAdvisory
+
+        # The fixture's own destination is not in the UK and has no source.
+        return SecurityAdvisory.query.filter_by(
+            trip_id=trip.id, is_deleted=False, pais_codigo='GB',
+        ).all()
+
+    def test_la_misma_recomendacion_de_dos_destinos_queda_una(
+        self, gestor, trip, seeded, monkeypatch
+    ):
+        from app.services import advisory_service
+
+        self._dos_ciudades(gestor, trip)
+        self._responde(monkeypatch, [self._eta()], [self._eta()])
+
+        advisory_service.generate_for_trip(gestor, trip)
+
+        titulos = [a.titulo for a in self._vivas(trip)]
+        assert titulos == ['Autorización electrónica de viaje']
+
+    def test_la_repeticion_aporta_lo_que_traiga_de_nuevo(
+        self, gestor, trip, seeded, monkeypatch
+    ):
+        from app.models.enums import AdvisoryLevel
+        from app.services import advisory_service
+
+        self._dos_ciudades(gestor, trip)
+        self._responde(
+            monkeypatch,
+            [self._eta()],
+            [self._eta(titulo='Autorización electrónica de viaje.', nivel='precaucion',
+                       acciones=('solicitar la ETA', 'Llevar el pasaporte'))],
+        )
+
+        advisory_service.generate_for_trip(gestor, trip)
+
+        (unica,) = self._vivas(trip)
+        assert unica.nivel is AdvisoryLevel.PRECAUCION
+        assert unica.recomendaciones == ['Solicitar la ETA', 'Llevar el pasaporte']
+        assert {f['url'] for f in unica.fuentes} == {
+            'https://www.gov.uk/londres', 'https://www.gov.uk/mánchester',
+        }
+
+    def test_recomendaciones_distintas_no_se_juntan(
+        self, gestor, trip, seeded, monkeypatch
+    ):
+        from app.services import advisory_service
+
+        self._dos_ciudades(gestor, trip)
+        self._responde(
+            monkeypatch,
+            [self._eta()],
+            [self._eta(titulo='Huelga de transporte en Mánchester')],
+        )
+
+        advisory_service.generate_for_trip(gestor, trip)
+
+        assert len(self._vivas(trip)) == 2
+
+    def test_una_accion_repetida_aparece_una_vez(
+        self, gestor, trip, seeded, monkeypatch
+    ):
+        from app.services import advisory_service
+
+        self._dos_ciudades(gestor, trip)
+        self._responde(
+            monkeypatch,
+            [self._eta(acciones=('Solicitar la ETA', 'Solicitar la ETA.'))],
+            [],
+        )
+
+        advisory_service.generate_for_trip(gestor, trip)
+
+        (eta,) = [a for a in self._vivas(trip) if a.titulo.startswith('Autorización')]
+        assert eta.recomendaciones == ['Solicitar la ETA']
+
+
+@pytest.mark.unit
 class TestSeguirElEnlaceDelPais:
     """An index of every country says nothing about where the traveller goes.
 
