@@ -49,7 +49,10 @@ _CARGO = re.compile(
 )
 _CABECERA = re.compile(r'(\d{5}/\d{2}/\d+)\s+(\d{2})-(\d{2})-(\d{4})\s+(\S+)')
 _TOTAL = re.compile(rf'importe total de los servicios.*?({_IMPORTE})', re.IGNORECASE)
-_VIAJERO = re.compile(r'Viajero\s*/\s*Viatger\s+(.+)', re.IGNORECASE)
+#: The name runs to the end of its column, and the next column's label --
+#: «Cod. Viajero» -- shares the line in the real PDF's text layer.
+_VIAJERO = re.compile(r'Viajero\s*/\s*Viatger\s+(.+?)\s*(?:Cod\.?\s*Viajero.*)?$',
+                      re.IGNORECASE | re.MULTILINE)
 
 _VUELO = re.compile(r'^(?P<aerolinea>[A-Z0-9]{2})\s*-\s*(?P<clase>[A-Z])\s*-\s*'
                     r'(?P<dia>\d{1,2})/(?P<mes>\d{1,2})')

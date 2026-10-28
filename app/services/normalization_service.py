@@ -71,7 +71,7 @@ def normalize(payload, clasificacion=None):
     normalizados = []
 
     for indice, servicio in enumerate(servicios):
-        campos = dict(servicio.get('campos') or {})
+        campos = _sin_nulos_escritos(dict(servicio.get('campos') or {}))
         confianzas = dict(servicio.get('confianzas') or {})
         propios = []
 
@@ -82,6 +82,8 @@ def normalize(payload, clasificacion=None):
         _normalize_countries(campos)
         _normalize_place_timezones(campos, confianzas, propios, resueltos)
         _normalize_instants(campos, confianzas, propios, resueltos)
+        _comprobar_orden(campos, confianzas, propios)
+        _descartar_ciudades_numericas(campos)
 
         # Say which service a warning is about, or a reviewer looking at two
         # flights cannot tell which one has the unresolved timezone.
@@ -100,12 +102,58 @@ def normalize(payload, clasificacion=None):
     return NormalizationResult(normalizados, avisos, resueltos)
 
 
+#: What a model writes when it means «no value» but types a string instead.
+_NULOS_ESCRITOS = {'null', 'none', 'n/a', 'na', 'nil', 'undefined', '-', '—'}
+
+
+def _sin_nulos_escritos(campos):
+    """«"terminal_origen": "null"» is an absent terminal, not one called null."""
+    return {
+        nombre: (None if isinstance(valor, str) and valor.strip().lower() in _NULOS_ESCRITOS
+                 else valor)
+        for nombre, valor in campos.items()
+    }
+
+
 def _instrucciones(servicio):
     """A service's keys other than its fields, confidences and provenance."""
     if not isinstance(servicio, dict):
         return {}
     return {k: v for k, v in servicio.items()
             if k not in ('campos', 'confianzas', 'procedencias')}
+
+
+#: Instants that must come in this order, start first.
+_PARES_ORDENADOS = (
+    ('salida', 'llegada'), ('check_in', 'check_out'),
+    ('recogida', 'devolucion'), ('inicio', 'fin'), ('ida', 'vuelta'),
+)
+
+
+def _comprobar_orden(campos, confianzas, avisos):
+    """Flag an end before its start: a stay that checks out before it checks in.
+
+    Not corrected -- which of the two is wrong is not something to guess --
+    but both go to review, and the reviewer is told why.
+    """
+    for inicio, fin in _PARES_ORDENADOS:
+        a, b = campos.get(inicio), campos.get(fin)
+        if not (isinstance(a, dict) and isinstance(b, dict)):
+            continue
+        if a.get('local') and b.get('local') and str(b['local']) < str(a['local']):
+            avisos.append(f'«{fin}» ({b["local"]}) es anterior a «{inicio}» '
+                          f'({a["local"]}); una de las dos fechas está mal.')
+            for campo in (inicio, fin):
+                confianzas[campo] = min(confianzas.get(campo, 1.0), PENALTY_DATE_AMBIGUOUS)
+
+
+def _descartar_ciudades_numericas(campos):
+    """A city that is only digits is the postal code next to it, not a city."""
+    for campo in ('ciudad', 'origen_ciudad', 'destino_ciudad', 'recogida_ciudad',
+                  'devolucion_ciudad'):
+        valor = campos.get(campo)
+        if isinstance(valor, str) and re.fullmatch(r'[\d\s-]+', valor.strip()):
+            campos[campo] = None
 
 
 def _servicios_del_payload(payload):
@@ -321,10 +369,57 @@ _DATE_FORMATS = (
 )
 
 
+#: Two-digit years, as an Italian invoice writes «Dal 03/08/26». Tried after
+#: the four-digit forms, which they would otherwise shadow.
+_DATE_FORMATS_CORTOS = (
+    '%d/%m/%y %H:%M', '%d-%m-%y %H:%M', '%d.%m.%y %H:%M',
+    '%d/%m/%y', '%d-%m-%y', '%d.%m.%y',
+)
+
+#: Month names in the languages travel documents arrive in, to their number.
+_MESES = {
+    nombre: numero
+    for numero, nombres in enumerate((
+        ('enero', 'january', 'jan', 'gennaio', 'janvier', 'januar', 'ene', 'janeiro'),
+        ('febrero', 'february', 'feb', 'febbraio', 'fevrier', 'februar', 'fevereiro'),
+        ('marzo', 'march', 'mar', 'mars', 'marz', 'marco'),
+        ('abril', 'april', 'apr', 'abr', 'aprile', 'avril'),
+        ('mayo', 'may', 'maggio', 'mai', 'maio'),
+        ('junio', 'june', 'jun', 'giugno', 'juin', 'juni', 'junho'),
+        ('julio', 'july', 'jul', 'luglio', 'juillet', 'juli', 'julho'),
+        ('agosto', 'august', 'aug', 'ago', 'aout'),
+        ('septiembre', 'setiembre', 'september', 'sep', 'sept', 'settembre',
+         'septembre', 'setembro'),
+        ('octubre', 'october', 'oct', 'ottobre', 'octobre', 'oktober', 'okt', 'outubro'),
+        ('noviembre', 'november', 'nov', 'novembre', 'novembro'),
+        ('diciembre', 'december', 'dec', 'dic', 'dicembre', 'decembre', 'dezember',
+         'dez', 'dezembro'),
+    ), start=1)
+    for nombre in nombres
+}
+
+#: Words around a date that say nothing about it: weekdays, «de», «at».
+_RELLENO_DE_FECHA = re.compile(
+    r'(?i)\b(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo|monday|'
+    r'tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|'
+    r'sun|luned[iì]|marted[iì]|mercoled[iì]|gioved[iì]|venerd[iì]|sabato|'
+    r'domenica|de|del|of|at|a las|um|le|alle|h)\b\.?,?'
+)
+
+
 def _parse_datetime(raw):
-    """Parse a datetime string, preferring day-first as European documents use."""
+    """Parse a datetime string, preferring day-first as European documents use.
+
+    Numeric forms first, then the written ones a model copies from the page --
+    «9 November 2026 11:30», «Miércoles 10/06/2026», «03/08/26». A time with
+    no date is still refused: it is half an instant, and the day it belongs
+    to is not something to guess.
+    """
     text = str(raw).strip().replace('Z', '')
-    for fmt in _DATE_FORMATS:
+    # «07/08/2026T00:00»: a European date glued to an ISO time, as some
+    # models write it. The «T» is only a separator there.
+    text = re.sub(r'^(\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4})T', r'\1 ', text)
+    for fmt in _DATE_FORMATS + _DATE_FORMATS_CORTOS:
         try:
             return datetime.strptime(text, fmt)
         except ValueError:
@@ -332,6 +427,43 @@ def _parse_datetime(raw):
     try:
         parsed = datetime.fromisoformat(text)
         return parsed.replace(tzinfo=None) if parsed.tzinfo else parsed
+    except ValueError:
+        pass
+    return _fecha_escrita(text)
+
+
+def _fecha_escrita(texto):
+    """«9 November 2026 11:30» or «Miércoles 10/06/2026» as a datetime, or None."""
+    import unicodedata
+
+    plano = ''.join(c for c in unicodedata.normalize('NFKD', texto.lower())
+                    if not unicodedata.combining(c))
+    plano = _RELLENO_DE_FECHA.sub(' ', plano)
+    hora = re.search(r'\b(\d{1,2})[:.h](\d{2})\b', plano)
+    if hora:
+        plano = plano[:hora.start()] + ' ' + plano[hora.end():]
+
+    dia = mes = anio = None
+    numerica = re.search(r'\b(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})\b', plano)
+    if numerica:
+        dia, mes, anio = (int(g) for g in numerica.groups())
+    else:
+        escrita = re.search(r'\b(\d{1,2})\s+([a-z]{3,10})\.?\s+(\d{2,4})\b', plano) \
+            or re.search(r'\b([a-z]{3,10})\.?\s+(\d{1,2}),?\s+(\d{4})\b', plano)
+        if escrita:
+            a, b, c = escrita.groups()
+            if a.isdigit():
+                dia, mes, anio = int(a), _MESES.get(b), int(c)
+            else:
+                dia, mes, anio = int(b), _MESES.get(a), int(c)
+    if not (dia and mes and anio):
+        return None
+    if anio < 100:
+        anio += 2000
+    try:
+        return datetime(anio, mes, dia,
+                        int(hora.group(1)) if hora else 0,
+                        int(hora.group(2)) if hora else 0)
     except ValueError:
         return None
 

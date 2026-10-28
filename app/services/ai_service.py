@@ -13,6 +13,7 @@ content.
 """
 import json
 import logging
+import re
 import time
 
 from flask import g, has_request_context
@@ -398,6 +399,8 @@ def _admite_ninguno(esquema):
 #: does, so no value reaches the itinerary on its strength alone.
 CONFIANZA_LITERAL = 0.85
 CONFIANZA_INFERIDA = 0.5
+#: An hour the model gave alone, dated from the text around it.
+CONFIANZA_COMPLETADA = 0.6
 
 
 def _ground_in_document(datos, blocks):
@@ -426,6 +429,7 @@ def _ground_in_document(datos, blocks):
 
         confianzas = dict(servicio.get('confianzas') or {})
         procedencias = dict(servicio.get('procedencias') or {})
+        completadas = _descartar_lo_inventado(datos, campos, paginas)
 
         for nombre, valor in campos.items():
             literal = (
@@ -450,6 +454,10 @@ def _ground_in_document(datos, blocks):
                 )
                 procedencias[nombre] = {'pagina': None, 'fragmento': None}
 
+        for nombre in completadas:
+            # Put together here, not read: below the review threshold.
+            confianzas[nombre] = min(confianzas.get(nombre, CONFIANZA_COMPLETADA),
+                                     CONFIANZA_COMPLETADA)
         servicio['confianzas'] = confianzas
         servicio['procedencias'] = procedencias
         _flag_invented_years(datos, paginas, confianzas, campos)
@@ -459,6 +467,165 @@ def _ground_in_document(datos, blocks):
     datos['confianza_global'] = round(sum(valores) / len(valores), 2) if valores else None
 
     return datos
+
+
+def _descartar_lo_inventado(datos, campos, paginas):
+    """Drop the two answers a weak model invents most, and say so.
+
+    A locator is a code the document prints: one that appears nowhere in it
+    -- the hotel's name squeezed into capitals, a fragment of a tracking URL --
+    is not a low-confidence locator but a wrong one, and kept it would be the
+    reference somebody reads out at the desk. A flight number in that field
+    is the same mistake. And an amount of 0 where the document states none is
+    a price the trip's total would believe.
+    """
+    texto = ' '.join(contenido for _, contenido in paginas).upper()
+
+    localizador = campos.get('localizador')
+    if isinstance(localizador, str) and localizador.strip():
+        compacto = re.sub(r'\s+', '', localizador).upper()
+        numeros = {re.sub(r'\s+', '', str(campos.get(c) or '')).upper()
+                   for c in ('numero_vuelo', 'numero_tren', 'numero')}
+        # As a whole word: with the spaces taken out of the page, «Park Hotel
+        # Altes Kaffeehaus» *is* «PARKHOTELALTESKAFFEEHAUS», and that was the
+        # invention to catch.
+        impreso = re.search(r'(?<![A-Z0-9])' + re.escape(compacto) + r'(?![A-Z0-9])', texto)
+        if not impreso or compacto in numeros:
+            datos.setdefault('avisos', []).append(
+                f'Se ha descartado el localizador «{localizador}»: no aparece en el '
+                'documento como tal. Complételo a mano si lo tiene.'
+            )
+            campos['localizador'] = None
+
+    for campo in ('importe', 'franquicia'):
+        valor = campos.get(campo)
+        if isinstance(valor, (int, float)) and valor == 0 and \
+                not re.search(r'(?<![\d,.])0[,.]00(?!\d)', texto):
+            campos[campo] = None
+        elif isinstance(valor, (int, float)) and not _importe_escrito(valor, texto):
+            # «Visa que termina en: 2357 39.49 EUR» came back as 2357.3949: an
+            # amount the page never prints is two numbers glued together.
+            datos.setdefault('avisos', []).append(
+                f'Se ha descartado el importe {valor}: no aparece así en el documento.'
+            )
+            campos[campo] = None
+
+    # Returns the instants it completed, so their confidence can be lowered.
+    return _completar_horas(datos, campos, ' '.join(c for _, c in paginas))
+
+
+def _importe_escrito(valor, texto):
+    """Whether an amount appears in the text in any usual spelling of it."""
+    entero = int(valor) if float(valor).is_integer() else None
+    europeo = f'{valor:,.2f}'.replace(',', 'X').replace('.', ',').replace('X', '.')
+    formas = {f'{valor:.2f}', f'{valor:.2f}'.replace('.', ','), f'{valor:,.2f}', europeo}
+    if entero is not None:
+        formas.add(str(entero))
+    return any(re.search(r'(?<!\d)' + re.escape(f) + r'(?!\d)', texto) for f in formas)
+
+
+#: «17:55», «15:00h»: an instant a model gave as the hour alone.
+_SOLO_HORA = re.compile(r'^\s*(\d{1,2})[:.h](\d{2})\s*h?\s*$')
+_FECHA_EN_TEXTO = re.compile(r'\b(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})\b')
+
+
+_DIAS_SEMANA = {
+    nombre: indice
+    for indice, nombres in enumerate((
+        ('lunes', 'monday', 'lunedi'), ('martes', 'tuesday', 'martedi'),
+        ('miercoles', 'wednesday', 'mercoledi'), ('jueves', 'thursday', 'giovedi'),
+        ('viernes', 'friday', 'venerdi'), ('sabado', 'saturday'),
+        ('domingo', 'sunday', 'domenica'),
+    ))
+    for nombre in nombres
+}
+_FECHA_ESCRITA = re.compile(
+    r'\b(?:([a-z]+),?\s+)?(\d{1,2})\s+(?:de\s+)?([a-z]{3,10})\.?'
+    r'(?:\s+(?:de\s+)?(\d{4}))?\b'
+)
+
+
+def _ultima_fecha(fragmento):
+    """``(year, month, day)`` of the last date written in ``fragmento``, or None.
+
+    Numeric or written. A written one without a year -- Vueling prints
+    «lunes, 19 octubre» -- is dated by its weekday: of last year, this year
+    and next, only one puts the 19th of October on a Monday. Without a
+    weekday either, the year is not guessed.
+    """
+    import unicodedata
+    from datetime import date
+
+    from app.services.normalization_service import _MESES
+    from app.utils.timeutil import utcnow
+
+    plano = ''.join(c for c in unicodedata.normalize('NFKD', fragmento.lower())
+                    if not unicodedata.combining(c))
+    candidatas = []
+    for m in _FECHA_EN_TEXTO.finditer(plano):
+        d, mes, a = (int(g) for g in m.groups())
+        candidatas.append((m.start(), (a + 2000 if a < 100 else a, mes, d)))
+    for m in _FECHA_ESCRITA.finditer(plano):
+        semana, d, nombre_mes, a = m.groups()
+        mes = _MESES.get(nombre_mes)
+        if not mes:
+            continue
+        if a:
+            candidatas.append((m.start(), (int(a), mes, int(d))))
+            continue
+        if semana not in _DIAS_SEMANA:
+            continue
+        hoy = utcnow().year
+        anios = []
+        for anio in (hoy - 1, hoy, hoy + 1):
+            try:
+                if date(anio, mes, int(d)).weekday() == _DIAS_SEMANA[semana]:
+                    anios.append(anio)
+            except ValueError:
+                continue
+        if len(anios) == 1:
+            candidatas.append((m.start(), (anios[0], mes, int(d))))
+    if not candidatas:
+        return None
+    return max(candidatas)[1]
+
+
+def _completar_horas(datos, campos, texto):
+    """Give an hour without a day the date the document prints just before it.
+
+    Documents lay a flight out as «20/10/2026 … Hora de salida - 17:55» and a
+    stay as «Entrada: Miércoles 10/06/2026 Check-in: 15:00»; a small model
+    copies the hour and loses the day. The day is right there, so it is taken
+    -- but only when every place the hour appears points to the same date,
+    and at a confidence that sends it to review. An hour the text does not
+    pin to one day stays unfilled.
+
+    Returns the fields it completed.
+    """
+    completadas = set()
+    for nombre, valor in campos.items():
+        if not isinstance(valor, dict) or not isinstance(valor.get('local'), str):
+            continue
+        hora = _SOLO_HORA.match(valor['local'])
+        if not hora:
+            continue
+        hh, mm = int(hora.group(1)), int(hora.group(2))
+        dias = set()
+        patron = rf'(?<!\d)0?{hh:d}[:.h]{mm:02d}(?!\d)'
+        for aparicion in re.finditer(patron, texto):
+            dia = _ultima_fecha(texto[max(0, aparicion.start() - 250):aparicion.start()])
+            if dia is not None:
+                dias.add(dia)
+        if len(dias) != 1 or hh > 23 or mm > 59:
+            continue
+        anio, mes, dia = dias.pop()
+        valor['local'] = f'{anio:04d}-{mes:02d}-{dia:02d}T{hh:02d}:{mm:02d}'
+        completadas.add(nombre)
+        datos.setdefault('avisos', []).append(
+            f'La fecha de «{nombre}» se ha completado con la que el documento '
+            f'da justo antes de la hora ({dia:02d}/{mes:02d}/{anio}); compruébela.'
+        )
+    return completadas
 
 
 def _flag_invented_years(datos, paginas, confianzas, campos):

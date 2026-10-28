@@ -197,10 +197,20 @@ def _inspect_pdf(stream):
 
         reader = PdfReader(stream)
         if reader.is_encrypted:
-            raise PermanentError(
-                'El PDF está cifrado y no puede procesarse. Envíe una versión sin '
-                'contraseña.'
-            )
+            # Most encrypted travel PDFs only restrict printing or copying,
+            # with an empty password to open them: every agency stub arrives
+            # like that. Refusing them refused the documents themselves. Only
+            # one that will not open without a password is beyond reading.
+            try:
+                abierto = reader.decrypt('')
+            except Exception:
+                abierto = 0
+            if not abierto:
+                raise PermanentError(
+                    'El PDF está protegido con contraseña y no puede procesarse. '
+                    'Envíe una versión sin contraseña.'
+                )
+            hallazgos.setdefault('avisos', []).append('cifrado_sin_contrasena')
         hallazgos['paginas'] = len(reader.pages)
 
         # Not grounds for rejection -- travel documents do sometimes carry

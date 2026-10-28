@@ -108,7 +108,11 @@ _INSTANTE = {
     'properties': {
         'local': {
             'type': ['string', 'null'],
-            'description': 'AAAA-MM-DDTHH:MM en hora local, tal como figura en el documento.',
+            'description': (
+                'Fecha y hora juntas, AAAA-MM-DDTHH:MM, en hora local. Si el '
+                'documento las da por separado, combínalas; nunca solo la hora '
+                'ni solo el día de la semana.'
+            ),
         },
         'zona_horaria': {
             'type': ['string', 'null'],

@@ -208,6 +208,23 @@ def _extract_image(stream):
                          idioma=_detect_language([page]))
 
 
+#: «<https://www.ryanair.com/content/dam/...>»: where a link pointed, left
+#: behind by the mail client's plain rendering of an HTML message.
+_ENLACE = re.compile(r'<(?:https?|mailto):[^>\s]*>')
+
+
+def _sin_enlaces(texto):
+    """An email body without its link targets.
+
+    A Ryanair itinerary is fourteen thousand characters of which most are
+    tracking URLs. They tell the model nothing, cost it attention, and can
+    push the flight times past the length it is sent.
+    """
+    limpio = _ENLACE.sub('', texto or '')
+    limpio = re.sub(r'[ \t]+\n', '\n', limpio)
+    return re.sub(r'\n{3,}', '\n\n', limpio).strip()
+
+
 def _extract_email(stream):
     """Read the text parts of an EML message, and its readable attachments."""
     import email
@@ -231,7 +248,7 @@ def _extract_email(stream):
         content = body.get_content()
         if body.get_content_type() == 'text/html':
             content = _strip_html(content)
-        parts.append(content.strip())
+        parts.append(_sin_enlaces(content))
 
     attachments = [
         (part.get_filename(), part.get_payload(decode=True))
@@ -348,7 +365,7 @@ def _texto_outlook(ole):
         if html:
             cuerpo = _strip_html(_decodificar(html))
     if cuerpo:
-        parts.append(cuerpo.strip())
+        parts.append(_sin_enlaces(cuerpo))
 
     adjuntos = []
     for ruta in ole.listdir(streams=False, storages=True):

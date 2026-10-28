@@ -374,6 +374,15 @@ LOCATION_DEFINITIONS = (
     ('FCO', 'Roma Fiumicino', 'Roma', 'IT', 'Europe/Rome'),
     ('MXP', 'Milano Malpensa', 'Milán', 'IT', 'Europe/Rome'),
     ('LIN', 'Milano Linate', 'Milán', 'IT', 'Europe/Rome'),
+    # Where the group's plants and studios are: a booking to Turin came back
+    # with «TRN» unknown and its arrival time in the wrong zone.
+    ('TRN', 'Torino Caselle', 'Turín', 'IT', 'Europe/Rome'),
+    ('BLQ', 'Bologna Guglielmo Marconi', 'Bolonia', 'IT', 'Europe/Rome'),
+    ('BGY', 'Bergamo Orio al Serio', 'Bérgamo', 'IT', 'Europe/Rome'),
+    ('VCE', 'Venezia Marco Polo', 'Venecia', 'IT', 'Europe/Rome'),
+    ('STR', 'Stuttgart', 'Stuttgart', 'DE', 'Europe/Berlin'),
+    ('HAJ', 'Hannover', 'Hannover', 'DE', 'Europe/Berlin'),
+    ('NUE', 'Nürnberg', 'Núremberg', 'DE', 'Europe/Berlin'),
     ('LIS', 'Lisboa Humberto Delgado', 'Lisboa', 'PT', 'Europe/Lisbon'),
     ('OPO', 'Porto Francisco Sá Carneiro', 'Oporto', 'PT', 'Europe/Lisbon'),
     ('BRU', 'Brussels', 'Bruselas', 'BE', 'Europe/Brussels'),

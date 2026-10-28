@@ -18,7 +18,7 @@ PATTERNS = {
     DocumentClassification.VUELO: (
         (re.compile(r'\b[A-Z]{3}\s*(?:-|–|→|>|to|a)\s*[A-Z]{3}\b'), 3.0),
         (re.compile(r'(?i)\b(tarjeta de embarque|boarding\s*pass)\b'), 3.0),
-        (re.compile(r'(?i)\b(vuelo|flight)\s*[:nº#]?\s*[A-Z]{2}\s?\d{2,4}\b'), 3.0),
+        (re.compile(r'(?i)\b(vuelo|flight|volo|flug|vol)\s*[:nº#]?\s*[A-Z0-9]{2}\s?\d{2,4}\b'), 3.0),
         (re.compile(r'(?i)\b(iberia|vueling|ryanair|air europa|lufthansa|air france|'
                     r'klm|british airways|easyjet|tap|swiss|emirates|qatar)\b'), 2.0),
         (re.compile(r'(?i)\b(puerta de embarque|gate|terminal)\b'), 1.0),
@@ -46,6 +46,12 @@ PATTERNS = {
                     r'solo alojamiento|breakfast included)\b'), 1.5),
         (re.compile(r'(?i)\b(booking\.com|expedia|hoteles\.com|nh hoteles|meli[aá]|'
                     r'barcel[oó]|riu|marriott|hilton|accor)\b'), 1.5),
+        # A stay invoiced by the hotel itself, in the language of the place:
+        # an Italian «fattura» for a «soggiorno» never said «hotel» at all.
+        (re.compile(r'(?i)\b(soggiorno|pernottament[oi]|albergo|ospite|'
+                    r'[uü]bernachtung(?:en)?|aufenthalt|s[eé]jour|nuit[ée]e?s?)\b'), 2.5),
+        (re.compile(r'(?i)\b(camera (?:doppia|singola)|doppelzimmer|einzelzimmer|'
+                    r'chambre (?:double|simple))\b'), 2.0),
     ),
     DocumentClassification.VEHICULO: (
         (re.compile(r'(?i)\b(alquiler de (?:coche|veh[ií]culo)|car rental|'
@@ -164,17 +170,27 @@ def es_tarjeta_de_embarque(texto, nombre_archivo=None):
     haystack = (texto or '')[:12000]
     nombre = (nombre_archivo or '').lower()
 
-    aciertos = sum(1 for patron in TARJETA_EMBARQUE if patron.search(haystack))
+    # The phrase itself only counts as the title (below). Elsewhere it is
+    # advice, and an itinerary that adds «embarque prioritario» as an upsell
+    # would otherwise reach two signals without being a boarding pass at all.
+    aciertos = sum(1 for patron in TARJETA_EMBARQUE[1:] if patron.search(haystack))
 
     if any(pista in nombre for pista in
            ('tarjeta', 'embarque', 'boarding', 'boardingpass', 'bordkarte')):
         aciertos += 1
 
-    # The explicit phrase is enough on its own: nothing else says it.
-    if TARJETA_EMBARQUE[0].search(haystack):
+    # The explicit phrase is enough on its own when it is the document's title.
+    # Further down it is as often advice -- Ryanair's itinerary tells you to
+    # «acceder a tu tarjeta de embarque digital» -- and filing that itinerary
+    # as a boarding pass silences the alert that nobody has checked in.
+    if TARJETA_EMBARQUE[0].search(haystack[:CABECERA_DE_UNA_TARJETA]):
         return True
 
     return aciertos >= 2
+
+
+#: How much of the start of a document counts as its heading.
+CABECERA_DE_UNA_TARJETA = 400
 
 
 def needs_ai_classification(confianza, threshold=MIN_CONFIDENCE):
