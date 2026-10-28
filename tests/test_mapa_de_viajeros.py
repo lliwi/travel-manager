@@ -76,7 +76,7 @@ class TestElCatalogoDeCiudades:
 
     def test_una_ciudad_desconocida_no_se_coloca_a_ojo(self):
         """A marker in the wrong place is read as confidently as a right one."""
-        assert map_service.coordenadas_de('Cuenca', 'ES') is None
+        assert map_service.coordenadas_de('Villarriba del Monte', 'ES') is None
 
     def test_el_pais_forma_parte_de_la_clave(self):
         """«Santiago» is Chile here and Galicia there."""
@@ -171,18 +171,18 @@ class TestNadieSeCaeDelMapa:
     def test_una_ciudad_que_no_se_sabe_situar_se_declara(
         self, app, seeded, gestor, trip, traveler_row,
     ):
-        _alojamiento(trip, 'Cuenca', 'ES', traveler_row)
+        _alojamiento(trip, 'Villarriba del Monte', 'ES', traveler_row)
 
         mapa = map_service.donde_estan(gestor, DIA)
 
         assert mapa['ciudades'] == []
-        assert [p['ciudad'] for p in mapa['sin_situar']] == ['Cuenca']
+        assert [p['ciudad'] for p in mapa['sin_situar']] == ['Villarriba del Monte']
         assert mapa['total'] == 1
 
     def test_la_suma_cuadra_siempre(self, app, seeded, gestor, trip, traveler_row):
         """Placed plus unplaceable plus unlocated is everybody, or somebody
         vanished between the query and the screen."""
-        _alojamiento(trip, 'Cuenca', 'ES', traveler_row)
+        _alojamiento(trip, 'Villarriba del Monte', 'ES', traveler_row)
 
         mapa = map_service.donde_estan(gestor, DIA)
         situados = sum(c['total'] for c in mapa['ciudades'])
@@ -882,3 +882,53 @@ class TestLaRutaQueCruzaElBorde:
         assert t['x2'] < 0, 'sale por el borde izquierdo, hacia el oeste'
         assert t['cruza'] == 100
         assert 0 < t['x2'] + t['cruza'] < 100, 'y llega a Tokio por el derecho'
+
+
+class TestElNomenclator:
+    """The plant towns no list of capitals has: Ingolstadt, Wolfsburg."""
+
+    def test_situa_lo_que_la_tabla_propia_no_tiene(self):
+        punto = map_service.coordenadas_de('Ingolstadt', 'DE')
+
+        assert punto is not None
+        assert 48 < punto[0] < 49 and 11 < punto[1] < 12
+
+    def test_reconoce_el_nombre_en_otro_idioma(self):
+        assert map_service.coordenadas_de('Monaco di Baviera', 'DE') is not None
+
+    def test_la_tabla_propia_manda(self):
+        assert map_service.coordenadas_de('Londres', 'GB') == map_service.COORDENADAS[
+            ('londres', 'GB')]
+
+    def test_con_pais_gana_la_mas_poblada(self):
+        """«Valencia, ES» is the city, not a village of the same name."""
+        lat, lon = map_service.coordenadas_de('Valencia', 'ES')
+
+        assert round(lat) == 39 and round(lon) == 0
+
+    def test_sin_pais_un_nombre_de_dos_paises_no_se_situa(self):
+        """«Córdoba» alone is Spain or Argentina."""
+        assert map_service.coordenadas_de('Cordoba', None) is None
+
+    def test_un_codigo_de_aeropuerto_no_es_una_ciudad(self):
+        assert map_service.coordenadas_de('MUC', 'DE') is None
+
+
+class TestUnTramoDeDiasEnElAire:
+    def test_se_senala_y_no_solo_se_pinta(self, as_user, gestor, trip, traveler_row):
+        _tramo(trip, 'MAD', 'BER', datetime(2026, 5, 30, 10, 0),
+               datetime(2026, 6, 4, 12, 0), numero='IB9999')
+
+        franja = map_service.franja_del_dia(gestor, date(2026, 6, 1), 'Europe/Madrid')
+        assert [s['tramo'].numero for s in franja['tramos_sospechosos']] == ['IB9999']
+
+        with as_user(gestor) as client:
+            html = client.get('/dashboard/informes?fecha=2026-06-01').get_data(as_text=True)
+        assert 'IB9999' in html and 'reservas distintas' in html
+
+    def test_un_vuelo_largo_de_verdad_no(self, app, seeded, gestor, trip, traveler_row):
+        _tramo(trip, 'MAD', 'SYD', datetime(2026, 6, 1, 10, 0),
+               datetime(2026, 6, 2, 8, 0), numero='QF1')
+
+        franja = map_service.franja_del_dia(gestor, date(2026, 6, 1), 'Europe/Madrid')
+        assert franja['tramos_sospechosos'] == []

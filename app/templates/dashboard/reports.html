@@ -289,10 +289,30 @@
             </a>
             {% endfor %}
         </div>
+        {% if franja.tramos_sospechosos %}
+        {# Un tramo de días «en el aire» pinta a alguien de camino a todas
+           horas. Casi siempre es una salida y una llegada de reservas
+           distintas: se dice, con el enlace al viaje, en vez de dibujarlo
+           sin más. #}
+        <p class="small text-warning-emphasis mb-1">
+            <i class="bi bi-exclamation-triangle me-1"></i>
+            {% for s in franja.tramos_sospechosos %}
+            <a href="{{ url_for('trips.detail', trip_id=s.viaje_id) }}">{{ s.tramo.numero or s.ruta }}</a>
+            ({{ s.ruta }}) dura {{ s.horas }} h{{ '; ' if not loop.last }}
+            {% endfor %}:
+            {{ 'probablemente su salida y su llegada vienen' if franja.tramos_sospechosos | length == 1
+               else 'probablemente sus salidas y llegadas vienen' }} de reservas distintas.
+            Revíse{{ 'lo' if franja.tramos_sospechosos | length == 1 else 'los' }} en el itinerario.
+        </p>
+        {% endif %}
         <p class="small text-muted mb-0 mt-1">
             <span class="franja-leyenda"></span> De viaje
             <span class="franja-leyenda es-camino ms-2"></span> En camino
             · hora de {{ franja.zona }}; pulse una hora para ver el mapa en ese momento.
+        </p>
+        <p class="small text-muted mb-0">
+            Situación de las ciudades: GeoNames (geonames.org, CC BY 4.0), incluida
+            en la aplicación; no se consulta a nadie al dibujar el mapa.
         </p>
     </div>
     {% endif %}
