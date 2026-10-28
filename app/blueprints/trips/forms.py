@@ -25,6 +25,25 @@ from app.utils.forms import Formulario
 DATETIME_FORMAT = '%Y-%m-%dT%H:%M'
 
 
+def rango(fin, etiqueta, abierto=False):
+    """Mark a start field as the first half of a range of whole days.
+
+    The page draws one calendar for both, where the span is chosen at once,
+    and asks for no hour: a trip, a stay at a destination or the days somebody
+    is on a trip are days. The first starts at 00:00 and the last ends at
+    23:59, so the last day is inside the window the alerts and the map read.
+    Without JavaScript both fields stay as they are, hour and all.
+
+    ``abierto`` when the end may be left out: a single day picked is then a
+    start with no end -- a one-way journey -- rather than a one-day span.
+    """
+    atributos = {'data-rango-fin': fin, 'data-rango-etiqueta': etiqueta,
+                 'data-hora-inicio': '00:00', 'data-hora-fin': '23:59'}
+    if abierto:
+        atributos['data-rango-abierto'] = '1'
+    return atributos
+
+
 def _optional_choices(enum_cls, blank='— Sin especificar —'):
     return [('', blank)] + enum_cls.choices()
 
@@ -56,6 +75,7 @@ class TripForm(Formulario):
 
     inicio_local = DateTimeLocalField(
         'Inicio', format=DATETIME_FORMAT, validators=[Optional()],
+        render_kw=rango('fin_local', 'Fechas del viaje'),
     )
     inicio_tz = StringField(
         'Zona horaria de inicio', validators=[Optional(), Length(max=64)],
@@ -133,6 +153,7 @@ class TravelerForm(Formulario):
     desde_local = DateTimeLocalField(
         'Desde', format=DATETIME_FORMAT, validators=[Optional()],
         description='Deje en blanco si participa durante todo el viaje.',
+        render_kw=rango('hasta_local', 'Días en el viaje'),
     )
     hasta_local = DateTimeLocalField(
         'Hasta', format=DATETIME_FORMAT, validators=[Optional()],
@@ -152,7 +173,8 @@ class DestinationForm(Formulario):
         'Zona horaria', validators=[Optional(), Length(max=64)],
         description='Si se deja en blanco se deduce del país.',
     )
-    inicio_local = DateTimeLocalField('Llegada', format=DATETIME_FORMAT, validators=[Optional()])
+    inicio_local = DateTimeLocalField('Llegada', format=DATETIME_FORMAT, validators=[Optional()],
+                                      render_kw=rango('fin_local', 'Llegada y salida'))
     fin_local = DateTimeLocalField('Salida', format=DATETIME_FORMAT, validators=[Optional()])
     es_escala = BooleanField('Es una escala')
     orden = IntegerField('Orden', validators=[Optional(), NumberRange(min=0)])
@@ -384,6 +406,7 @@ class PlanningForm(Formulario):
     ida = DateTimeLocalField(
         'Ida', format=DATETIME_FORMAT,
         validators=[DataRequired(message='Indique la fecha de ida.')],
+        render_kw=rango('vuelta', 'Ida y vuelta', abierto=True),
     )
     # La vuelta no: hay viajes de solo ida, y exigirla obligaría a inventar una
     # fecha. Sin ella la búsqueda pide un trayecto y no hay regreso que elegir,
