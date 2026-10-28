@@ -62,7 +62,7 @@ def upload(trip_id, trip):
                 actor=current_user._get_current_object(),
                 trip=trip,
                 file_storage=form.archivo.data,
-                tipo=DocumentType.coerce(form.tipo.data, DocumentType.OTRO),
+                tipo=DocumentType.coerce(form.tipo.data) if form.tipo.data else None,
                 trip_traveler_id=form.trip_traveler_id.data or None,
             )
         except AppError as error:

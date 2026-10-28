@@ -22,6 +22,7 @@ from app.models.enums import (
     DocumentClassification,
     DocumentProcessState,
     DocumentType,
+    ProvenanceOrigin,
 )
 from app.services import audit_service, storage_service
 from app.utils.errors import (
@@ -217,9 +218,13 @@ def _avisar_al_gestor(document, trip, actor):
     )
 
 
-def upload(actor, trip, file_storage, tipo=DocumentType.OTRO,
+def upload(actor, trip, file_storage, tipo=None,
            trip_traveler_id=None, commit=True):
     """Accept an uploaded file and start the pipeline.
+
+    ``tipo`` is what the uploader said the document is. Without it, the
+    pipeline decides from the content: the form proposed «Reserva» and almost
+    nobody changed it, so boarding passes and invoices were filed as bookings.
 
     Validation here is the cheap part -- extension, size, duplicate. The real
     checks (magic bytes, antivirus) happen in the pipeline, because they must
@@ -272,7 +277,8 @@ def upload(actor, trip, file_storage, tipo=DocumentType.OTRO,
         trip_id=trip.id,
         trip_traveler_id=trip_traveler_id or None,
         nombre_original=file_storage.filename[:400],
-        tipo=tipo,
+        tipo=tipo or DocumentType.OTRO,
+        tipo_origen=ProvenanceOrigin.MANUAL if tipo else None,
         mime_declarado=file_storage.mimetype,
         extension=extension,
         tamano_bytes=size,

@@ -1,7 +1,7 @@
 """Document forms."""
 from flask_wtf.file import FileAllowed, FileField, FileRequired
 from wtforms import SelectField, SubmitField
-from wtforms.validators import DataRequired, Optional
+from wtforms.validators import Optional
 
 from app.models.enums import DocumentType
 from app.utils.forms import Formulario
@@ -26,7 +26,10 @@ class DocumentUploadForm(Formulario):
         ],
     )
     tipo = SelectField(
-        'Tipo de documento', choices=DocumentType.choices(), validators=[DataRequired()]
+        'Tipo de documento',
+        choices=[('', 'Detectar automáticamente')] + DocumentType.choices(),
+        validators=[Optional()],
+        description='Si no lo elige, se decide por el contenido del documento.',
     )
     trip_traveler_id = SelectField(
         'Persona viajera', validators=[Optional()],

@@ -72,8 +72,20 @@ CLASSIFY_DOCUMENT = _BASE + (
     '- vehiculo: alquiler de coche o furgoneta.\n'
     '- seguro: pólizas de viaje o asistencia.\n'
     '- visado: visados, autorizaciones de entrada y documentos migratorios.\n'
+    '- solicitud: una petición interna de viaje (quién viaja, adónde, cuándo y '
+    'para qué), antes de que haya nada reservado.\n'
     '- otro: cualquier otro documento.\n\n'
-    'Si el documento contiene varios servicios, clasifícalo por el principal.'
+    'Si el documento contiene varios servicios, clasifícalo por el principal.\n\n'
+    'Indica además en «tipo_documento» qué es el documento:\n'
+    '- reserva: confirmación de una reserva (de vuelo, hotel, coche...).\n'
+    '- billete: billete emitido, con número de billete o localizador.\n'
+    '- tarjeta_embarque: tarjeta de embarque, con puerta, asiento o grupo.\n'
+    '- factura: factura, recibo, ticket de compra o talón de venta con importes.\n'
+    '- identidad: pasaporte, DNI u otro documento de identidad.\n'
+    '- correspondencia: correo o carta que habla del viaje sin ser ninguno de '
+    'los anteriores.\n'
+    '- solicitud_interna: petición de viaje de un empleado.\n'
+    '- otro: ninguno de los anteriores.'
 )
 
 ANSWER_TRIP_QUESTION = _BASE + (

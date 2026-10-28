@@ -396,22 +396,32 @@ def classify_document(self, document_id):
     origen = ProvenanceOrigin.DOCUMENTO
     threshold = _classification_threshold()
 
+    # What the uploader declared stands; a declaration of «solicitud interna»
+    # whose content is not one does not, because it is the type that changes
+    # how the document is read, and the commonest wrong pick.
+    elegido = (document.tipo_origen is ProvenanceOrigin.MANUAL
+               and document.tipo is not DocumentType.SOLICITUD_INTERNA)
+    tipo = None
+
     talon = _talon_de_venta(document)
     if _es_solicitud_interna(document):
         # Before the booking rules, which would read a ticked «AVIÓN» box as a
-        # flight and «HOTEL» as a stay.
+        # flight and «HOTEL» as a stay. The form is the form whatever it was
+        # filed as.
         clasificacion, confianza = DocumentClassification.SOLICITUD, 1.0
-        document.tipo = DocumentType.SOLICITUD_INTERNA
+        tipo, elegido = DocumentType.SOLICITUD_INTERNA, False
     elif talon is not None:
         from app.services import talon_service
 
         clasificacion, confianza = talon_service.clasificacion(talon.contenido), 1.0
+        tipo = DocumentType.FACTURA
     else:
         clasificacion, confianza = classify_by_rules(texto, document.nombre_original)
 
-    if confianza < threshold:
-        # Rules were not sure; ask a model, but keep the rules' answer if the
-        # model is not confident either.
+    tipo_origen = ProvenanceOrigin.DOCUMENTO
+    if confianza < threshold or (tipo is None and not elegido):
+        # Rules were not sure, or nobody has said what the document is: ask a
+        # model, but keep the rules' class if the model is less confident.
         try:
             from app.services import ai_service
 
@@ -424,6 +434,9 @@ def classify_document(self, document_id):
                 )
                 confianza = ai_confianza
                 origen = ProvenanceOrigin.IA
+            if tipo is None:
+                tipo = DocumentType.coerce(datos.get('tipo_documento'))
+                tipo_origen = ProvenanceOrigin.IA
         except Exception as exc:
             logger.warning(
                 'No se pudo clasificar con IA el documento %s: %s', document.id, exc
@@ -432,10 +445,24 @@ def classify_document(self, document_id):
     document.clasificacion = clasificacion
     document.clasificacion_confianza = round(confianza, 2)
     document.clasificacion_origen = origen
+    if not elegido:
+        if tipo is None:
+            # No model, or none that answered: the class says enough to file
+            # a booking as one, and nothing more.
+            tipo, tipo_origen = _tipo_por_clase(clasificacion), ProvenanceOrigin.DOCUMENTO
+        document.tipo, document.tipo_origen = tipo, tipo_origen
     _marcar_si_es_tarjeta_de_embarque(document, texto)
 
     document_service.transition(document, S.CLASIFICADO, tarea='classify', commit=True)
     return document_id
+
+
+def _tipo_por_clase(clasificacion):
+    if clasificacion is DocumentClassification.SOLICITUD:
+        return DocumentType.SOLICITUD_INTERNA
+    if clasificacion in (DocumentClassification.OTRO, DocumentClassification.DESCONOCIDO):
+        return DocumentType.OTRO
+    return DocumentType.RESERVA
 
 
 def _lector_por_reglas(document):
@@ -457,33 +484,36 @@ def _talon_de_venta(document):
 
 
 def _es_solicitud_interna(document):
-    """Declared as a request, or plainly the request form whatever it was filed as.
+    """Whether the request form is in the document, whatever it was filed as.
 
-    Recognised from any page, since the form is often one sheet of a workbook
-    whose other sheet is the purchasing department's budget.
+    By content only. Declaring a booking as «solicitud interna» used to send it
+    to the form reader, which found no form and extracted nothing. Recognised
+    from any page, since the form is often one sheet of a workbook whose other
+    sheet is the purchasing department's budget.
     """
     from app.services import solicitud_service
 
-    if document.tipo is DocumentType.SOLICITUD_INTERNA:
-        return True
     return any(solicitud_service.es_solicitud(p.contenido) for p in document.pages)
 
 
 def _marcar_si_es_tarjeta_de_embarque(document, texto):
     """Refine the declared type when the document is plainly a boarding pass.
 
-    Only over a generic declaration. Whoever uploaded it said what it was for,
-    and overruling a person who chose «factura» because a regex disagreed is
-    the wrong way round -- extraction proposes. But most people upload without
-    changing the default, and a boarding pass filed as «otro» is a boarding
-    pass nobody can be told is missing.
+    Over anything detected, and over a generic declaration. Whoever chose
+    «factura» said what it was for, and overruling them because a regex
+    disagreed is the wrong way round -- extraction proposes. But a boarding
+    pass filed as «otro», or detected as a mere ticket, is a boarding pass
+    nobody can be told is missing.
     """
     from app.models.enums import DocumentClassification, DocumentType
     from app.services.classification_service import es_tarjeta_de_embarque
 
     if document.clasificacion is not DocumentClassification.VUELO:
         return
-    if document.tipo not in (DocumentType.OTRO, DocumentType.BILLETE):
+    # Unknown origin is a person too: before detection existed, every type
+    # was somebody's choice.
+    detectado = document.tipo_origen in (ProvenanceOrigin.IA, ProvenanceOrigin.DOCUMENTO)
+    if not detectado and document.tipo not in (DocumentType.OTRO, DocumentType.BILLETE):
         return
     if not es_tarjeta_de_embarque(texto, document.nombre_original):
         return
@@ -510,21 +540,34 @@ def ai_extract_document(self, document_id):
     from app.utils.errors import AIContractError, AIError, AIPolicyBlocked
 
     lector = _lector_por_reglas(document)
+    avisos_de_la_plantilla = []
     if lector is not None:
         # A form with labelled boxes, or a stub in a fixed layout, is read
         # rather than interpreted: the rules give the same answer every time
         # and send nothing anywhere.
         datos = lector.extraer(document)
-        extraction_service.create_version(
-            document,
-            payload=datos,
-            metodo=ExtractionMethod.REGLAS,
-            confianza_global=datos.get('confianza_global'),
-            avisos=datos.get('avisos') or [],
-            commit=False,
-        )
-        document_service.transition(document, S.EXTRAIDO, tarea='ai_extract', commit=True)
-        return document_id
+        if any(s.get('campos') for s in datos.get('servicios') or []):
+            extraction_service.create_version(
+                document,
+                payload=datos,
+                metodo=ExtractionMethod.REGLAS,
+                confianza_global=datos.get('confianza_global'),
+                avisos=datos.get('avisos') or [],
+                commit=False,
+            )
+            document_service.transition(document, S.EXTRAIDO, tarea='ai_extract',
+                                        commit=True)
+            return document_id
+        # The template did not fit -- a redesigned form, a stub laid out
+        # differently, a request written as a plain email. Reading nothing
+        # would leave the manager to type it all; the model reads it instead,
+        # and its answer is reviewed like any other.
+        logger.info('La plantilla no leyó nada en el documento %s; se pasa a la IA.',
+                    document.id)
+        avisos_de_la_plantilla = [
+            'No encaja con ninguna plantilla conocida: los datos los ha leído la '
+            'IA. Revíselos con más cuidado.'
+        ]
 
     try:
         result = ai_service.extract_document(document, document.clasificacion)
@@ -544,6 +587,8 @@ def ai_extract_document(self, document_id):
 
     datos = result['datos']
     run = result['run']
+    if avisos_de_la_plantilla:
+        datos['avisos'] = avisos_de_la_plantilla + list(datos.get('avisos') or [])
 
     extraction_service.create_version(
         document,

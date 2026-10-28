@@ -293,6 +293,16 @@ def _parse(response, tarea, esquema=None):
 # ======================================================================
 # 1. extract_document
 # ======================================================================
+#: A request is one set of facts about the trip, not a list of services.
+_INSTRUCCION_SOLICITUD = (
+    '\n\nEs una solicitud interna de viaje: devuelve UN solo elemento en '
+    '«servicios» con quién viaja (empleado), quién lo pide, el motivo, el '
+    'proyecto, el destino, la fecha y hora de ida y de vuelta, y los medios '
+    'que pide (avión, tren, hotel, coche). Una preferencia como «por la '
+    'mañana» va en horario_ida u horario_vuelta, no en la hora.'
+)
+
+
 def extract_document(document, clasificacion=None, actor=None):
     """Pull structured fields out of a document (section 2.3 step 4).
 
@@ -319,6 +329,7 @@ def extract_document(document, clasificacion=None, actor=None):
             f'quedarte con el primero deja el itinerario a medias.\n\n'
             f'Si un dato no aparece, usa null; no lo inventes. Copia las fechas '
             f'tal como figuran en el documento, con su año.'
+            + (_INSTRUCCION_SOLICITUD if clasificacion == 'solicitud' else '')
         ),
         bloques=blocks,
         esquema=esquema,
@@ -643,8 +654,9 @@ def classify_document(document, actor=None):
         sistema=PROMPTS['classify_document'],
         instruccion=(
             'Clasifica el siguiente documento de viaje en una de estas categorías: '
-            'vuelo, tren, hotel, vehiculo, seguro, visado, otro. Indica tu '
-            'confianza entre 0 y 1.'
+            'vuelo, tren, hotel, vehiculo, seguro, visado, solicitud, otro. Indica '
+            'también qué tipo de documento es en «tipo_documento», y tu confianza '
+            'entre 0 y 1.'
         ),
         bloques=blocks[:1],
         esquema=esquema,

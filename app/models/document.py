@@ -57,6 +57,10 @@ class Document(SoftDeleteMixin, BaseModel):
     nombre_original = db.Column(db.String(400), nullable=False)
     #: Declared by the uploader; what they say the file is for.
     tipo = enum_column(DocumentType, nullable=False, default=DocumentType.OTRO)
+    #: Who said what the document is: ``manual`` when the uploader chose it,
+    #: ``documento`` when its content made it plain (the request form, a sale
+    #: stub), ``ia`` when the model read it. Null while still to be detected.
+    tipo_origen = enum_column(ProvenanceOrigin, nullable=True)
     mime = db.Column(db.String(120))
     mime_declarado = db.Column(db.String(120))
     extension = db.Column(db.String(12))
@@ -217,6 +221,15 @@ class Document(SoftDeleteMixin, BaseModel):
         except ValueError:
             step = 0
         return step, total
+
+    @property
+    def tipo_procedencia(self):
+        """Who decided the document's type, in words, or None if unknown."""
+        return {
+            ProvenanceOrigin.MANUAL: 'elegido al subirlo',
+            ProvenanceOrigin.DOCUMENTO: 'deducido del contenido',
+            ProvenanceOrigin.IA: 'detectado por la IA',
+        }.get(self.tipo_origen)
 
     @property
     def tamano_legible(self):

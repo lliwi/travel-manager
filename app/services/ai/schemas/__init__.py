@@ -265,12 +265,44 @@ EXTRACT_OTRO = _extraction_schema({
     'moneda': _STR,
 })
 
+#: An internal travel request read by the model, when the form was not the
+#: known template: a free-text email «solicito viaje a Ingolstadt del 27 al
+#: 29», or a form somebody redesigned. The same fields the template reader
+#: produces, so approval treats both alike.
+EXTRACT_SOLICITUD = _extraction_schema({
+    'empleado': _STR,
+    'departamento': _STR,
+    'solicitante': _STR,
+    'motivo': _STR,
+    'proyecto': _STR,
+    'destino': _STR,
+    'a_cargo_de': _STR,
+    'medios': _STR,
+    'ida': _INSTANTE,
+    'vuelta': _INSTANTE,
+    'horario_ida': _STR,
+    'horario_vuelta': _STR,
+    'fecha_solicitud': _STR,
+    # The budget, when the request states one.
+    'importe': _NUM,
+    'moneda': _STR,
+})
+
 CLASSIFY_DOCUMENT = {
     'type': 'object',
     'properties': {
         'clasificacion': {
             'type': 'string',
-            'enum': ['vuelo', 'tren', 'hotel', 'vehiculo', 'seguro', 'visado', 'otro'],
+            'enum': ['vuelo', 'tren', 'hotel', 'vehiculo', 'seguro', 'visado',
+                     'solicitud', 'otro'],
+        },
+        # What the document *is*, as opposed to which service it is about: a
+        # flight can arrive as a booking, a ticket, a boarding pass or an
+        # invoice, and the alert engine treats a boarding pass differently.
+        'tipo_documento': {
+            'type': 'string',
+            'enum': ['reserva', 'billete', 'tarjeta_embarque', 'factura', 'identidad',
+                     'correspondencia', 'solicitud_interna', 'otro'],
         },
         'confianza': {'type': 'number', 'minimum': 0, 'maximum': 1},
         'justificacion': {'type': 'string'},
@@ -478,6 +510,7 @@ SCHEMAS = {
     'extract_seguro': EXTRACT_SEGURO,
     'extract_visado': EXTRACT_VISADO,
     'extract_otro': EXTRACT_OTRO,
+    'extract_solicitud': EXTRACT_SOLICITUD,
     'extract_desconocido': EXTRACT_OTRO,
     'classify_document': CLASSIFY_DOCUMENT,
     'answer_trip_question': ANSWER_TRIP_QUESTION,

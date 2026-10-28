@@ -40,6 +40,10 @@
                     {% endif %}
                 </td>
                 <td>
+                    {{ badge(doc.tipo.label, 'light') }}
+                    {% if doc.tipo_origen and doc.tipo_origen.value == 'ia' %}
+                    <i class="bi bi-stars text-muted" title="Tipo detectado por la IA"></i>
+                    {% endif %}
                     {{ badge(doc.clasificacion.label, 'light') }}
                     {% if doc.clasificacion_confianza %}
                     <small class="text-muted">{{ (doc.clasificacion_confianza * 100) | round | int }}%</small>

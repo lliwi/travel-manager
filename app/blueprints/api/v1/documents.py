@@ -34,7 +34,8 @@ def upload_document(trip_id, trip):
         actor=current_user._get_current_object(),
         trip=trip,
         file_storage=file_storage,
-        tipo=DocumentType.coerce(request.form.get('tipo'), DocumentType.OTRO),
+        tipo=(DocumentType.coerce(request.form.get('tipo'))
+              if request.form.get('tipo') else None),
         trip_traveler_id=request.form.get('trip_traveler_id') or None,
     )
     return ok(document.to_dict(), status=202)

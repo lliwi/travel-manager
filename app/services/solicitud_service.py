@@ -366,6 +366,11 @@ def aplicar(actor, document, extraction, campos):
             cambios[f'{prefijo}_local'] = local
             cambios[f'{prefijo}_tz'] = instante.get('zona_horaria')
 
+    importe = _numero(campos.get('importe'))
+    if importe is not None and libre('coste_estimado', trip.coste_estimado):
+        cambios['coste_estimado'] = importe
+        cambios['moneda'] = (str(campos.get('moneda') or '') or 'EUR')[:3].upper()
+
     resumen = _resumen(campos)
     if resumen and libre('observaciones', trip.observaciones):
         cambios['observaciones'] = resumen
@@ -477,6 +482,13 @@ def _resumen(campos):
     return ('Solicitud interna\n' + '\n'.join(lineas)) if lineas else None
 
 
+def _numero(valor):
+    try:
+        return round(float(str(valor).replace(',', '.')), 2) if valor not in (None, '') else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _local(valor):
     if not valor:
         return None
@@ -487,4 +499,9 @@ def _local(valor):
 
 
 def _comparable(valor):
+    """A value as it can be kept in JSON and compared with what was kept."""
+    from decimal import Decimal
+
+    if isinstance(valor, Decimal):
+        return float(valor)
     return valor.isoformat() if hasattr(valor, 'isoformat') else valor

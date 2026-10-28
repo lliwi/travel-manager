@@ -28,7 +28,7 @@ from app.blueprints.trips.forms import (
 )
 from app.extensions import db
 from app.models.catalog import Country
-from app.models.enums import DocumentType, RoleCode, TripPurpose, TripStatus
+from app.models.enums import RoleCode, TripPurpose, TripStatus
 from app.models.user import User
 from app.services import authorization_service, trip_service
 from app.services.authorization_service import Permiso, permissions_for
@@ -65,9 +65,9 @@ def _adjuntar_documentos(actor, trip, archivos):
         if archivo is None or not getattr(archivo, 'filename', ''):
             continue
         try:
-            document_service.upload(
-                actor, trip, archivo, tipo=DocumentType.RESERVA
-            )
+            # Detected from the content: several files at once are rarely all
+            # bookings, and calling every one of them that was the old mistake.
+            document_service.upload(actor, trip, archivo)
             adjuntados += 1
         except AppError as error:
             logger.info(

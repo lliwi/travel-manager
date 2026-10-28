@@ -13,6 +13,7 @@
         <h1>{{ document.nombre_original }}</h1>
         <p class="text-muted mb-0">
             {{ badge(document.estado_proceso.label, document.estado_proceso.css_class) }}
+            {{ badge(document.tipo.label, 'light') }}
             {{ badge(document.clasificacion.label, 'light') }}
             {{ document.tamano_legible }}
         </p>
@@ -132,6 +133,9 @@
                 <dl class="detail-list">
                     <dt>Hash SHA-256</dt>
                     <dd class="font-monospace small text-break">{{ document.hash_sha256 }}</dd>
+                    <dt>Tipo de documento</dt>
+                    <dd>{{ document.tipo.label }}{% if document.tipo_procedencia %}
+                        <span class="text-muted small">· {{ document.tipo_procedencia }}</span>{% endif %}</dd>
                     <dt>Tipo real</dt><dd>{{ document.mime or '—' }}</dd>
                     <dt>Páginas</dt><dd>{{ document.paginas or '—' }}</dd>
                     <dt>Antivirus</dt>
