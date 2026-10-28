@@ -30,7 +30,7 @@ from app.extensions import db
 from app.models.catalog import Country
 from app.models.enums import DocumentType, RoleCode, TripPurpose, TripStatus
 from app.models.user import User
-from app.services import trip_service
+from app.services import authorization_service, trip_service
 from app.services.authorization_service import Permiso, permissions_for
 from app.utils.decorators import rate_limited, require_permiso, require_trip_access
 from app.utils.errors import AppError, ResourceNotFound
@@ -150,14 +150,20 @@ def create():
             )
         except AppError as error:
             flash(error.mensaje, 'danger')
-            return render_template('trips/form.html', form=form, trip=None)
+            return render_template('trips/form.html', form=form, trip=None,
+                                   **_quien_crea())
 
         flash(f'Viaje {trip.referencia} creado.', 'success')
 
         # Documents are attached after the trip exists, because each one needs
         # a trip to hang off. A file that fails does not undo the trip: the
         # manager keeps what was created and is told which file to retry.
-        adjuntados, fallidos = _adjuntar_documentos(actor, trip, form.documentos.data)
+        # A traveller is not offered the field, and a file posted anyway is
+        # the manager's to add.
+        adjuntados, fallidos = (
+            _adjuntar_documentos(actor, trip, form.documentos.data)
+            if authorization_service.gestiona(actor) else (0, [])
+        )
 
         if adjuntados:
             flash(
@@ -179,7 +185,17 @@ def create():
         form.inicio_tz.data = zona
         form.fin_tz.data = zona
 
-    return render_template('trips/form.html', form=form, trip=None)
+    return render_template('trips/form.html', form=form, trip=None, **_quien_crea())
+
+
+def _quien_crea():
+    """Whether the form is a manager's or a traveller planning their own."""
+    actor = current_user._get_current_object()
+    gestiona = authorization_service.gestiona(actor)
+    return {
+        'gestiona': gestiona,
+        'gestor_por_defecto': None if gestiona else authorization_service.gestor_por_defecto(),
+    }
 
 
 @trips_bp.route('/<trip_id>')
@@ -200,6 +216,7 @@ def detail(trip_id, trip):
         timeline=timeline,
         permisos=permisos,
         Permiso=Permiso,
+        tipos_creables=authorization_service.tipos_que_puede_crear(actor, trip),
     )
 
 
@@ -876,7 +893,7 @@ def edit_itinerary_item(trip_id, kind, item_id, trip):
 
 @trips_bp.route('/<trip_id>/confirmar', methods=['GET', 'POST'])
 @login_required
-@require_trip_access(Permiso.EDITAR_ITINERARIO)
+@require_trip_access(Permiso.REVISAR_EXTRACCION)
 def confirm_itinerary(trip_id, trip):
     """Review and confirm every doubtful field of a trip in one pass.
 
@@ -928,7 +945,7 @@ def confirm_itinerary(trip_id, trip):
 
 @trips_bp.route('/<trip_id>/itinerario/<kind>/<item_id>/confirmar', methods=['POST'])
 @login_required
-@require_trip_access(Permiso.EDITAR_ITINERARIO)
+@require_trip_access(Permiso.REVISAR_EXTRACCION)
 def confirm_itinerary_item(trip_id, kind, item_id, trip):
     """Say that the doubtful fields of an item are right as they are.
 

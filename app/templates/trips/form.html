@@ -12,6 +12,8 @@
 {% endblock %}
 
 {% block content %}
+{# Editar es cosa del gestor; solo crear puede hacerlo quien viaja. #}
+{% set gestiona = gestiona if gestiona is defined else true %}
 <div class="page-header">
     <h1>{{ 'Editar viaje' if trip else 'Nuevo viaje' }}</h1>
     {% if trip %}<p class="text-muted mb-0"><span class="ref-code">{{ trip.referencia }}</span></p>{% endif %}
@@ -37,16 +39,31 @@
         <form method="post" enctype="multipart/form-data" novalidate>
             {{ form.hidden_tag() }}
 
+            {% if not gestiona and gestor_por_defecto %}
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle me-2"></i>
+                El viaje se creará en borrador a su nombre y a cargo de
+                <strong>{{ gestor_por_defecto.nombre_completo }}</strong>. Después podrá
+                añadir los vuelos y alojamientos que elija; la documentación, las
+                recomendaciones y la confirmación las hará el gestor.
+            </div>
+            {% endif %}
             <div class="card mb-3">
                 <div class="card-header">Datos generales</div>
                 <div class="card-body">
                     {{ render_field(form.titulo, placeholder='Reunión de coordinación en Berlín') }}
                     <div class="row">
+                        {% if gestiona %}
                         <div class="col-md-6">{{ render_field(form.estado) }}</div>
                         {% if trip and trip.estado.value == 'cancelado' %}
                         <div class="col-md-6">{{ render_field(form.motivo_estado) }}</div>
                         {% endif %}
                         <div class="col-md-6">{{ render_field(form.gestor_id) }}</div>
+                        {% else %}
+                        {# Quien viaja no decide el estado ni quién lo gestiona:
+                           el servidor lo fija igual, esto solo evita ofrecerlo. #}
+                        <input type="hidden" name="estado" value="borrador">
+                        {% endif %}
                         <div class="col-md-6">{{ render_field(form.finalidad) }}</div>
                         <div class="col-md-6">{{ render_field(form.finalidad_detalle) }}</div>
                         {# Fuera del bloque de costes a propósito: agrupar por
@@ -81,7 +98,7 @@
                 </div>
             </div>
 
-            {% if not trip %}
+            {% if not trip and gestiona %}
             <div class="card mb-3">
                 <div class="card-header">
                     <i class="bi bi-paperclip me-2"></i>Documentos de reserva
@@ -104,7 +121,7 @@
             </div>
             {% endif %}
 
-            {% if feature_flags.costs %}
+            {% if feature_flags.costs and gestiona %}
             <div class="card mb-3">
                 <div class="card-header">Costes</div>
                 <div class="card-body">

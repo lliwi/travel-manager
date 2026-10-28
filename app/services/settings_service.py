@@ -303,6 +303,23 @@ DEFAULTS = {
         False,
     ),
     # --- Features -----------------------------------------------------
+    'USUARIOS_PLANIFICAN': (
+        False, 'bool', 'funcionalidad', 'Las personas viajeras planifican sus viajes',
+        'Permite a quien tiene el perfil «usuario» crear sus propios viajes y '
+        'elegir vuelos y alojamientos, a mano o con el asistente, mientras el '
+        'viaje está en borrador o en preparación. La documentación, las '
+        'recomendaciones y la confirmación siguen siendo del gestor. Para crear '
+        'viajes hace falta además el gestor que los recibe, aquí debajo.',
+        False,
+    ),
+    'GESTOR_POR_DEFECTO': (
+        '', 'string', 'funcionalidad', 'Gestor de los viajes que crean las personas viajeras',
+        'Nombre de usuario o correo de quien queda a cargo de esos viajes y '
+        'recibe el aviso. Tiene que ser un gestor o un administrador activo; si '
+        'no lo es, las personas viajeras solo planifican en los viajes a los que '
+        'ya están asignadas.',
+        False,
+    ),
     'INVESTIGACION_WEB_HABILITADA': (
         True, 'bool', 'funcionalidad', 'Investigación en internet',
         'Permite consultar las fuentes públicas autorizadas para redactar '

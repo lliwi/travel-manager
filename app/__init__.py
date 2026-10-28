@@ -480,7 +480,29 @@ def register_template_helpers(app):
             'label': enums.label,
             'feature_flags': _flags(),
             'notificaciones_sin_leer': _sin_leer(),
+            'permisos_globales': _permisos_globales(),
+            'puede': _puede,
         }
+
+    def _permisos_globales():
+        """What the menu may offer: «Nuevo viaje» to whoever may create one."""
+        from flask_login import current_user
+
+        from app.services.authorization_service import permisos_de
+
+        if not getattr(current_user, 'is_authenticated', False):
+            return frozenset()
+        return permisos_de(current_user._get_current_object())
+
+    def _puede(permiso, recurso=None):
+        """``can()`` for one row, so a button is shown only where it works."""
+        from flask_login import current_user
+
+        from app.services.authorization_service import can
+
+        if not getattr(current_user, 'is_authenticated', False):
+            return False
+        return bool(can(current_user._get_current_object(), permiso, recurso))
 
     def _flags():
         """What the interface shows, decided in the panel.

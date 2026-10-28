@@ -11,7 +11,7 @@
         <h1>Viajes</h1>
         <p class="text-muted mb-0">{{ pagination.total }} viaje(s)</p>
     </div>
-    {% if current_user.is_gestor or current_user.is_administrador %}
+    {% if 'crear_viaje' in permisos_globales %}
     <a href="{{ url_for('trips.create') }}" class="btn btn-primary">
         <i class="bi bi-plus-lg me-1"></i>Nuevo viaje
     </a>

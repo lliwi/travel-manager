@@ -328,6 +328,7 @@ def create_item(actor, trip, kind, instants=None, commit=True, **campos):
     Every field written here gets provenance ``manual`` -- a person typed it.
     """
     model, prefixes = _resolve_kind(kind)
+    campos = _solo_lo_planificable(actor, trip, kind, campos)
 
     item = model(trip_id=trip.id)
     for field, value in campos.items():
@@ -496,6 +497,8 @@ def update_item(actor, trip, kind, item_id, instants=None, commit=True, **campos
     """Edit an itinerary item by hand."""
     model, prefixes = _resolve_kind(kind)
     item = _load_item(model, trip, item_id)
+    _exigir(actor, item)
+    campos = _solo_lo_planificable(actor, trip, kind, campos)
 
     cambiados = []
     for field, value in campos.items():
@@ -553,6 +556,7 @@ def delete_item(actor, trip, kind, item_id, commit=True):
     """Soft-delete an itinerary item."""
     model, _ = _resolve_kind(kind)
     item = _load_item(model, trip, item_id)
+    _exigir(actor, item)
 
     item.soft_delete(actor)
     trip.touch_itinerary()
@@ -567,6 +571,49 @@ def delete_item(actor, trip, kind, item_id, commit=True):
         )
         _schedule_alert_recalculation(trip, actor)
     return item
+
+
+def _exigir(actor, item):
+    """Refuse a change to a row this actor may not change.
+
+    The trip-level check in the route lets a planning traveller in; which rows
+    they may then touch is a question about the row, asked here so the screen
+    and the API cannot answer it differently.
+    """
+    from app.services.authorization_service import Permiso, can
+    from app.utils.errors import AuthorizationError
+
+    if not can(actor, Permiso.EDITAR_ITINERARIO, item):
+        raise AuthorizationError(
+            'Este elemento lo gestiona el gestor del viaje: viene de un documento '
+            'o es de otra persona viajera.'
+        )
+
+
+def _solo_lo_planificable(actor, trip, kind, campos):
+    """What a planning traveller writes: their own flights and lodging.
+
+    The kind is checked, and the row is addressed to them whatever the form
+    said: a traveller choosing «for the whole trip» on a shared trip would be
+    planning for somebody else.
+    """
+    from app.services import authorization_service
+    from app.utils.errors import AuthorizationError
+
+    if authorization_service.gestiona(actor):
+        return campos
+    if kind not in authorization_service.tipos_que_puede_crear(actor, trip):
+        raise AuthorizationError(
+            'Solo puede añadir trayectos y alojamientos; el resto lo gestiona el '
+            'gestor del viaje.'
+        )
+    propio = trip.traveler_for(actor.id)
+    campos = dict(campos)
+    if len(trip.active_travelers) == 1:
+        campos['trip_traveler_id'] = None
+    elif propio is not None:
+        campos['trip_traveler_id'] = propio.id
+    return campos
 
 
 def _schedule_alert_recalculation(trip, actor):

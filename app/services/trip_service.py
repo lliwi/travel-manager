@@ -56,9 +56,27 @@ def create_trip(actor, titulo, gestor=None, estado=TripStatus.BORRADOR,
 
     The manager defaults to the creating actor, which is the common case: a
     manager opening a trip they will run themselves.
+
+    A traveller planning their own trip is the other case. It is theirs to
+    plan and the manager's to run, so it opens as a draft, goes to the manager
+    named in Ajustes, puts them on it as its traveller, and carries no cost --
+    an amount typed by the person travelling is not the company's figure.
     """
     if not titulo or not str(titulo).strip():
         raise ValidationError('El título del viaje es obligatorio.')
+
+    from app.services import authorization_service
+
+    propio = not authorization_service.gestiona(actor)
+    if propio:
+        gestor = authorization_service.gestor_por_defecto()
+        if gestor is None:
+            raise ValidationError(
+                'No hay ningún gestor configurado para recibir los viajes que '
+                'crean las personas viajeras. Pídaselo al administrador.'
+            )
+        estado = TripStatus.BORRADOR
+        coste_estimado = moneda = None
 
     trip = Trip(
         referencia=referencia or generate_reference(),
@@ -82,6 +100,11 @@ def create_trip(actor, titulo, gestor=None, estado=TripStatus.BORRADOR,
 
     db.session.add(trip)
 
+    if propio:
+        db.session.flush()
+        add_traveler(actor, trip, actor, commit=False)
+        _avisar_al_gestor(trip, actor)
+
     if commit:
         db.session.commit()
         audit_service.record(
@@ -89,9 +112,35 @@ def create_trip(actor, titulo, gestor=None, estado=TripStatus.BORRADOR,
             recurso_tipo=AuditResourceType.VIAJE,
             recurso_id=str(trip.id),
             actor=actor,
-            metadatos={'referencia': trip.referencia, 'titulo': trip.titulo},
+            metadatos={'referencia': trip.referencia, 'titulo': trip.titulo,
+                       'planificado_por_viajero': propio},
         )
     return trip
+
+
+def _avisar_al_gestor(trip, actor):
+    """Tell the manager a traveller has started planning a trip for them."""
+    from flask import url_for
+
+    from app.services import notification_service
+
+    try:
+        enlace = url_for('trips.detail', trip_id=trip.id)
+    except RuntimeError:
+        enlace = None
+    notification_service.notificar(
+        trip.gestor or db.session.get(User, trip.gestor_id),
+        tipo='viaje',
+        clave=f'viaje_planificado:{trip.id}',
+        titulo=f'{actor.nombre_completo} ha empezado a planificar «{trip.titulo}»',
+        mensaje=(
+            'Es un borrador con los vuelos y alojamientos que ha elegido. Queda '
+            'a su cargo: documentación, recomendaciones y confirmación.'
+        ),
+        enlace=enlace,
+        trip=trip,
+        commit=False,
+    )
 
 
 def update_trip(actor, trip, commit=True, **campos):

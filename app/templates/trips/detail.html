@@ -85,7 +85,7 @@
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span><i class="bi bi-list-ol me-2"></i>Trayectos</span>
-                {% if Permiso.EDITAR_ITINERARIO in permisos %}
+                {% if tipos_creables %}
                 <div class="dropdown">
                     <button class="btn btn-sm btn-outline-primary dropdown-toggle" type="button"
                             data-bs-toggle="dropdown" aria-expanded="false">
@@ -96,7 +96,8 @@
                             ('segmento', 'Trayecto', 'airplane'),
                             ('alojamiento', 'Alojamiento', 'building'),
                             ('vehiculo', 'Vehículo', 'car-front'),
-                            ('servicio', 'Otro servicio', 'ticket-perforated')] %}
+                            ('servicio', 'Otro servicio', 'ticket-perforated')]
+                            if clave in tipos_creables %}
                         <li>
                             <a class="dropdown-item"
                                href="{{ url_for('trips.create_itinerary_item', trip_id=trip.id, kind=clave) }}">
@@ -142,7 +143,7 @@
                         {{ 'elemento tiene' if por_revisar | length == 1 else 'elementos tienen' }}
                         algún campo que la extracción no leyó con seguridad.
                     </span>
-                    {% if Permiso.EDITAR_ITINERARIO in permisos %}
+                    {% if Permiso.REVISAR_EXTRACCION in permisos %}
                     <a href="{{ url_for('trips.confirm_itinerary', trip_id=trip.id) }}"
                        class="btn btn-sm btn-outline-secondary text-nowrap">
                         Revisarlos
@@ -223,7 +224,7 @@
                                        aria-label="Ver el documento de {{ item.etiqueta }}">
                                         <i class="bi bi-file-earmark-text"></i></a>
                                     {% endif %}
-                                    {% if Permiso.EDITAR_ITINERARIO in permisos %}
+                                    {% if puede(Permiso.EDITAR_ITINERARIO, item) %}
                                     <a class="btn btn-sm btn-outline-secondary"
                                        href="{{ url_for('trips.edit_itinerary_item', trip_id=trip.id,
                                                         kind=entrada.kind, item_id=item.id) }}"
@@ -276,7 +277,7 @@
         <div class="card mb-3">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span><i class="bi bi-building me-2"></i>Alojamiento</span>
-                {% if Permiso.EDITAR_ITINERARIO in permisos %}
+                {% if 'alojamiento' in tipos_creables %}
                 <a href="{{ url_for('trips.create_itinerary_item', trip_id=trip.id, kind='alojamiento') }}"
                    class="btn btn-sm btn-outline-primary">
                     <i class="bi bi-plus-lg me-1"></i>Añadir
@@ -346,7 +347,7 @@
                                aria-label="Ver el documento de {{ hotel.nombre }}">
                                 <i class="bi bi-file-earmark-text"></i></a>
                             {% endif %}
-                            {% if Permiso.EDITAR_ITINERARIO in permisos %}
+                            {% if puede(Permiso.EDITAR_ITINERARIO, hotel) %}
                             <a class="btn btn-sm btn-outline-secondary"
                                href="{{ url_for('trips.edit_itinerary_item', trip_id=trip.id,
                                                 kind='alojamiento', item_id=hotel.id) }}"

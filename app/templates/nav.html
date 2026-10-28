@@ -33,8 +33,8 @@
         </a>
     </li>
 
-    {% if current_user.is_gestor or current_user.is_administrador %}
-    <li class="sidebar-section"><span class="sidebar-section-label">Gestión</span></li>
+    {% if 'crear_viaje' in permisos_globales %}
+    <li class="sidebar-section"><span class="sidebar-section-label">{{ 'Gestión' if current_user.is_gestor or current_user.is_administrador else 'Planificación' }}</span></li>
     <li>
         <a href="{{ url_for('trips.create') }}" class="nav-link">
             <i class="bi bi-plus-circle"></i><span>Nuevo viaje</span>

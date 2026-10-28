@@ -92,6 +92,16 @@ PERMISOS_USUARIO = frozenset({
     Permiso.CONSULTAR_IA,
 })
 
+#: What a traveller may plan on their own trips when the organisation allows
+#: it: choosing flights and lodging, by hand or with the assistant. Everything
+#: after that -- documents, advisories, confirming what the extraction read --
+#: stays with the manager.
+TIPOS_PLANIFICABLES = ('segmento', 'alojamiento')
+
+#: Planning stops when the manager confirms the trip: from then on the
+#: itinerary is what was booked, not a proposal.
+ESTADOS_PLANIFICABLES = ('borrador', 'en_preparacion')
+
 
 class AccessDecision:
     """The outcome of an authorisation question.
@@ -224,7 +234,8 @@ def can(actor, permiso, recurso=None):
 
     # --- No resource: a global permission question ---------------------
     if recurso is None:
-        permisos = PERMISOS_GESTOR if actor.has_role(RoleCode.GESTOR) else PERMISOS_USUARIO
+        permisos = (PERMISOS_GESTOR if actor.has_role(RoleCode.GESTOR)
+                    else _traveler_global_permissions())
         allowed = permiso in (permisos & PERMISOS_GLOBALES)
         return AccessDecision(
             allowed, 'rol_global' if allowed else 'permiso_global_denegado', permisos
@@ -249,8 +260,12 @@ def can(actor, permiso, recurso=None):
 
     # --- Traveller: only their own trips -------------------------------
     if _is_traveler(actor, trip):
-        permisos = _traveler_permissions()
+        permisos = _traveler_permissions(trip)
         allowed = permiso in permisos
+        if allowed and permiso is Permiso.EDITAR_ITINERARIO:
+            motivo = _fuera_de_lo_planificable(actor, trip, recurso)
+            if motivo:
+                return AccessDecision(False, motivo, permisos, trip.id)
         return AccessDecision(
             allowed, 'viajero_asignado' if allowed else 'permiso_viajero_denegado',
             permisos, trip.id,
@@ -282,7 +297,7 @@ def permisos_de(actor):
         return PERMISOS_ADMIN
     if actor.has_role(RoleCode.GESTOR):
         return _narrow_by_settings(PERMISOS_GESTOR)
-    return _traveler_permissions()
+    return _traveler_permissions() | _traveler_global_permissions()
 
 
 def _narrow_by_settings(permisos):
@@ -295,8 +310,13 @@ def _narrow_by_settings(permisos):
     return frozenset(permisos)
 
 
-def _traveler_permissions():
-    """Traveller permissions, narrowed by the current runtime settings."""
+def _traveler_permissions(trip=None):
+    """Traveller permissions, narrowed by the current runtime settings.
+
+    With planning allowed, a traveller also edits the itinerary of a trip that
+    is still a proposal. ``trip`` is what says whether it still is; without one
+    the answer is about no trip in particular, so planning is not included.
+    """
     from app.services import settings_service
 
     permisos = set(PERMISOS_USUARIO)
@@ -304,7 +324,102 @@ def _traveler_permissions():
         permisos.discard(Permiso.DESCARGAR_DOCUMENTO)
     if not settings_service.get_bool('COSTES_HABILITADOS', False):
         permisos.discard(Permiso.VER_COSTES)
+    if trip is not None and usuarios_planifican() and \
+            str(getattr(trip, 'estado', '') or '') in ESTADOS_PLANIFICABLES:
+        permisos.add(Permiso.EDITAR_ITINERARIO)
     return frozenset(permisos)
+
+
+def _traveler_global_permissions():
+    """A traveller's global permissions: creating a trip, when planning is on.
+
+    Only with a manager to hand it to. A trip nobody manages would sit in
+    draft with its documents, advisories and confirmation waiting for a person
+    who was never told it exists.
+    """
+    if usuarios_planifican() and gestor_por_defecto() is not None:
+        return PERMISOS_USUARIO | {Permiso.CREAR_VIAJE}
+    return PERMISOS_USUARIO
+
+
+def usuarios_planifican():
+    """Whether travellers may plan their own trips (Ajustes → Funcionalidad)."""
+    from app.services import settings_service
+
+    return settings_service.get_bool('USUARIOS_PLANIFICAN', False)
+
+
+def gestor_por_defecto():
+    """The manager who receives the trips travellers create, or None.
+
+    The setting names an account by user name or email. One that does not
+    exist, is disabled or has no manager role counts as unset: handing trips
+    to an account that cannot act on them is how they would be lost.
+    """
+    from app.models.user import User
+    from app.services import settings_service
+
+    nombre = (settings_service.get('GESTOR_POR_DEFECTO') or '').strip()
+    if not nombre:
+        return None
+    usuario = User.query.filter(
+        db.or_(User.username == nombre, User.email == nombre.lower()),
+        User.is_deleted.is_(False),
+    ).first()
+    if usuario is None or not getattr(usuario, 'is_active_account', False):
+        return None
+    if not (usuario.has_role(RoleCode.GESTOR) or usuario.has_role(RoleCode.ADMINISTRADOR)):
+        return None
+    return usuario
+
+
+def gestiona(actor):
+    """Whether the actor runs trips rather than travels on them."""
+    return actor is not None and (
+        actor.has_role(RoleCode.GESTOR) or actor.has_role(RoleCode.ADMINISTRADOR)
+    )
+
+
+def tipos_que_puede_crear(actor, trip):
+    """The itinerary kinds this actor may add to ``trip`` by hand."""
+    from app.services.itinerary_service import ENTITY_MAP
+
+    if not can(actor, Permiso.EDITAR_ITINERARIO, trip):
+        return ()
+    if gestiona(actor):
+        return tuple(ENTITY_MAP)
+    return TIPOS_PLANIFICABLES
+
+
+def _fuera_de_lo_planificable(actor, trip, recurso):
+    """Why a traveller may not touch this itinerary row, or None.
+
+    What they planned is theirs; what came from a document is the manager's,
+    because it records what was booked, and so is a row that is somebody
+    else's on a trip shared by several people.
+    """
+    from app.models.itinerary import (
+        Accommodation,
+        OtherService,
+        TravelSegment,
+        VehicleRental,
+    )
+
+    if not isinstance(recurso, (TravelSegment, Accommodation, VehicleRental, OtherService)):
+        return None
+    if not isinstance(recurso, (TravelSegment, Accommodation)):
+        return 'tipo_no_planificable'
+    if recurso.documento_origen_id is not None:
+        return 'elemento_de_documento'
+
+    propio = trip.traveler_for(actor.id)
+    if recurso.trip_traveler_id is None:
+        # For the whole trip: theirs only when the whole trip is them.
+        if len(trip.active_travelers) != 1:
+            return 'elemento_de_otros'
+    elif propio is None or recurso.trip_traveler_id != propio.id:
+        return 'elemento_de_otros'
+    return None
 
 
 def _trip_mutable(trip, permiso):
