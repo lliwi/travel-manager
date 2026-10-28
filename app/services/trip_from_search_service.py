@@ -227,7 +227,7 @@ def _alojamiento(trip, bruto, entrada, salida, actor, avisos, enlace=None,
 
 
 def crear_viaje(actor, titulo, vuelos=(), alojamientos=(), proyecto=None,
-                entrada=None, salida=None, enlace=None):
+                entrada=None, salida=None, enlace=None, gestor=None):
     """Create a draft trip from what somebody picked on the planning screen.
 
     Returns ``(trip, avisos)``. The warnings are not errors: the trip is
@@ -241,6 +241,7 @@ def crear_viaje(actor, titulo, vuelos=(), alojamientos=(), proyecto=None,
     trip = trip_service.create_trip(
         actor,
         titulo=titulo or 'Viaje sin título',
+        gestor=gestor,
         estado=TripStatus.BORRADOR,
         proyecto=proyecto,
         commit=False,

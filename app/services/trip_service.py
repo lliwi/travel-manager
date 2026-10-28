@@ -59,8 +59,9 @@ def create_trip(actor, titulo, gestor=None, estado=TripStatus.BORRADOR,
 
     A traveller planning their own trip is the other case. It is theirs to
     plan and the manager's to run, so it opens as a draft, goes to the manager
-    named in Ajustes, puts them on it as its traveller, and carries no cost --
-    an amount typed by the person travelling is not the company's figure.
+    named in Ajustes -- or, without one, to the manager they chose -- puts
+    them on it as its traveller, and carries no cost: an amount typed by the
+    person travelling is not the company's figure.
     """
     if not titulo or not str(titulo).strip():
         raise ValidationError('El título del viaje es obligatorio.')
@@ -69,12 +70,7 @@ def create_trip(actor, titulo, gestor=None, estado=TripStatus.BORRADOR,
 
     propio = not authorization_service.gestiona(actor)
     if propio:
-        gestor = authorization_service.gestor_por_defecto()
-        if gestor is None:
-            raise ValidationError(
-                'No hay ningún gestor configurado para recibir los viajes que '
-                'crean las personas viajeras. Pídaselo al administrador.'
-            )
+        gestor = authorization_service.gestor_para_viaje_propio(elegido=gestor)
         estado = TripStatus.BORRADOR
         coste_estimado = moneda = None
 

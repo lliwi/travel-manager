@@ -39,12 +39,13 @@
         <form method="post" enctype="multipart/form-data" novalidate>
             {{ form.hidden_tag() }}
 
-            {% if not gestiona and gestor_por_defecto %}
+            {% if not gestiona %}
             <div class="alert alert-info">
                 <i class="bi bi-info-circle me-2"></i>
                 El viaje se creará en borrador a su nombre y a cargo de
-                <strong>{{ gestor_por_defecto.nombre_completo }}</strong>. Después podrá
-                añadir los vuelos y alojamientos que elija; la documentación, las
+                {% if gestor_por_defecto %}<strong>{{ gestor_por_defecto.nombre_completo }}</strong>{% else %}el gestor que elija{% endif %}.
+                Después podrá añadir los vuelos y alojamientos que elija y subir sus
+                documentos; la revisión de lo que se lea en ellos, las
                 recomendaciones y la confirmación las hará el gestor.
             </div>
             {% endif %}
@@ -60,9 +61,13 @@
                         {% endif %}
                         <div class="col-md-6">{{ render_field(form.gestor_id) }}</div>
                         {% else %}
-                        {# Quien viaja no decide el estado ni quién lo gestiona:
-                           el servidor lo fija igual, esto solo evita ofrecerlo. #}
+                        {# Quien viaja no decide el estado: el servidor lo fija
+                           igual, esto solo evita ofrecerlo. El gestor lo elige
+                           solo si no hay uno por defecto en Ajustes. #}
                         <input type="hidden" name="estado" value="borrador">
+                        {% if not gestor_por_defecto %}
+                        <div class="col-md-6">{{ render_field(form.gestor_id) }}</div>
+                        {% endif %}
                         {% endif %}
                         <div class="col-md-6">{{ render_field(form.finalidad) }}</div>
                         <div class="col-md-6">{{ render_field(form.finalidad_detalle) }}</div>
@@ -98,7 +103,7 @@
                 </div>
             </div>
 
-            {% if not trip and gestiona %}
+            {% if not trip %}
             <div class="card mb-3">
                 <div class="card-header">
                     <i class="bi bi-paperclip me-2"></i>Documentos de reserva

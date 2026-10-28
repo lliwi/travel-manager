@@ -171,9 +171,20 @@
                     todo queda <strong>sin confirmar</strong> hasta que alguien
                     lo revise.
                 </div>
-                <button class="btn btn-primary text-nowrap">
-                    <i class="bi bi-suitcase-lg me-1"></i>Crear viaje en borrador
-                </button>
+                <div class="d-flex gap-2 align-items-center">
+                    {% if not gestiona and not gestor_por_defecto and gestores | length > 1 %}
+                    <select name="gestor_id" class="form-select form-select-sm" required
+                            aria-label="Gestor que llevará el viaje">
+                        <option value="">— Elija gestor —</option>
+                        {% for g in gestores %}
+                        <option value="{{ g.id }}">{{ g.nombre_completo }}</option>
+                        {% endfor %}
+                    </select>
+                    {% endif %}
+                    <button class="btn btn-primary text-nowrap">
+                        <i class="bi bi-suitcase-lg me-1"></i>Crear viaje en borrador
+                    </button>
+                </div>
             </div>
         </form>
         {% endif %}

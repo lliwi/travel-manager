@@ -1047,6 +1047,14 @@ def puede_aprobarse_sola(extraction):
         # be asked whether it should have been discarded instead.
         return False, 'no describe ningún servicio'
 
+    from app.services.authorization_service import gestiona
+
+    if not gestiona(extraction.document.subido_por):
+        # The approval is recorded in the uploader's name, and a traveller
+        # cannot approve: their document waits for the manager like a
+        # correction of theirs would.
+        return False, 'lo subió una persona viajera'
+
     minima = confianza_minima(extraction)
     detalle = (
         f'el campo menos fiable está en {minima:.2f}' if minima is not None

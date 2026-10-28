@@ -215,7 +215,7 @@ class TestLaPantallaDelViaje:
         assert 'itinerario/alojamiento/nuevo' in html
         assert 'itinerario/vehiculo/nuevo' not in html
 
-    def test_el_formulario_de_alta_no_pide_estado_ni_documentos(
+    def test_el_formulario_de_alta_no_pide_estado_y_si_admite_documentos(
         self, as_user, viajero, gestor,
     ):
         _activar(gestor)
@@ -223,8 +223,9 @@ class TestLaPantallaDelViaje:
         with as_user(viajero) as client:
             html = client.get('/trips/nuevo').get_data(as_text=True)
 
-        assert 'name="gestor_id"' not in html
-        assert 'Documentos de reserva' not in html
+        assert 'name="gestor_id"' not in html, 'hay gestor por defecto'
+        assert 'name="estado" value="borrador"' in html
+        assert 'Documentos de reserva' in html
         assert gestor.nombre_completo in html
 
     def test_crear_desde_la_pantalla(self, as_user, viajero, gestor):
@@ -242,3 +243,147 @@ class TestLaPantallaDelViaje:
         trip = Trip.query.filter_by(titulo='Revisión de prototipo').one()
         assert str(trip.estado) in ESTADOS_PLANIFICABLES
         assert trip.gestor_id == gestor.id
+
+
+@pytest.fixture
+def otro_gestor(seeded):
+    from app.models.enums import RoleCode
+    from tests.conftest import _make_user
+
+    return _make_user('gestor2', 'gestor2@example.test', 'Segundo', RoleCode.GESTOR)
+
+
+class TestSinGestorPorDefecto:
+    """Without a default, the traveller chooses -- and nothing is guessed."""
+
+    def test_con_un_solo_gestor_va_a_ese(self, viajero, gestor):
+        _activar()
+
+        assert can(viajero, Permiso.CREAR_VIAJE)
+        trip = trip_service.create_trip(viajero, titulo='Mi viaje')
+
+        assert trip.gestor_id == gestor.id
+
+    def test_con_varios_hay_que_elegir(self, viajero, gestor, otro_gestor):
+        _activar()
+
+        with pytest.raises(ValidationError, match='Elija'):
+            trip_service.create_trip(viajero, titulo='Mi viaje')
+
+        trip = trip_service.create_trip(viajero, titulo='Mi viaje', gestor=otro_gestor)
+        assert trip.gestor_id == otro_gestor.id
+
+    def test_no_vale_elegirse_a_si_mismo(self, viajero, gestor, otro_gestor):
+        _activar()
+
+        with pytest.raises(ValidationError):
+            trip_service.create_trip(viajero, titulo='Mi viaje', gestor=viajero)
+
+    def test_el_por_defecto_manda_sobre_lo_elegido(self, viajero, gestor, otro_gestor):
+        _activar(gestor)
+
+        trip = trip_service.create_trip(viajero, titulo='Mi viaje', gestor=otro_gestor)
+
+        assert trip.gestor_id == gestor.id
+
+    def test_la_pantalla_ofrece_los_gestores(self, as_user, viajero, gestor, otro_gestor):
+        _activar()
+
+        with as_user(viajero) as client:
+            html = client.get('/trips/nuevo').get_data(as_text=True)
+
+        assert 'name="gestor_id"' in html
+        assert otro_gestor.nombre_completo in html
+        assert 'Yo mismo' not in html
+
+
+def _subir(actor, trip, nombre='reserva.pdf', **kwargs):
+    import io
+
+    from werkzeug.datastructures import FileStorage
+
+    from app.services import document_service
+    from tests.conftest import _booking_pdf_bytes
+
+    return document_service.upload(
+        actor, trip,
+        FileStorage(stream=io.BytesIO(_booking_pdf_bytes() + nombre.encode()),
+                    filename=nombre, content_type='application/pdf'),
+        **kwargs,
+    )
+
+
+class TestSubirDocumentos:
+    def test_apagado_no_puede(self, viajero, borrador):
+        assert not can(viajero, Permiso.SUBIR_DOCUMENTO, borrador)
+
+    def test_en_sus_viajes_puede_tambien_ya_confirmados(self, viajero, borrador):
+        _activar()
+
+        assert can(viajero, Permiso.SUBIR_DOCUMENTO, borrador)
+        borrador.estado = TripStatus.EN_CURSO
+        assert can(viajero, Permiso.SUBIR_DOCUMENTO, borrador), \
+            'la tarjeta de embarque llega el mismo día'
+
+    def test_en_uno_cancelado_no(self, viajero, borrador):
+        _activar()
+        borrador.estado = TripStatus.CANCELADO
+
+        assert not can(viajero, Permiso.SUBIR_DOCUMENTO, borrador)
+
+    def test_queda_a_su_nombre_en_un_viaje_compartido(
+        self, viajero, otro_viajero, gestor, borrador,
+    ):
+        _activar()
+        trip_service.add_traveler(gestor, borrador, otro_viajero)
+        del_otro = borrador.traveler_for(otro_viajero.id)
+
+        documento = _subir(viajero, borrador, trip_traveler_id=del_otro.id)
+
+        assert documento.trip_traveler_id == borrador.traveler_for(viajero.id).id
+
+    def test_se_avisa_al_gestor(self, viajero, gestor, borrador):
+        from app.models.notification import Notification
+
+        _activar()
+        documento = _subir(viajero, borrador)
+        db.session.commit()
+
+        aviso = Notification.query.filter_by(
+            usuario_id=gestor.id, clave=f'documento_de_viajero:{documento.id}').one()
+        assert 'reserva.pdf' in aviso.titulo
+
+    def test_no_se_aprueba_solo_aunque_este_activado(self, viajero, borrador):
+        from app.models.enums import DocumentProcessState
+        from app.tasks import document_tasks
+
+        _activar()
+        settings_service.set_value('DOCUMENTOS_AUTO_APROBAR', True)
+        documento = _subir(viajero, borrador)
+        db.session.commit()
+
+        for _, task in document_tasks.PIPELINE:
+            task.run(str(documento.id))
+        db.session.refresh(documento)
+
+        assert documento.estado_proceso is DocumentProcessState.PENDIENTE_REVISION
+
+    def test_pero_revisar_lo_leido_sigue_siendo_del_gestor(self, viajero, borrador):
+        _activar()
+
+        assert not can(viajero, Permiso.REVISAR_EXTRACCION, borrador)
+        assert not can(viajero, Permiso.ELIMINAR_DOCUMENTO, borrador)
+
+    def test_la_pantalla_de_subida_no_ofrece_a_los_demas(
+        self, as_user, viajero, otro_viajero, gestor, borrador,
+    ):
+        _activar()
+        trip_service.add_traveler(gestor, borrador, otro_viajero)
+
+        with as_user(viajero) as client:
+            respuesta = client.get(f'/documents/viaje/{borrador.id}/subir')
+
+        assert respuesta.status_code == 200
+        html = respuesta.get_data(as_text=True)
+        assert otro_viajero.nombre_completo not in html
+        assert 'El gestor del viaje revisa' in html

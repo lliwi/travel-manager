@@ -195,6 +195,28 @@ def mark_failed(document, codigo, mensaje, tarea=None, estado=None, commit=True)
 # ======================================================================
 # Upload
 # ======================================================================
+def _avisar_al_gestor(document, trip, actor):
+    """Tell the trip's manager a traveller has added something to review."""
+    from flask import url_for
+
+    from app.services import notification_service
+
+    try:
+        enlace = url_for('documents.detail', document_id=document.id)
+    except RuntimeError:
+        enlace = None
+    notification_service.notificar(
+        trip.gestor,
+        tipo='documento',
+        clave=f'documento_de_viajero:{document.id}',
+        titulo=f'{actor.nombre_completo} ha subido «{document.nombre_original}»',
+        mensaje=f'Al viaje {trip.referencia}. Queda pendiente de que lo revise.',
+        enlace=enlace,
+        trip=trip,
+        commit=False,
+    )
+
+
 def upload(actor, trip, file_storage, tipo=DocumentType.OTRO,
            trip_traveler_id=None, commit=True):
     """Accept an uploaded file and start the pipeline.
@@ -235,6 +257,17 @@ def upload(actor, trip, file_storage, tipo=DocumentType.OTRO,
             f'(«{duplicate.nombre_original}»).'
         )
 
+    from app.services import authorization_service
+
+    viajero = not authorization_service.gestiona(actor)
+    if viajero:
+        # Addressed to them whatever the form said, as their itinerary rows
+        # are: on a shared trip, «for the whole trip» would file a booking
+        # under colleagues who never see this one.
+        propio = trip.traveler_for(actor.id)
+        trip_traveler_id = (None if len(trip.active_travelers) == 1
+                            else getattr(propio, 'id', None))
+
     document = Document(
         trip_id=trip.id,
         trip_traveler_id=trip_traveler_id or None,
@@ -265,6 +298,8 @@ def upload(actor, trip, file_storage, tipo=DocumentType.OTRO,
     from app.services import trip_service
 
     trip_service.marcar_actividad(document.trip or trip, actor, commit=False)
+    if viajero:
+        _avisar_al_gestor(document, trip, actor)
 
     # Audited whether or not this call commits: an upload that the caller
     # commits as part of a larger transaction is still an upload.

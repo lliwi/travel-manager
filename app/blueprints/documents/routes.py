@@ -41,11 +41,18 @@ def index(trip_id, trip):
 def upload(trip_id, trip):
     """Attach a document to a trip and start the processing pipeline."""
     from app.blueprints.documents.forms import DocumentUploadForm
+    from app.services.authorization_service import gestiona
 
+    actor = current_user._get_current_object()
     form = DocumentUploadForm()
-    form.trip_traveler_id.choices = [('', '— Todo el viaje —')] + [
-        (str(t.id), t.nombre_completo) for t in trip.active_travelers
-    ]
+    if gestiona(actor):
+        form.trip_traveler_id.choices = [('', '— Todo el viaje —')] + [
+            (str(t.id), t.nombre_completo) for t in trip.active_travelers
+        ]
+    else:
+        # A traveller files documents under their own name; the service would
+        # make it so anyway, and offering colleagues would say otherwise.
+        form.trip_traveler_id.choices = [('', 'A mi nombre')]
 
     if form.validate_on_submit():
         from app.models.enums import DocumentType
@@ -60,7 +67,8 @@ def upload(trip_id, trip):
             )
         except AppError as error:
             flash(error.mensaje, 'danger')
-            return render_template('documents/upload.html', trip=trip, form=form)
+            return render_template('documents/upload.html', trip=trip, form=form,
+                                   gestiona=gestiona(actor))
 
         flash(
             f'Documento «{document.nombre_original}» recibido. '
@@ -69,7 +77,8 @@ def upload(trip_id, trip):
         )
         return redirect(url_for('documents.detail', document_id=document.id))
 
-    return render_template('documents/upload.html', trip=trip, form=form)
+    return render_template('documents/upload.html', trip=trip, form=form,
+                           gestiona=gestiona(actor))
 
 
 @documents_bp.route('/<document_id>')

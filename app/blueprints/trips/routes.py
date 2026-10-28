@@ -121,9 +121,15 @@ def index():
 def create():
     """Create a trip (specification flow 5.1 step 1)."""
     form = TripForm()
-    form.gestor_id.choices = [('', '— Yo mismo —')] + _user_choices(
-        (RoleCode.GESTOR, RoleCode.ADMINISTRADOR)
-    )
+    if authorization_service.gestiona(current_user._get_current_object()):
+        form.gestor_id.choices = [('', '— Yo mismo —')] + _user_choices(
+            (RoleCode.GESTOR, RoleCode.ADMINISTRADOR)
+        )
+    else:
+        form.gestor_id.choices = [('', '— Elija gestor —')] + [
+            (str(g.id), g.nombre_completo)
+            for g in authorization_service.gestores_disponibles()
+        ]
 
     if form.validate_on_submit():
         actor = current_user._get_current_object()
@@ -158,12 +164,7 @@ def create():
         # Documents are attached after the trip exists, because each one needs
         # a trip to hang off. A file that fails does not undo the trip: the
         # manager keeps what was created and is told which file to retry.
-        # A traveller is not offered the field, and a file posted anyway is
-        # the manager's to add.
-        adjuntados, fallidos = (
-            _adjuntar_documentos(actor, trip, form.documentos.data)
-            if authorization_service.gestiona(actor) else (0, [])
-        )
+        adjuntados, fallidos = _adjuntar_documentos(actor, trip, form.documentos.data)
 
         if adjuntados:
             flash(
@@ -195,6 +196,7 @@ def _quien_crea():
     return {
         'gestiona': gestiona,
         'gestor_por_defecto': None if gestiona else authorization_service.gestor_por_defecto(),
+        'gestores': [] if gestiona else authorization_service.gestores_disponibles(),
     }
 
 
@@ -479,6 +481,7 @@ def plan():
     return render_template(
         'trips/plan.html', form=form, plan=plan, opciones=opciones,
         buscador=travel_search_service.estado(),
+        **_quien_crea(),
     )
 
 
@@ -612,6 +615,7 @@ def create_from_search():
         trip, avisos = trip_from_search_service.crear_viaje(
             current_user._get_current_object(),
             titulo=request.form.get('titulo') or None,
+            gestor=_gestor_elegido(request.form.get('gestor_id')),
             vuelos=vuelos,
             alojamientos=alojamientos,
             entrada=entrada,
@@ -636,6 +640,16 @@ def create_from_search():
         flash(aviso, 'warning')
 
     return redirect(url_for('trips.detail', trip_id=trip.id))
+
+
+def _gestor_elegido(crudo):
+    """The manager picked on a traveller's form, or None."""
+    if not crudo:
+        return None
+    try:
+        return db.session.get(User, uuid.UUID(str(crudo)))
+    except (TypeError, ValueError):
+        return None
 
 
 def _fecha_hora(crudo):

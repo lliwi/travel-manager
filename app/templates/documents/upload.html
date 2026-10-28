@@ -19,7 +19,12 @@
                     {{ form.hidden_tag() }}
                     {{ dropzone(form.archivo) }}
                     {{ render_field(form.tipo) }}
+                    {% if gestiona %}
                     {{ render_field(form.trip_traveler_id) }}
+                    {% else %}
+                    {# A su nombre siempre: el servidor lo fija igual. #}
+                    <input type="hidden" name="trip_traveler_id" value="">
+                    {% endif %}
                     {{ form.submit(class='btn btn-primary') }}
                 </form>
             </div>
@@ -35,7 +40,12 @@
                     <li>Se guarda el original y se verifica su hash SHA-256.</li>
                     <li>Se extrae el texto, con OCR si el documento es una imagen.</li>
                     <li>Se clasifica y se extraen los datos estructurados.</li>
+                    {% if gestiona %}
                     <li>Usted revisa y aprueba los datos antes de que entren al itinerario.</li>
+                    {% else %}
+                    <li>El gestor del viaje revisa y aprueba los datos antes de que entren
+                        al itinerario; se le avisa al subirlo.</li>
+                    {% endif %}
                 </ol>
                 <p class="text-muted small mb-0">
                     Formatos admitidos: PDF, JPG, PNG, TIFF, correos EML o MSG (Outlook) y hojas XLSX (solicitud interna).

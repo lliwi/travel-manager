@@ -324,20 +324,26 @@ def _traveler_permissions(trip=None):
         permisos.discard(Permiso.DESCARGAR_DOCUMENTO)
     if not settings_service.get_bool('COSTES_HABILITADOS', False):
         permisos.discard(Permiso.VER_COSTES)
-    if trip is not None and usuarios_planifican() and \
-            str(getattr(trip, 'estado', '') or '') in ESTADOS_PLANIFICABLES:
-        permisos.add(Permiso.EDITAR_ITINERARIO)
+    if trip is not None and usuarios_planifican():
+        if str(getattr(trip, 'estado', '') or '') in ESTADOS_PLANIFICABLES:
+            permisos.add(Permiso.EDITAR_ITINERARIO)
+        # Documents are not limited to planning: the boarding pass arrives on
+        # the day and the receipts after it. Uploading makes nothing real --
+        # the manager still reviews what is read -- so only a cancelled trip,
+        # which accepts nothing from anybody, refuses one.
+        if getattr(trip, 'is_editable', True):
+            permisos.add(Permiso.SUBIR_DOCUMENTO)
     return frozenset(permisos)
 
 
 def _traveler_global_permissions():
     """A traveller's global permissions: creating a trip, when planning is on.
 
-    Only with a manager to hand it to. A trip nobody manages would sit in
-    draft with its documents, advisories and confirmation waiting for a person
-    who was never told it exists.
+    Only with a manager to hand it to -- the default one, or one the traveller
+    picks. A trip nobody manages would sit in draft with its documents,
+    advisories and confirmation waiting for a person who was never told.
     """
-    if usuarios_planifican() and gestor_por_defecto() is not None:
+    if usuarios_planifican() and gestores_disponibles():
         return PERMISOS_USUARIO | {Permiso.CREAR_VIAJE}
     return PERMISOS_USUARIO
 
@@ -371,6 +377,49 @@ def gestor_por_defecto():
     if not (usuario.has_role(RoleCode.GESTOR) or usuario.has_role(RoleCode.ADMINISTRADOR)):
         return None
     return usuario
+
+
+def gestores_disponibles():
+    """Active managers, by name: who a traveller may hand a trip to."""
+    from app.models.user import Role, User
+
+    return (
+        User.query.filter(User.is_deleted.is_(False))
+        .join(User.roles).filter(Role.codigo == RoleCode.GESTOR)
+        .order_by(User.nombre, User.apellidos).all()
+    )
+
+
+def gestor_para_viaje_propio(elegido=None):
+    """The manager a traveller's new trip goes to.
+
+    The default from Ajustes wins, so an organisation that names one gets a
+    single inbox. Without it the traveller's choice counts, provided it is an
+    active manager; with no choice and a single manager, that one. Anything
+    else is refused rather than guessed: a trip sent to the wrong manager is
+    a trip nobody looks at.
+    """
+    from app.utils.errors import ValidationError
+
+    por_defecto = gestor_por_defecto()
+    if por_defecto is not None:
+        return por_defecto
+
+    disponibles = [g for g in gestores_disponibles()
+                   if getattr(g, 'is_active_account', False)]
+    if elegido is not None:
+        if any(str(g.id) == str(getattr(elegido, 'id', elegido)) for g in disponibles):
+            return next(g for g in disponibles
+                        if str(g.id) == str(getattr(elegido, 'id', elegido)))
+        raise ValidationError('El gestor elegido no está disponible.')
+    if len(disponibles) == 1:
+        return disponibles[0]
+    if not disponibles:
+        raise ValidationError(
+            'No hay ningún gestor activo que pueda llevar el viaje. Pídaselo al '
+            'administrador.'
+        )
+    raise ValidationError('Elija qué gestor llevará el viaje.')
 
 
 def gestiona(actor):
