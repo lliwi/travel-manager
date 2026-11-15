@@ -21,6 +21,7 @@ from app.models.enums import (
     DOCUMENT_TERMINAL_STATES,
     AlertSeverity,
     DocumentProcessState,
+    TipoGasto,
     TripStatus,
 )
 from app.models.itinerary import Accommodation, TravelSegment
@@ -328,6 +329,84 @@ def gastos_por_proyecto(actor, atras=MESES_ATRAS, adelante=MESES_ADELANTE):
     }
 
 
+SIN_CUENTA = 'Sin cuenta asignada'
+
+
+def gastos_por_cuenta(actor, atras=MESES_ATRAS, adelante=MESES_ADELANTE):
+    """What was spent on each kind of expense, under its ledger account.
+
+    The same trips, window and month as :func:`gastos_por_proyecto`, so the
+    two tables can be read side by side -- but only what the itinerary rows
+    say: an estimate typed on the trip is not a flight or a hotel, so it has
+    no account and is left out here. That is why the totals of the two tables
+    may differ, and the screen says so.
+
+    Returns None to somebody who may not see costs, for the same reason.
+    """
+    from app.services import cuenta_contable_service
+    from app.services.authorization_service import Permiso, permisos_de
+
+    if Permiso.VER_COSTES not in permisos_de(actor):
+        return None
+
+    visibles = _ids_visibles(actor)
+    desde = _inicio_de_mes(utcnow(), atras)
+    etiquetas = _meses_desde(desde, atras + 1 + adelante)
+    hasta = _inicio_de_mes(utcnow(), -(adelante + 1))
+
+    viajes = Trip.query.filter(
+        Trip.id.in_(visibles),
+        Trip.is_deleted.is_(False),
+        Trip.inicio_utc.isnot(None),
+        Trip.inicio_utc >= desde,
+        Trip.inicio_utc < hasta,
+    ).all()
+
+    por_tipo, monedas = {}, set()
+    for viaje in viajes:
+        mes = f'{as_aware_utc(viaje.inicio_utc):%Y-%m}'
+        if mes not in etiquetas:
+            continue
+        for coleccion in (viaje.segments, viaje.accommodations,
+                          viaje.vehicle_rentals, viaje.other_services):
+            for item in coleccion:
+                if item.is_deleted or item.importe is None:
+                    continue
+                tipo = cuenta_contable_service.tipo_de_gasto(item)
+                entrada = por_tipo.setdefault(
+                    tipo, {'por_mes': {m: Decimal(0) for m in etiquetas}, 'elementos': 0},
+                )
+                entrada['por_mes'][mes] += Decimal(str(item.importe))
+                entrada['elementos'] += 1
+                if item.moneda:
+                    monedas.add(item.moneda.upper())
+
+    cuentas = cuenta_contable_service.por_tipo()
+    orden = list(TipoGasto)
+    filas = []
+    for tipo, datos in por_tipo.items():
+        cuenta = cuentas.get(tipo)
+        filas.append({
+            'tipo': tipo.label,
+            'cuenta': cuenta.cuenta if cuenta else None,
+            'descripcion': cuenta.descripcion if cuenta else None,
+            'por_mes': [float(datos['por_mes'][m]) for m in etiquetas],
+            'total': float(sum(datos['por_mes'].values())),
+            'elementos': datos['elementos'],
+            '_orden': (cuenta is None, cuenta.cuenta if cuenta else '', orden.index(tipo)),
+        })
+    filas.sort(key=lambda fila: fila.pop('_orden'))
+
+    return {
+        'meses': etiquetas,
+        'moneda': next(iter(monedas)) if len(monedas) == 1 else None,
+        'monedas_mezcladas': len(monedas) > 1,
+        'cuentas': filas,
+        'total': sum(fila['total'] for fila in filas),
+        'sin_cuenta': sum(1 for fila in filas if fila['cuenta'] is None),
+    }
+
+
 def _inicio_de_mes(momento, atras=0):
     """The first instant of the month ``atras`` months before ``momento``.
 
@@ -367,6 +446,7 @@ def informe_completo(actor):
         'documentos_atascados': documentos_atascados(actor),
         'calidad': calidad_de_la_extraccion(actor),
         'gastos_por_proyecto': gastos_por_proyecto(actor),
+        'gastos_por_cuenta': gastos_por_cuenta(actor),
         'viajes_por_mes': viajes_por_mes(actor),
         'dias_atascado': DIAS_ATASCADO,
     }

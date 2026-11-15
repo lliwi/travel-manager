@@ -445,6 +445,40 @@ def _coerce_param(current, raw):
 
 
 # ======================================================================
+# Chart of accounts
+# ======================================================================
+@admin_bp.route('/cuentas-contables', methods=['GET', 'POST'])
+@login_required
+@require_admin
+def accounts():
+    """Say which ledger account each kind of travel expense is posted to."""
+    from app.models.enums import TipoGasto
+    from app.services import cuenta_contable_service
+
+    if request.method == 'POST':
+        valores = {
+            str(tipo): (request.form.get(f'cuenta__{tipo}'),
+                        request.form.get(f'descripcion__{tipo}'))
+            for tipo in TipoGasto if f'cuenta__{tipo}' in request.form
+        }
+        try:
+            cuenta_contable_service.guardar(current_user._get_current_object(), valores)
+        except AppError as error:
+            db.session.rollback()
+            flash(error.mensaje, 'danger')
+            return render_template(
+                'admin/accounts.html', tabla=cuenta_contable_service.tabla(),
+                enviado=request.form,
+            ), 422
+        flash('Cuentas contables guardadas.', 'success')
+        return redirect(url_for('admin.accounts'))
+
+    return render_template(
+        'admin/accounts.html', tabla=cuenta_contable_service.tabla(), enviado=None,
+    )
+
+
+# ======================================================================
 # AI providers
 # ======================================================================
 @admin_bp.route('/ajustes/proveedores')

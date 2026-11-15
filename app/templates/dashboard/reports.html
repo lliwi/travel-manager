@@ -465,6 +465,90 @@
 </div>
 {% endif %}
 
+{% if informe.gastos_por_cuenta %}
+{% set cuentas = informe.gastos_por_cuenta %}
+<div class="card mb-3 viz">
+    <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <span><i class="bi bi-journal-text me-2"></i>Gasto por cuenta contable y mes</span>
+        <span class="d-flex gap-2">
+            {% if cuentas.sin_cuenta %}
+            <span class="chip chip-warning">
+                <i class="bi bi-exclamation-triangle"></i>{{ cuentas.sin_cuenta }}
+                {{ 'tipo sin cuenta' if cuentas.sin_cuenta == 1 else 'tipos sin cuenta' }}</span>
+            {% endif %}
+            {% if cuentas.monedas_mezcladas %}
+            <span class="chip chip-warning">
+                <i class="bi bi-exclamation-triangle"></i>Hay varias monedas</span>
+            {% endif %}
+        </span>
+    </div>
+    {% if cuentas.cuentas %}
+    <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0 tabla-gastos">
+            <thead>
+                <tr>
+                    <th>Cuenta</th>
+                    <th>Tipo de gasto</th>
+                    {% for mes in cuentas.meses %}
+                    <th class="text-end">{{ mes | mes_corto }}</th>
+                    {% endfor %}
+                    <th class="text-end">Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for fila in cuentas.cuentas %}
+                <tr>
+                    <td>
+                        {% if fila.cuenta %}
+                        <span class="ref-code">{{ fila.cuenta }}</span>
+                        {% if fila.descripcion %}
+                        <div class="text-muted small">{{ fila.descripcion }}</div>
+                        {% endif %}
+                        {% else %}
+                        {# Dicho, no escondido en una cuenta comodín: es lo que
+                           falta por configurar. #}
+                        <span class="text-muted fst-italic">Sin cuenta asignada</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ fila.tipo }}</td>
+                    {% for importe in fila.por_mes %}
+                    <td class="text-end {{ 'text-muted opacity-50' if not importe }}">
+                        {{ importe | importe }}</td>
+                    {% endfor %}
+                    <td class="text-end fw-semibold">{{ fila.total | importe }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr>
+                    <th colspan="2">Total</th>
+                    {% for i in range(cuentas.meses | length) %}
+                    <th class="text-end">
+                        {{ cuentas.cuentas | sum(attribute='por_mes.' ~ i) | importe }}</th>
+                    {% endfor %}
+                    <th class="text-end">{{ cuentas.total | importe }}</th>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+    <div class="card-footer small text-muted">
+        Los importes del itinerario de cada viaje, por el mes en que empieza
+        {% if cuentas.moneda %}, en {{ cuentas.moneda }}{% endif %}.
+        No incluye los costes estimados: una estimación no es un vuelo ni un
+        hotel, así que el total puede ser menor que el de la tabla por proyecto.
+        {% if current_user.is_administrador %}
+        <a href="{{ url_for('admin.accounts') }}">Configurar las cuentas</a>.
+        {% endif %}
+    </div>
+    {% else %}
+    <div class="card-body empty-state">
+        <i class="bi bi-journal-text"></i>
+        <p>Ningún elemento del itinerario con importe en estos meses.</p>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
 <div class="row g-3 viz">
     <div class="col-lg-6">
         <div class="card h-100">

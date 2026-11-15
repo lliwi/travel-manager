@@ -183,7 +183,34 @@ class ServiceType(LabeledEnum):
     RESTAURANTE = ('restaurante', 'Restaurante')
     ENTRADA = ('entrada', 'Entrada / Evento')
     CONECTIVIDAD = ('conectividad', 'Conectividad')
+    DIETAS = ('dietas', 'Dietas')
     OTRO = ('otro', 'Otro')
+
+
+class TipoGasto(LabeledEnum):
+    """What an itinerary amount was spent on, as accounting sees it.
+
+    One list across the four itinerary tables, because a chart of accounts
+    does not care which table a row lives in: a flight and a hotel are two
+    kinds of expense, not a «segment» and an «accommodation».
+    """
+
+    VUELO = ('vuelo', 'Vuelo')
+    TREN = ('tren', 'Tren')
+    AUTOBUS = ('autobus', 'Autobús')
+    FERRY = ('ferry', 'Ferry')
+    TRASLADO = ('traslado', 'Traslado')
+    OTRO_TRANSPORTE = ('otro_transporte', 'Otro transporte')
+    ALOJAMIENTO = ('alojamiento', 'Hotel / Alojamiento')
+    VEHICULO = ('vehiculo', 'Alquiler de vehículo')
+    DIETAS = ('dietas', 'Dietas')
+    RESTAURANTE = ('restaurante', 'Restaurante')
+    SEGURO = ('seguro', 'Seguro')
+    VISADO = ('visado', 'Visado')
+    PARKING = ('parking', 'Parking')
+    ENTRADA = ('entrada', 'Entrada / Evento')
+    CONECTIVIDAD = ('conectividad', 'Conectividad')
+    OTRO = ('otro', 'Otro gasto')
 
 
 class LocationKind(LabeledEnum):

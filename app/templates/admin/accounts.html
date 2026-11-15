@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Cuentas contables — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('admin.index') }}">Administración</a></li>
+<li class="breadcrumb-item active">Cuentas contables</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-header"><h1>Cuentas contables</h1>
+<p class="text-muted mb-0">
+    A qué cuenta se lleva cada tipo de gasto de viaje. Los informes agrupan el
+    gasto por estas cuentas.
+</p></div>
+
+<form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    <div class="card">
+        <div class="table-responsive">
+            <table class="table align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Tipo de gasto</th>
+                        <th>Cuenta</th>
+                        <th>Descripción</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for tipo, fila in tabla %}
+                    {# Tras un envío rechazado se enseña lo que se escribió, no
+                       lo guardado: corregir un campo no debe costar los demás. #}
+                    {% set cuenta = enviado.get('cuenta__' ~ tipo.value, '') if enviado
+                                    else (fila.cuenta if fila else '') %}
+                    {% set descripcion = enviado.get('descripcion__' ~ tipo.value, '') if enviado
+                                         else ((fila.descripcion or '') if fila else '') %}
+                    <tr>
+                        <td><label for="cuenta__{{ tipo.value }}" class="mb-0">{{ tipo.label }}</label></td>
+                        <td>
+                            <input type="text" class="form-control form-control-sm"
+                                   id="cuenta__{{ tipo.value }}" name="cuenta__{{ tipo.value }}"
+                                   value="{{ cuenta }}" maxlength="40"
+                                   placeholder="Sin cuenta" autocomplete="off">
+                        </td>
+                        <td>
+                            <input type="text" class="form-control form-control-sm"
+                                   name="descripcion__{{ tipo.value }}"
+                                   value="{{ descripcion }}" maxlength="200"
+                                   aria-label="Descripción de la cuenta de {{ tipo.label }}"
+                                   autocomplete="off">
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <div class="card-footer small text-muted">
+            El tipo de cada gasto sale del itinerario: un vuelo es un vuelo, un
+            alojamiento es un hotel, y las dietas se anotan como «Otro
+            servicio» de tipo Dietas. Un tipo sin cuenta aparece en los
+            informes como «Sin cuenta asignada»; no se lleva a ninguna otra.
+        </div>
+    </div>
+
+    <div class="form-actions">
+        <button type="submit" class="btn btn-primary">
+            <i class="bi bi-save me-1"></i>Guardar cuentas</button>
+        <a href="{{ url_for('admin.index') }}" class="btn btn-outline-secondary">Cancelar</a>
+    </div>
+</form>
+{% endblock %}

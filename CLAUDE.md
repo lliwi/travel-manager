@@ -199,6 +199,16 @@ drops `SOLO_DEL_GESTOR` fields for anybody who does not manage, and
 `ENVIAR_VIAJE` is not behind `USUARIOS_PLANIFICAN`: turning planning off must
 not strand the drafts already begun. An administrator still sees them.
 
+## Ledger accounts hang off the kind of expense, and the kind off the itinerary
+
+Administración → Cuentas contables maps each `TipoGasto` to an account.
+`cuenta_contable_service.tipo_de_gasto` reads the kind off the itinerary row
+-- it is never typed a second time -- and `report_service.gastos_por_cuenta`
+groups by it. A kind with no account has no row and is reported as «Sin
+cuenta asignada»: there is no catch-all, because that would post money to an
+account nobody chose. A trip's `coste_estimado` is not a kind of expense and
+is left out, so that table may total less than the one by project.
+
 ## Directory accounts are read-only
 
 A directory-backed account authenticates and nothing else. Its personal fields

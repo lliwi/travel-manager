@@ -8,7 +8,8 @@ policy, not deployment configuration.
 from sqlalchemy import UniqueConstraint
 
 from app.extensions import db
-from app.models.base import GUID, BaseModel, JSONBType
+from app.models.base import GUID, BaseModel, JSONBType, enum_check, enum_column
+from app.models.enums import TipoGasto
 
 
 class SystemSetting(BaseModel):
@@ -44,6 +45,29 @@ class SystemSetting(BaseModel):
             'descripcion': self.descripcion,
             'actualizado_en': self.updated_at.isoformat() if self.updated_at else None,
         }
+
+
+class CuentaContable(BaseModel):
+    """The ledger account one kind of travel expense is posted to.
+
+    One row per kind, and only for the kinds somebody has given an account:
+    a kind with no row is «sin cuenta asignada», which the reports say out
+    loud rather than posting it to an account nobody chose.
+    """
+
+    __tablename__ = 'cuentas_contables'
+    __table_args__ = (
+        UniqueConstraint('tipo_gasto', name='uq_cuentas_contables_tipo_gasto'),
+        enum_check('tipo_gasto', TipoGasto, 'cuentas_contables'),
+    )
+
+    tipo_gasto = enum_column(TipoGasto, nullable=False)
+    cuenta = db.Column(db.String(40), nullable=False)
+    descripcion = db.Column(db.String(200))
+    actualizada_por_id = db.Column(GUID(), db.ForeignKey('users.id'), nullable=True)
+
+    def __repr__(self):
+        return f'<CuentaContable {self.tipo_gasto} {self.cuenta}>'
 
 
 class TravelerDocument(BaseModel):

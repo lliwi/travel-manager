@@ -41,7 +41,7 @@ from app.models.itinerary import (
     VehicleRental,
 )
 from app.models.notification import Notification
-from app.models.settings import SystemSetting, TravelerDocument
+from app.models.settings import CuentaContable, SystemSetting, TravelerDocument
 from app.models.trip import Trip, TripDestination, TripTraveler
 from app.models.user import (
     MFARecoveryCode,
@@ -75,7 +75,7 @@ __all__ = [
     # AI
     'AIProviderConfig', 'AITaskBinding', 'AIRun', 'AIParameterProfile', 'AIAutotuneRun',
     # Catalogues and settings
-    'Country', 'Location', 'SystemSetting', 'TravelerDocument',
+    'Country', 'Location', 'SystemSetting', 'TravelerDocument', 'CuentaContable',
     # Audit
     'AuditEvent', 'GENESIS_HASH', 'BackupJob',
 ]
