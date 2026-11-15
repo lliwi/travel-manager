@@ -8,6 +8,7 @@
         wireSidebarToggle();
         autoDismissFlashes();
         confirmDestructiveForms();
+        showBusyWhileWaiting();
         pollProcessingDocuments();
         enhanceDateRanges();
         enhanceDateInputs();
@@ -216,6 +217,133 @@
                 }
             });
         });
+    }
+
+    /** Say that something is happening while the server takes its time.
+     *
+     *  Asking the assistant, searching flights or generating advisories takes
+     *  many seconds, and a page that looks exactly as it did before the click
+     *  gets clicked again -- which sends the same slow request twice.
+     *
+     *  One listener on the document rather than one per form: it runs after
+     *  the forms' own handlers, so a submit somebody cancelled in a
+     *  confirmation is already ``defaultPrevented`` and shows nothing.
+     *
+     *  The button is marked at once; the full veil waits a moment, so the
+     *  ordinary save that answers in a blink does not flash the screen. A
+     *  form says what it is waiting for with ``data-loading``; a link that
+     *  leads to a slow page opts in with the same attribute. */
+    var ESPERA_ANTES_DEL_VELO = 500;
+    var ESPERA_ANTES_DE_INSISTIR = 10000;
+    var temporizadores = [];
+
+    function velo() {
+        var el = document.getElementById('velo-de-espera');
+        if (el) { return el; }
+
+        el = document.createElement('div');
+        el.id = 'velo-de-espera';
+        el.className = 'velo-de-espera';
+        el.setAttribute('role', 'status');
+        el.setAttribute('aria-live', 'polite');
+        el.hidden = true;
+
+        var caja = document.createElement('div');
+        caja.className = 'velo-de-espera-caja';
+        var rueda = document.createElement('div');
+        rueda.className = 'spinner-border text-primary';
+        rueda.setAttribute('aria-hidden', 'true');
+        var texto = document.createElement('div');
+        texto.className = 'velo-de-espera-texto';
+        var nota = document.createElement('div');
+        nota.className = 'velo-de-espera-nota';
+
+        caja.appendChild(rueda);
+        caja.appendChild(texto);
+        caja.appendChild(nota);
+        el.appendChild(caja);
+        document.body.appendChild(el);
+        return el;
+    }
+
+    function mostrarEspera(mensaje) {
+        temporizadores.push(window.setTimeout(function () {
+            var el = velo();
+            el.querySelector('.velo-de-espera-texto').textContent = mensaje || 'Procesando…';
+            el.querySelector('.velo-de-espera-nota').textContent = '';
+            el.hidden = false;
+        }, ESPERA_ANTES_DEL_VELO));
+        temporizadores.push(window.setTimeout(function () {
+            velo().querySelector('.velo-de-espera-nota').textContent =
+                'Sigue en ello. No cierre ni recargue la página.';
+        }, ESPERA_ANTES_DE_INSISTIR));
+    }
+
+    function ocultarEspera() {
+        temporizadores.forEach(window.clearTimeout);
+        temporizadores = [];
+        var el = document.getElementById('velo-de-espera');
+        if (el) { el.hidden = true; }
+        document.querySelectorAll('form[data-enviando]').forEach(function (form) {
+            form.removeAttribute('data-enviando');
+        });
+        document.querySelectorAll('.btn-esperando').forEach(function (boton) {
+            boton.classList.remove('btn-esperando');
+            boton.removeAttribute('aria-busy');
+        });
+    }
+
+    /** Somewhere else: another site, another tab, or a file to save. The page
+     *  stays where it is, so a veil over it would never be lifted. */
+    function saleDeLaPagina(el, url) {
+        var destino = el.getAttribute('target');
+        if (destino && destino !== '_self') { return true; }
+        if (el.hasAttribute('download')) { return true; }
+        try {
+            return new URL(url, window.location.href).origin !== window.location.origin;
+        } catch (error) {
+            return true;
+        }
+    }
+
+    function showBusyWhileWaiting() {
+        document.addEventListener('submit', function (event) {
+            var form = event.target;
+            if (event.defaultPrevented || !(form instanceof HTMLFormElement)) { return; }
+            if (form.hasAttribute('data-no-loading')) { return; }
+
+            var boton = event.submitter;
+            var accion = (boton && boton.getAttribute('formaction')) || form.action;
+            if (saleDeLaPagina(form, accion)) { return; }
+
+            // Already on its way: the second click is the one this exists to stop.
+            if (form.hasAttribute('data-enviando')) {
+                event.preventDefault();
+                return;
+            }
+            form.setAttribute('data-enviando', '');
+
+            // Marked, not disabled: a disabled button drops its own name and
+            // value from what is sent, and some forms tell their buttons apart
+            // by exactly that.
+            if (boton) {
+                boton.classList.add('btn-esperando');
+                boton.setAttribute('aria-busy', 'true');
+            }
+            mostrarEspera((boton && boton.dataset.loading) || form.dataset.loading);
+        });
+
+        document.addEventListener('click', function (event) {
+            var enlace = event.target.closest && event.target.closest('a[data-loading]');
+            if (!enlace || event.defaultPrevented) { return; }
+            if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey) { return; }
+            if (saleDeLaPagina(enlace, enlace.href)) { return; }
+            mostrarEspera(enlace.dataset.loading);
+        });
+
+        // Coming back with the browser's «back» restores the page as it was
+        // left -- veil included -- without running any of this again.
+        window.addEventListener('pageshow', ocultarEspera);
     }
 
     /** Refresh the page while a document is still being processed.

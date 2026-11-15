@@ -38,7 +38,8 @@
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span><i class="bi bi-question-circle me-2"></i>Explicación del asistente</span>
                 {% if not explicacion %}
-                <form method="post" action="{{ url_for('alerts.explain', alert_id=alert.id) }}">
+                <form method="post" action="{{ url_for('alerts.explain', alert_id=alert.id) }}"
+                      data-loading="Pidiendo la explicación al asistente…">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="btn btn-sm btn-outline-secondary">
                         <i class="bi bi-stars me-1"></i>Explicar esta alerta

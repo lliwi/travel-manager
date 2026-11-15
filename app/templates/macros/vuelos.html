@@ -175,7 +175,8 @@
                     {% if accion_vueltas and vuelo.token_vuelta %}
                     {# Otra búsqueda facturada: se hace cuando alguien la pide,
                        no para los ocho resultados de cada planificación. #}
-                    <form method="post" action="{{ accion_vueltas }}" class="d-inline">
+                    <form method="post" action="{{ accion_vueltas }}" class="d-inline"
+                          data-loading="Buscando vuelos de vuelta…">
                         <input type="hidden" name="csrf_token" value="{{ csrf }}">
                         <input type="hidden" name="token" value="{{ vuelo.token_vuelta }}">
                         {% for clave, valor in vuelo.busqueda.items() %}

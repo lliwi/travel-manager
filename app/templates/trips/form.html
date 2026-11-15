@@ -37,7 +37,8 @@
 
 <div class="row">
     <div class="col-lg-8">
-        <form method="post" enctype="multipart/form-data" novalidate>
+        <form method="post" enctype="multipart/form-data" novalidate
+              data-loading="Guardando el viaje…">
             {{ form.hidden_tag() }}
 
             {% if not gestiona and not trip %}

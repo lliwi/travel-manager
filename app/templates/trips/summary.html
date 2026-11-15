@@ -22,7 +22,7 @@
                     Redacta un resumen ejecutivo y un itinerario legible a partir
                     de lo que hay registrado en el viaje ahora mismo.
                 </p>
-                <form method="post">
+                <form method="post" data-loading="Preparando el resumen del viaje…">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="btn btn-primary">
                         <i class="bi bi-stars me-1"></i>Generar resumen
@@ -84,7 +84,7 @@
         {% endif %}
 
         <div class="d-flex gap-2">
-            <form method="post">
+            <form method="post" data-loading="Preparando el resumen del viaje…">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="btn btn-outline-secondary btn-sm">
                     <i class="bi bi-arrow-clockwise me-1"></i>Volver a generar

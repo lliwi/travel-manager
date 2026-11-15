@@ -1583,3 +1583,52 @@ input[type="time"].form-control { font-variant-numeric: tabular-nums; }
 .campo { margin-bottom: 1.1rem; }
 .card-header { font-weight: 600; }
 .card-header small, .card-header .small { font-weight: 400; }
+
+/* ---------- Espera ----------
+   El velo tapa la página entera a propósito: mientras el servidor contesta no
+   hay nada en ella que convenga pulsar, y un segundo envío repite la consulta
+   lenta. El botón se marca además por su cuenta, porque el velo tarda medio
+   segundo en salir y en ese rato tiene que notarse que el clic llegó. */
+.velo-de-espera {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    background: rgba(15, 23, 42, .45);
+}
+.velo-de-espera[hidden] { display: none; }
+.velo-de-espera-caja {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: .75rem;
+    max-width: 22rem;
+    padding: 1.5rem 2rem;
+    text-align: center;
+    background: var(--card-bg);
+    border-radius: .75rem;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, .25);
+}
+.velo-de-espera-texto { font-weight: 600; }
+.velo-de-espera-nota { font-size: .85rem; color: var(--text-muted); }
+.velo-de-espera-nota:empty { display: none; }
+
+.btn-esperando { pointer-events: none; opacity: .75; }
+.btn-esperando::before {
+    content: '';
+    display: inline-block;
+    width: .9em;
+    height: .9em;
+    margin-right: .4em;
+    vertical-align: -.1em;
+    border: .15em solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: spinner-border .75s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+    .btn-esperando::before { animation-duration: 3s; }
+}

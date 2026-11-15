@@ -10,7 +10,8 @@
 <div class="page-header d-flex justify-content-between align-items-center">
     <div><h1>Alertas</h1><p class="text-muted mb-0">{{ trip.titulo }}</p></div>
     {% if current_user.is_gestor or current_user.is_administrador %}
-    <form method="post" action="{{ url_for('alerts.recalculate', trip_id=trip.id) }}">
+    <form method="post" action="{{ url_for('alerts.recalculate', trip_id=trip.id) }}"
+          data-loading="Recalculando las alertas…">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button class="btn btn-outline-secondary" type="submit">
             <i class="bi bi-arrow-clockwise me-1"></i>Recalcular

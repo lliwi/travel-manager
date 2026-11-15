@@ -15,7 +15,8 @@
     <div class="col-lg-6">
         <div class="card">
             <div class="card-body">
-                <form method="post" enctype="multipart/form-data" novalidate>
+                <form method="post" enctype="multipart/form-data" novalidate
+                      data-loading="Subiendo el documento…">
                     {{ form.hidden_tag() }}
                     {{ dropzone(form.archivo) }}
                     {{ render_field(form.tipo) }}

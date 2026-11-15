@@ -19,7 +19,8 @@
     <div class="col-lg-5">
         <div class="card mb-3">
             <div class="card-body">
-                <form method="post" novalidate>
+                <form method="post" novalidate
+                      data-loading="Buscando opciones para el viaje…">
                     {{ form.hidden_tag() }}
                     {{ render_field(form.origen, placeholder='Barcelona o BCN') }}
                     {{ render_field(form.destino, placeholder='Londres o LGW') }}
@@ -152,7 +153,8 @@
            exactamente lo que se vio, sin una segunda consulta que podría
            devolver otro precio. #}
         <form method="post" id="seleccion" class="card mb-3"
-              action="{{ url_for('trips.create_from_search') }}">
+              action="{{ url_for('trips.create_from_search') }}"
+              data-loading="Creando el viaje…">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="titulo"
                    value="{{ form.origen.data }} → {{ form.destino.data }}">
@@ -163,30 +165,7 @@
             {% if opciones.enlace_vuelos %}
             <input type="hidden" name="enlace" value="{{ opciones.enlace_vuelos }}">
             {% endif %}
-            <div class="card-body border-bottom">
-                <div class="row g-3">
-                    <div class="col-md-4">
-                        <label for="seleccion-proyecto" class="form-label">Proyecto</label>
-                        <input type="text" name="proyecto" id="seleccion-proyecto"
-                               class="form-control form-control-sm" maxlength="120"
-                               placeholder="P-2026-014" required>
-                    </div>
-                    <div class="col-md-2 d-flex align-items-end">
-                        <div class="form-check mb-1">
-                            <input type="checkbox" name="facturable" value="1"
-                                   id="seleccion-facturable" class="form-check-input">
-                            <label for="seleccion-facturable"
-                                   class="form-check-label">Facturable</label>
-                        </div>
-                    </div>
-                    <div class="col-md-6">
-                        <label for="seleccion-notas" class="form-label">Notas</label>
-                        <textarea name="observaciones" id="seleccion-notas" rows="1"
-                                  class="form-control form-control-sm"
-                                  placeholder="Lo que convenga saber del viaje"></textarea>
-                    </div>
-                </div>
-            </div>
+            {% include 'trips/_datos_del_borrador.html' %}
             <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-3">
                 <div class="text-muted small">
                     <strong class="d-block text-body">Marque lo que quiera guardar</strong>

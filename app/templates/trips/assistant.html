@@ -17,7 +17,8 @@
     <div class="col-lg-8">
         <div class="card mb-3">
             <div class="card-body">
-                <form method="post" novalidate>
+                <form method="post" novalidate
+                      data-loading="Consultando al asistente…">
                     {{ form.hidden_tag() }}
                     {{ render_field(form.pregunta, rows=3,
                                     placeholder='¿Cuánto margen tengo entre los dos vuelos?') }}
