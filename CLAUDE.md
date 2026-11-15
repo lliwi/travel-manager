@@ -244,6 +244,18 @@ cuenta asignada»: there is no catch-all, because that would post money to an
 account nobody chose. A trip's `coste_estimado` is not a kind of expense and
 is left out, so that table may total less than the one by project.
 
+## The Excel export is the screen, in a file
+
+Informes → Exportar a Excel (`export_service`, `EXPORTAR_VIAJES`: managers
+and administrators) writes one row per itinerary amount -- project, ledger
+account, date, figure, billable -- and a second sheet with one row per trip.
+It starts from `visible_trips_query`, so the file holds what its author could
+open and no more, and every export is audited. Amount columns follow
+`VER_COSTES`: with costs off they are absent and the «Acerca de» sheet says
+so, because a column of blanks reads as «it cost nothing». Text that starts
+like a formula is written as text -- a hotel name comes out of a booking
+document and would otherwise run on an accountant's desk.
+
 ## Directory accounts are read-only
 
 A directory-backed account authenticates and nothing else. Its personal fields

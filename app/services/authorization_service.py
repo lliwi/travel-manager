@@ -65,6 +65,7 @@ class Permiso(str, enum.Enum):
 
     VER_COSTES = 'ver_costes'
     GESTIONAR_HOTELES = 'gestionar_hoteles'
+    EXPORTAR_VIAJES = 'exportar_viajes'
     ADMINISTRAR = 'administrar'
     VER_AUDITORIA = 'ver_auditoria'
 
@@ -79,6 +80,7 @@ PERMISOS_GLOBALES = frozenset({
     Permiso.VER_AUDITORIA,
     Permiso.INVESTIGAR_WEB,
     Permiso.GESTIONAR_HOTELES,
+    Permiso.EXPORTAR_VIAJES,
 })
 
 #: Specification section 2.1, the three access profiles.

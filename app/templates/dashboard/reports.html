@@ -130,6 +130,44 @@
     </p>
 </div>
 
+{% if 'exportar_viajes' in permisos_globales %}
+{# «data-no-loading»: la respuesta es un fichero y la página no se recarga,
+   así que el velo de espera no tendría quién lo quitara. #}
+<form method="get" action="{{ url_for('dashboard.export_trips') }}" data-no-loading
+      class="card mb-3">
+    <div class="card-body d-flex align-items-end flex-wrap gap-3">
+        <div class="me-auto">
+            <strong><i class="bi bi-file-earmark-spreadsheet me-1"></i>Exportar a Excel</strong>
+            <div class="text-muted small">
+                Una fila por gasto del itinerario —proyecto, cuenta contable,
+                fecha, importe, facturable— y otra hoja con los viajes.
+                {% if 'ver_costes' not in permisos_globales %}
+                Sin importes: los costes están desactivados en Ajustes.
+                {% endif %}
+            </div>
+        </div>
+        {# El mismo calendario de rango que el resto de formularios: una sola
+           caja para los dos días. Sin JavaScript quedan los dos campos. #}
+        <div class="campo mb-0">
+            <label for="exportar-desde" class="form-label small mb-1">Viajes desde </label>
+            <input type="datetime-local" name="desde" id="exportar-desde"
+                   class="form-control form-control-sm"
+                   data-rango-fin="exportar-hasta"
+                   data-rango-etiqueta="Viajes que empiezan entre"
+                   data-rango-abierto="1"
+                   data-hora-inicio="00:00" data-hora-fin="23:59">
+        </div>
+        <div class="campo mb-0">
+            <label for="exportar-hasta" class="form-label small mb-1">hasta</label>
+            <input type="datetime-local" name="hasta" id="exportar-hasta"
+                   class="form-control form-control-sm">
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">
+            <i class="bi bi-download me-1"></i>Descargar</button>
+    </div>
+</form>
+{% endif %}
+
 {# MAPA — cuánta gente hay en cada ciudad. Es una magnitud, así que un solo
    tono y el tamaño por área (radio ∝ √personas): doblar el radio cuadruplica
    la mancha, y con el radio proporcional una ciudad con cuatro personas se lee

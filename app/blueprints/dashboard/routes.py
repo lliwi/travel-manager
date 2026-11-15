@@ -18,8 +18,8 @@ from app.models.enums import (
     TripStatus,
 )
 from app.models.trip import Trip
-from app.services.authorization_service import visible_trips_query
-from app.utils.decorators import authenticated_only
+from app.services.authorization_service import Permiso, visible_trips_query
+from app.utils.decorators import authenticated_only, require_permiso
 from app.utils.timeutil import utcnow
 
 
@@ -150,6 +150,40 @@ def read_all_notifications():
     cuantas = notification_service.marcar_todas_leidas(actor)
     flash(f'{cuantas} notificaciones marcadas como leídas.', 'info')
     return redirect(url_for('dashboard.notifications'))
+
+
+@dashboard_bp.route('/informes/exportar')
+@login_required
+@require_permiso(Permiso.EXPORTAR_VIAJES)
+def export_trips():
+    """The trips and their expenses as an Excel workbook."""
+    from datetime import date
+
+    from flask import Response
+
+    from app.services import export_service
+
+    def _dia(nombre):
+        crudo = (request.args.get(nombre) or '').strip()
+        if not crudo:
+            return None
+        try:
+            return date.fromisoformat(crudo[:10])
+        except ValueError:
+            return False
+
+    desde, hasta = _dia('desde'), _dia('hasta')
+    if desde is False or hasta is False or (desde and hasta and hasta < desde):
+        flash('Las fechas de la exportación no son válidas.', 'danger')
+        return redirect(url_for('dashboard.reports'))
+
+    contenido, nombre, _ = export_service.exportar(
+        current_user._get_current_object(), desde=desde, hasta=hasta,
+    )
+    return Response(contenido, mimetype=export_service.MIME, headers={
+        'Content-Disposition': f'attachment; filename="{nombre}"',
+        'Cache-Control': 'no-store',
+    })
 
 
 @dashboard_bp.route('/informes')
