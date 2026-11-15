@@ -314,7 +314,7 @@ def vigilar_fuentes(actor=None, regenerar=None):
             metadatos={'trip_id': str(trip.id), 'fuentes': urls},
         )
 
-        _avisar_del_cambio(trip, urls)
+        _avisar_del_cambio(trip, urls, regenerar)
 
         if not regenerar:
             continue
@@ -330,22 +330,29 @@ def vigilar_fuentes(actor=None, regenerar=None):
     return resumen
 
 
-def _avisar_del_cambio(trip, urls):
+def _avisar_del_cambio(trip, urls, regenerar=False):
     """Tell the people on a trip that the advice behind it moved.
 
     Whether or not the advisories are regenerated: a country raising its
     warning level is the kind of thing somebody wants to know happened, not
     just to find quietly rewritten the next time they look.
     """
-    from flask import url_for
+    from urllib.parse import urlparse
 
     from app.models.enums import NotificationKind
     from app.services import notification_service
 
-    try:
-        enlace = url_for('advisories.index', trip_id=trip.id)
-    except Exception:
-        enlace = None
+    # Which source, and what happens next: «una fuente ha cambiado» sent
+    # everybody to the page to find out both.
+    sitios = sorted({urlparse(url).netloc.removeprefix('www.') or url for url in urls})
+    destinos = trip.resumen_destinos
+    sobre = f' sobre {destinos}' if destinos and destinos != '—' else ''
+    siguiente = (
+        'Las recomendaciones del viaje se están regenerando con lo nuevo; '
+        'vuelva a leerlas.' if regenerar else
+        'Las recomendaciones del viaje se escribieron con la versión anterior; '
+        'conviene revisarlas.'
+    )
 
     notification_service.notificar_a_varios(
         notification_service.interesados_en(trip),
@@ -355,10 +362,9 @@ def _avisar_del_cambio(trip, urls):
         clave=f'fuente-cambiada:{trip.id}:{sha256_text(*sorted(urls))[:24]}',
         titulo=f'Han cambiado las recomendaciones de «{trip.titulo}»',
         mensaje=(
-            'Una fuente oficial ha cambiado lo que dice del destino. '
-            'Conviene revisar las recomendaciones del viaje.'
+            f'Ha cambiado lo que publica {", ".join(sitios)}{sobre}. {siguiente}'
         ),
-        enlace=enlace,
+        enlace=notification_service.enlace_a('advisories.index', trip_id=trip.id),
         trip=trip,
         datos={'fuentes': urls},
     )

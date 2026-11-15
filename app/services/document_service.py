@@ -198,21 +198,19 @@ def mark_failed(document, codigo, mensaje, tarea=None, estado=None, commit=True)
 # ======================================================================
 def _avisar_al_gestor(document, trip, actor):
     """Tell the trip's manager a traveller has added something to review."""
-    from flask import url_for
-
     from app.services import notification_service
 
-    try:
-        enlace = url_for('documents.detail', document_id=document.id)
-    except RuntimeError:
-        enlace = None
     notification_service.notificar(
         notification_service.gestor_a_avisar(trip),
         tipo='documento',
         clave=f'documento_de_viajero:{document.id}',
-        titulo=f'{actor.nombre_completo} ha subido «{document.nombre_original}»',
-        mensaje=f'Al viaje {trip.referencia}. Queda pendiente de que lo revise.',
-        enlace=enlace,
+        titulo=(f'{actor.nombre_completo} ha subido «{document.nombre_original}» '
+                f'al viaje «{trip.titulo}»'),
+        mensaje=(
+            'Se está procesando. Cuando termine, revise los datos que se hayan '
+            'leído en él: no pasan al itinerario hasta que usted los apruebe.'
+        ),
+        enlace=notification_service.enlace_a('documents.detail', document_id=document.id),
         trip=trip,
         commit=False,
     )
@@ -418,23 +416,27 @@ def _avisar_del_fallo(document):
     opens it: the pipeline is asynchronous, so nobody is watching when it
     breaks.
     """
-    from flask import url_for
-
     from app.models.enums import NotificationKind
     from app.services import notification_service
 
-    try:
-        enlace = url_for('documents.detail', document_id=document.id)
-    except Exception:
-        enlace = None
+    # The reason alone leaves the reader with a problem and no next step,
+    # and when the pipeline recorded none there was no message at all.
+    motivo = (document.error_mensaje or '').strip()
+    if motivo and motivo[-1] not in '.!?':
+        motivo += '.'
+    mensaje = (
+        f'{motivo or "El procesamiento se interrumpió."} Sus datos no han '
+        'llegado al itinerario. Abra el documento para ver el detalle; puede '
+        'reintentarse o subirse de nuevo.'
+    )
 
     notification_service.notificar(
         document.subido_por,
         tipo=NotificationKind.DOCUMENTO,
         clave=f'documento-error:{document.id}:{document.error_codigo}',
         titulo=f'No se pudo procesar «{document.nombre_original}»',
-        mensaje=document.error_mensaje,
-        enlace=enlace,
+        mensaje=mensaje,
+        enlace=notification_service.enlace_a('documents.detail', document_id=document.id),
         trip=document.trip,
     )
 

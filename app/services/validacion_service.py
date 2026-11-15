@@ -113,8 +113,9 @@ def solicitar(actor, trip, validador, commit=True):
         clave=f'validacion_solicitada:{trip.id}:{trip.validacion_solicitada_en.isoformat()}',
         titulo=f'{actor.nombre_completo} le pide validar «{trip.titulo}»',
         mensaje=(
-            f'El viaje {trip.referencia} está preparado y espera su validación '
-            'antes de gestionar la compra.'
+            f'{notification_service.resumen_del_viaje(trip)}{_coste(trip)}. '
+            'Está preparado y no se comprará hasta que usted lo valide o lo '
+            'rechace.'
         ),
         enlace=_enlace(trip),
         trip=trip,
@@ -175,9 +176,37 @@ def resolver(actor, trip, aprobar, comentario=None, commit=True):
                 f'{"validado" if aprobar else "rechazado"} «{trip.titulo}»'
             ),
             mensaje=(
-                (f'El viaje {trip.referencia} ya puede confirmarse.' if aprobar
-                 else f'El viaje {trip.referencia} no se ha aprobado.')
-                + (f' Comentario: {comentario}' if comentario else '')
+                (f'El viaje {trip.referencia} ya puede confirmarse y gestionarse '
+                 f'su compra.' + (f' Comentario: {comentario}' if comentario else '')
+                 ) if aprobar else
+                (f'Motivo: {comentario.rstrip(".")}. Corrija el viaje '
+                 f'{trip.referencia} y vuelva a pedir la validación.')
+            ),
+            enlace=_enlace(trip),
+            trip=trip,
+            commit=False,
+        )
+
+    # Those travelling are told either way, in their own words: what the
+    # answer means for them, not what the manager has to do about it. The
+    # reason goes with a rejection -- «rechazado» alone sends them to ask.
+    gestor = trip.gestor.nombre_completo if trip.gestor else 'su gestor'
+    resumen = notification_service.resumen_del_viaje(trip)
+    for persona in notification_service.viajeros_de(
+            trip, salvo=[actor, *destinatarios.values()]):
+        notification_service.notificar(
+            persona,
+            tipo='viaje',
+            clave=(f'viaje_{"validado" if aprobar else "rechazado"}:{trip.id}:'
+                   f'{trip.validacion_resuelta_en.isoformat()}'),
+            titulo=(f'Su viaje «{trip.titulo}» ha sido validado' if aprobar
+                    else f'Su viaje «{trip.titulo}» no ha sido validado'),
+            mensaje=(
+                f'{resumen}. Queda pendiente de la compra; recibirá otro '
+                'aviso cuando esté confirmado.' if aprobar else
+                f'{resumen}. Motivo: {comentario.rstrip(".")}. Todavía no se '
+                f'comprará: {gestor} tiene que revisarlo y volver a pedir la '
+                'validación.'
             ),
             enlace=_enlace(trip),
             trip=trip,
@@ -197,9 +226,19 @@ def resolver(actor, trip, aprobar, comentario=None, commit=True):
 
 
 def _enlace(trip):
-    from flask import url_for
+    return notification_service.enlace_a('trips.detail', trip_id=trip.id)
 
-    try:
-        return url_for('trips.detail', trip_id=trip.id)
-    except RuntimeError:
-        return None
+
+def _coste(trip):
+    """`` · 1.250 EUR`` for the request, when costs are something we show."""
+    if not settings_service.get_bool('COSTES_HABILITADOS', False):
+        return ''
+    importe, estimado = trip.coste_total, False
+    if importe is None and trip.coste_estimado:
+        importe, estimado = float(trip.coste_estimado), True
+    if importe is None:
+        return ''
+    monedas = trip.monedas_del_itinerario
+    moneda = monedas[0] if len(monedas) == 1 else (trip.moneda or '')
+    cifra = f'{importe:,.0f}'.replace(',', '.')
+    return f' · {cifra} {moneda}'.rstrip() + (' estimados' if estimado else '')

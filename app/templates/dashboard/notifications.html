@@ -37,12 +37,17 @@
                         {% endif %}
                         <div class="timeline-meta">
                             <span class="chip">{{ n.tipo.label }}</span>
-                            {% if n.trip %}
+                            {% if n.trip and not n.trip.is_deleted %}
+                            {# Con el título: la referencia sola obliga a
+                               abrir el viaje para saber cuál es. #}
                             <a class="chip" href="{{ url_for('trips.detail', trip_id=n.trip_id) }}">
-                                <i class="bi bi-briefcase"></i>{{ n.trip.referencia }}</a>
+                                <i class="bi bi-briefcase"></i>{{ n.trip.referencia }}
+                                · {{ n.trip.titulo | truncate(40) }}</a>
                             {% endif %}
+                            {# En la hora de quien lee: estaba en UTC, y un
+                               aviso de las 09:10 decía 07:10. #}
                             <span class="chip"><i class="bi bi-clock"></i>
-                                {{ n.created_at | local_dt('UTC') }}</span>
+                                {{ n.created_at | local_dt(current_user.zona_horaria, false) }}</span>
                         </div>
                     </div>
                 </div>
@@ -54,6 +59,10 @@
                         {{ 'Ver' if n.enlace else 'Marcar leída' }}
                     </button>
                 </form>
+                {% elif n.enlace %}
+                {# Leída no es resuelta: sin esto, el aviso seguía en la lista
+                   pero ya no llevaba a ninguna parte. #}
+                <a href="{{ n.enlace }}" class="btn btn-sm btn-outline-secondary text-nowrap">Abrir</a>
                 {% endif %}
             </div>
         </li>
@@ -64,8 +73,10 @@
 <div class="empty-state">
     <i class="bi bi-bell"></i>
     <p>No hay nada que contar. Aquí aparecerán las alertas graves de sus viajes,
-       los documentos que no se hayan podido procesar y los cambios en las
-       recomendaciones de seguridad.</p>
+       la confirmación, validación o cancelación de sus viajes, los que le
+       envíen o le pidan validar, los
+       documentos nuevos o que no se hayan podido procesar, y los cambios en
+       las recomendaciones de seguridad.</p>
 </div>
 {% endif %}
 {% endblock %}

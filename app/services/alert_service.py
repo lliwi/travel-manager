@@ -175,8 +175,6 @@ def _avisar_de_las_graves(trip):
     Keyed by the alert, so the nightly recalculation finds yesterday's telling
     already there instead of repeating it.
     """
-    from flask import url_for
-
     from app.models.enums import AlertSeverity, AlertState, NotificationKind
     from app.services import notification_service
 
@@ -190,18 +188,17 @@ def _avisar_de_las_graves(trip):
 
     interesados = notification_service.interesados_en(trip)
     for alerta in graves:
-        try:
-            enlace = url_for('alerts.detail', alert_id=alerta.id)
-        except Exception:
-            enlace = None
-
         notification_service.notificar_a_varios(
             interesados,
             tipo=NotificationKind.ALERTA,
             clave=f'alerta:{alerta.id}',
-            titulo=alerta.titulo,
+            # The alert's own title says what is wrong but not where or how
+            # badly: «Conexión ajustada: 25 min» in a list of notifications
+            # could be any trip, and could be a remark or an emergency.
+            titulo=(f'Alerta {alerta.severidad.label.lower()} en «{trip.titulo}»: '
+                    f'{alerta.titulo}'),
             mensaje=alerta.mensaje,
-            enlace=enlace,
+            enlace=notification_service.enlace_a('alerts.detail', alert_id=alerta.id),
             trip=trip,
             datos={'severidad': str(alerta.severidad)},
         )

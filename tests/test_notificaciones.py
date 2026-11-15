@@ -200,3 +200,102 @@ class TestCadaCualVeLaSuya:
         respuesta = client.get('/dashboard/notificaciones')
 
         assert respuesta.status_code in (302, 401)
+
+
+class TestLoQueDiceCadaAviso:
+    """A notification is read away from what caused it -- in a list, in a
+    mail, hours later. It has to say which trip, what happened and what to do,
+    and lead somewhere."""
+
+    def test_el_enlace_existe_aunque_no_haya_peticion(self, app, trip):
+        """Most are born in the worker, where ``url_for`` has nothing to lean
+        on; they used to arrive with no way to act on them."""
+        with app.app_context():
+            enlace = notification_service.enlace_a('trips.detail', trip_id=trip.id)
+
+        assert enlace == f'/trips/{trip.id}'
+
+    def test_el_resumen_dice_que_viaje_es(self, gestor, trip, viajero, traveler_row):
+        resumen = notification_service.resumen_del_viaje(trip)
+
+        assert resumen.startswith(trip.referencia)
+        assert '1 persona' in resumen
+
+    def test_la_alerta_dice_en_que_viaje_y_como_de_grave(
+        self, gestor, trip, segment_factory,
+    ):
+        from app.services import alert_service
+
+        TestDesdeUnaAlerta()._conexion_imposible(gestor, trip, segment_factory)
+        alert_service.recalculate(trip)
+
+        aviso = next(n for n in notification_service.sin_leer(gestor)
+                     if n.tipo is NotificationKind.ALERTA)
+        assert trip.titulo in aviso.titulo
+        assert aviso.titulo.startswith('Alerta ')
+        assert aviso.enlace and aviso.enlace.startswith('/alerts/')
+        assert aviso.mensaje
+
+    def test_un_documento_fallido_dice_que_hacer(self, gestor, documento_subido):
+        from app.services import document_service
+
+        document_service.mark_failed(documento_subido, 'ocr_error', 'No se pudo leer el texto')
+
+        aviso = next(n for n in notification_service.sin_leer(documento_subido.subido_por)
+                     if n.tipo is NotificationKind.DOCUMENTO and 'No se pudo' in n.titulo)
+        assert 'No se pudo leer el texto.' in aviso.mensaje
+        assert 'reintentarse' in aviso.mensaje
+        assert aviso.enlace == f'/documents/{documento_subido.id}'
+
+    def test_el_cambio_de_fuente_dice_cual(self, gestor, trip, seeded):
+        from app.services import advisory_service
+
+        advisory_service._avisar_del_cambio(
+            trip, ['https://www.exteriores.gob.es/reino-unido'], regenerar=True,
+        )
+
+        (aviso,) = [n for n in notification_service.sin_leer(gestor)
+                    if n.tipo is NotificationKind.RECOMENDACION]
+        assert 'exteriores.gob.es' in aviso.mensaje
+        assert 'regenerando' in aviso.mensaje
+
+
+class TestElCorreoSeEntiendeSolo:
+    def test_lleva_el_viaje_y_una_direccion_que_se_puede_abrir(self, app, gestor, trip):
+        aviso = notification_service.notificar(
+            gestor, NotificationKind.VIAJE, 'x:correo', 'Algo ha pasado',
+            mensaje='Y esto es lo que hay que hacer.',
+            enlace=f'/trips/{trip.id}', trip=trip,
+        )
+
+        asunto, cuerpo = notification_service.correo_de(aviso)
+
+        assert asunto == f'[{app.config["APP_NAME"]}] Algo ha pasado'
+        assert 'Y esto es lo que hay que hacer.' in cuerpo
+        assert trip.referencia in cuerpo and trip.titulo in cuerpo
+        assert f'{app.config["APP_PUBLIC_URL"].rstrip("/")}/trips/{trip.id}' in cuerpo
+
+    def test_sin_viaje_ni_enlace_no_deja_huecos(self, gestor, seeded):
+        aviso = notification_service.notificar(
+            gestor, NotificationKind.VIAJE, 'x:suelto', 'Solo un título',
+        )
+
+        _, cuerpo = notification_service.correo_de(aviso)
+
+        assert 'Viaje:' not in cuerpo and 'Abrir:' not in cuerpo
+
+
+class TestLaListaSePuedeUsar:
+    def test_lo_leido_sigue_llevando_a_su_sitio(self, as_user, gestor, trip):
+        aviso = notification_service.notificar(
+            gestor, NotificationKind.VIAJE, 'x:leido', 'Ya lo he visto',
+            enlace=f'/trips/{trip.id}', trip=trip,
+        )
+        notification_service.marcar_leida(gestor, aviso.id)
+
+        with as_user(gestor) as client:
+            html = client.get('/dashboard/notificaciones').get_data(as_text=True)
+
+        assert f'href="/trips/{trip.id}"' in html
+        assert 'Abrir' in html
+        assert trip.titulo[:20] in html, 'el viaje se nombra, no solo su referencia'

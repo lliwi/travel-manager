@@ -329,3 +329,58 @@ class TestLasPantallas:
 
         assert pedida.get_json()['data']['validacion']['estado'] == 'pendiente'
         assert resuelta.get_json()['data']['validacion']['estado'] == 'aprobada'
+
+
+class TestSeLeDiceAQuienViaja:
+    def test_que_su_viaje_esta_validado(self, gestor, viajero, otro_viajero,
+                                        validador, preparado):
+        validacion_service.solicitar(gestor, preparado, validador)
+        validacion_service.resolver(validador, preparado, True)
+
+        for persona in (viajero, otro_viajero):
+            (aviso,) = _avisos(persona)
+            assert 'ha sido validado' in aviso.titulo
+            assert preparado.referencia in aviso.mensaje
+            assert aviso.enlace == f'/trips/{preparado.id}'
+        assert len(_avisos(gestor)) == 1, 'al gestor, una vez y con sus palabras'
+
+    def test_y_que_se_ha_rechazado_con_el_motivo(self, gestor, viajero, otro_viajero,
+                                                  validador, preparado):
+        validacion_service.solicitar(gestor, preparado, validador)
+        validacion_service.resolver(validador, preparado, False,
+                                    comentario='El hotel pasa del límite.')
+
+        for persona in (viajero, otro_viajero):
+            (aviso,) = _avisos(persona)
+            assert 'no ha sido validado' in aviso.titulo
+            assert 'El hotel pasa del límite.' in aviso.mensaje
+            assert gestor.nombre_completo in aviso.mensaje
+        assert len(_avisos(gestor)) == 1
+
+    def test_que_esta_confirmado(self, gestor, viajero, otro_viajero, preparado):
+        trip_service.change_status(gestor, preparado, TripStatus.CONFIRMADO)
+
+        for persona in (viajero, otro_viajero):
+            (aviso,) = _avisos(persona)
+            assert 'está confirmado' in aviso.titulo
+        assert not _avisos(gestor), 'quien lo confirma ya lo sabe'
+
+    def test_que_se_ha_cancelado(self, gestor, viajero, preparado):
+        trip_service.change_status(gestor, preparado, TripStatus.CANCELADO)
+
+        (aviso,) = _avisos(viajero)
+        assert 'se ha cancelado' in aviso.titulo
+        assert gestor.nombre_completo in aviso.mensaje
+
+    def test_los_demas_cambios_de_estado_no(self, gestor, viajero, preparado):
+        preparado.estado = TripStatus.EN_PREPARACION
+        trip_service.change_status(gestor, preparado, TripStatus.BORRADOR)
+
+        assert not _avisos(viajero)
+
+    def test_confirmarlo_otra_vez_vuelve_a_avisar(self, gestor, viajero, preparado):
+        trip_service.change_status(gestor, preparado, TripStatus.CONFIRMADO)
+        trip_service.change_status(gestor, preparado, TripStatus.EN_PREPARACION)
+        trip_service.change_status(gestor, preparado, TripStatus.CONFIRMADO)
+
+        assert len(_avisos(viajero)) == 2

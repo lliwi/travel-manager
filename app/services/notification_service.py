@@ -53,6 +53,47 @@ def notificar(usuario, tipo, clave, titulo, mensaje=None, enlace=None,
     return notificacion
 
 
+def enlace_a(endpoint, **valores):
+    """Where a notification leads, as a path, with or without a request.
+
+    Most notifications are born in the worker -- an alert after a nightly
+    recalculation, a document that failed in the pipeline -- where there is
+    no request for ``url_for`` to lean on. It raised, the caller swallowed
+    it, and exactly the notifications nobody was at the screen for arrived
+    without a way to act on them.
+    """
+    from flask import current_app
+
+    try:
+        return current_app.url_map.bind('').build(endpoint, valores)
+    except Exception:
+        logger.warning('No se pudo construir el enlace a «%s».', endpoint)
+        return None
+
+
+def resumen_del_viaje(trip):
+    """One line that says which trip: reference, days, route and how many go.
+
+    A title alone does not: «Reunión de coordinación» is four trips a year.
+    """
+    from app.utils.timeutil import format_local_date
+
+    partes = [trip.referencia]
+    if trip.inicio_local and trip.fin_local:
+        inicio = format_local_date(trip.inicio_local.date())
+        fin = format_local_date(trip.fin_local.date())
+        partes.append(inicio if inicio == fin else f'{inicio} – {fin}')
+    elif trip.inicio_local:
+        partes.append(f'desde el {format_local_date(trip.inicio_local.date())}')
+    ruta = trip.resumen_ruta
+    if ruta and ruta != '—':
+        partes.append(ruta)
+    cuantos = len(trip.active_travelers)
+    if cuantos:
+        partes.append('1 persona' if cuantos == 1 else f'{cuantos} personas')
+    return ' · '.join(partes)
+
+
 def notificar_a_varios(usuarios, **kwargs):
     """Tell several people the same thing, each with their own copy."""
     creadas = []
@@ -86,6 +127,27 @@ def interesados_en(trip):
             vistos.add(persona.id)
             unicos.append(persona)
     return unicos
+
+
+def viajeros_de(trip, salvo=()):
+    """The people travelling on a trip, minus those in ``salvo``.
+
+    ``salvo`` is whoever just did the thing being reported, or is being told
+    in other words: nobody needs a notification about their own click, nor
+    the same news twice.
+    """
+    fuera = {str(getattr(u, 'id', u)) for u in salvo if u is not None}
+    vistos, gente = set(), []
+    for viajero in trip.active_travelers:
+        persona = viajero.user
+        if persona is None or persona.is_deleted:
+            continue
+        clave = str(persona.id)
+        if clave in fuera or clave in vistos:
+            continue
+        vistos.add(clave)
+        gente.append(persona)
+    return gente
 
 
 def gestor_a_avisar(trip):
@@ -151,6 +213,33 @@ def marcar_todas_leidas(usuario, commit=True):
     return len(pendientes)
 
 
+def correo_de(notificacion):
+    """``(asunto, cuerpo)`` of the mail that carries a notification.
+
+    Read away from the application, so it has to stand on its own: which
+    system is writing, which trip it is about, and an address that opens
+    from a mail client -- the stored link is a path, and a path in a mail
+    goes nowhere.
+    """
+    from flask import current_app
+
+    nombre = current_app.config.get('APP_NAME', 'Travel Manager')
+    lineas = [notificacion.titulo]
+    if notificacion.mensaje:
+        lineas += ['', notificacion.mensaje]
+
+    trip = notificacion.trip
+    if trip is not None and not trip.is_deleted:
+        lineas += ['', f'Viaje: «{trip.titulo}» ({resumen_del_viaje(trip)})']
+
+    if notificacion.enlace:
+        base = (current_app.config.get('APP_PUBLIC_URL') or '').rstrip('/')
+        lineas += ['', f'Abrir: {base}{notificacion.enlace}']
+
+    lineas += ['', '--', f'{nombre}. Aviso automático; no responda a este mensaje.']
+    return f'[{nombre}] {notificacion.titulo}', '\n'.join(lineas) + '\n'
+
+
 def enviar_pendientes_por_correo(limite=50):
     """Mail the notifications that have not been mailed yet.
 
@@ -180,12 +269,10 @@ def enviar_pendientes_por_correo(limite=50):
             notificacion.enviada_por_correo_en = utcnow()
             continue
 
-        cuerpo = (notificacion.mensaje or '') + '\n'
-        if notificacion.enlace:
-            cuerpo += f'\n{notificacion.enlace}\n'
+        asunto, cuerpo = correo_de(notificacion)
 
         try:
-            if mail_service.enviar([usuario.email], notificacion.titulo, cuerpo):
+            if mail_service.enviar([usuario.email], asunto, cuerpo):
                 enviadas += 1
         except Exception as exc:
             logger.info('No se pudo enviar la notificación por correo: %s', exc)

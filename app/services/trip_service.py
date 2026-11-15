@@ -171,18 +171,13 @@ def enviar_al_gestor(actor, trip, commit=True):
 
 def _avisar_del_envio(trip, gestor, actor):
     """Tell the manager a traveller has finished planning a trip for them."""
-    from flask import url_for
-
     from app.services import notification_service
 
-    try:
-        enlace = url_for('trips.detail', trip_id=trip.id)
-    except RuntimeError:
-        enlace = None
-
+    enlace = notification_service.enlace_a('trips.detail', trip_id=trip.id)
     mensaje = (
-        f'Ha enviado el viaje {trip.referencia} con lo que ha elegido. Queda a '
-        'su cargo: documentación, recomendaciones y confirmación.'
+        f'{notification_service.resumen_del_viaje(trip)}. Queda a su cargo: '
+        'revisar lo que ha elegido, la documentación, las recomendaciones y '
+        'la confirmación.'
     )
     # Uploads made while it was a draft told nobody, so this is the one place
     # the manager learns there is something waiting to be reviewed.
@@ -404,6 +399,7 @@ def change_status(actor, trip, nuevo_estado, motivo=None, commit=True,
             )
 
     trip.estado = nuevo_estado
+    _avisar_a_quien_viaja(trip, nuevo_estado, actor)
     if commit:
         db.session.commit()
         audit_service.record(
@@ -418,6 +414,43 @@ def change_status(actor, trip, nuevo_estado, motivo=None, commit=True,
             },
         )
     return trip
+
+
+def _avisar_a_quien_viaja(trip, estado, actor):
+    """Tell the travellers their trip is now on, or off.
+
+    The two changes that alter what somebody does next: a confirmed trip is
+    one to pack for and a cancelled one is not. The other states are the
+    manager's bookkeeping, and telling everybody about each would teach them
+    to ignore the two that matter.
+    """
+    from app.services import notification_service
+
+    if estado is TripStatus.CONFIRMADO:
+        hecho, titulo = 'confirmado', f'Su viaje «{trip.titulo}» está confirmado'
+        mensaje = (
+            f'{notification_service.resumen_del_viaje(trip)}. Las reservas '
+            'están hechas: consulte el itinerario y sus documentos.'
+        )
+    elif estado is TripStatus.CANCELADO:
+        hecho, titulo = 'cancelado', f'Su viaje «{trip.titulo}» se ha cancelado'
+        gestor = trip.gestor.nombre_completo if trip.gestor else 'su gestor'
+        mensaje = (
+            f'{notification_service.resumen_del_viaje(trip)}. Ya no se va a '
+            f'realizar. Si tiene alguna duda, consulte con {gestor}.'
+        )
+    else:
+        return
+
+    # Keyed by the moment as well as the trip: one that falls back to
+    # preparation and is confirmed again is news a second time.
+    clave = f'viaje_{hecho}:{trip.id}:{utcnow().isoformat()}'
+    for persona in notification_service.viajeros_de(trip, salvo=[actor]):
+        notification_service.notificar(
+            persona, tipo='viaje', clave=clave, titulo=titulo, mensaje=mensaje,
+            enlace=notification_service.enlace_a('trips.detail', trip_id=trip.id),
+            trip=trip, commit=False,
+        )
 
 
 def marcar_actividad(trip, actor=None, motivo=None, commit=True):
