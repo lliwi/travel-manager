@@ -57,7 +57,7 @@ class TestLosRangosDeDias:
 
         with as_user(gestor) as client:
             client.post('/trips/nuevo', data={
-                'titulo': 'Rango', 'estado': 'borrador',
+                'titulo': 'Rango', 'estado': 'borrador', 'proyecto': 'PRJ-0002',
                 'inicio_local': '2026-10-28T00:00', 'inicio_tz': 'Europe/Madrid',
                 'fin_local': '2026-10-31T23:59', 'fin_tz': 'Europe/Madrid',
             })

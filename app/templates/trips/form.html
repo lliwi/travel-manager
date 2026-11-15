@@ -12,7 +12,8 @@
 {% endblock %}
 
 {% block content %}
-{# Editar es cosa del gestor; solo crear puede hacerlo quien viaja. #}
+{# Quien viaja crea su viaje y lo corrige mientras es una propuesta; el
+   estado, el gestor y los costes solo se le ofrecen a quien gestiona. #}
 {% set gestiona = gestiona if gestiona is defined else true %}
 <div class="page-header">
     <h1>{{ 'Editar viaje' if trip else 'Nuevo viaje' }}</h1>
@@ -39,12 +40,12 @@
         <form method="post" enctype="multipart/form-data" novalidate>
             {{ form.hidden_tag() }}
 
-            {% if not gestiona %}
+            {% if not gestiona and not trip %}
             <div class="alert alert-info">
                 <i class="bi bi-info-circle me-2"></i>
                 El viaje se creará en borrador a su nombre y solo lo verá usted
-                mientras lo prepara: podrá añadir los vuelos y alojamientos que
-                elija y subir sus documentos. Cuando termine, pulse
+                mientras lo prepara: podrá añadir a quienes viajen con usted,
+                los vuelos y alojamientos que elija y sus documentos. Cuando termine, pulse
                 <strong>Enviar</strong> y pasará a
                 {% if gestor_por_defecto %}<strong>{{ gestor_por_defecto.nombre_completo }}</strong>{% else %}el gestor que elija{% endif %},
                 que recibirá el aviso y se ocupará de la revisión de los
@@ -66,8 +67,8 @@
                         {# Quien viaja no decide el estado: el servidor lo fija
                            igual, esto solo evita ofrecerlo. El gestor lo elige
                            solo si no hay uno por defecto en Ajustes. #}
-                        <input type="hidden" name="estado" value="borrador">
-                        {% if not gestor_por_defecto %}
+                        <input type="hidden" name="estado" value="{{ trip.estado.value if trip else 'borrador' }}">
+                        {% if not gestor_por_defecto and not trip %}
                         <div class="col-md-6">{{ render_field(form.gestor_id) }}</div>
                         {% endif %}
                         {% endif %}
@@ -80,6 +81,8 @@
                            quieren el informe. #}
                         <div class="col-md-6">{{ render_field(form.proyecto,
                             placeholder='P-2026-014') }}</div>
+                        <div class="col-md-6 d-flex align-items-center">
+                            {{ render_field(form.facturable) }}</div>
                     </div>
                     {{ render_field(form.observaciones, rows=3) }}
                 </div>

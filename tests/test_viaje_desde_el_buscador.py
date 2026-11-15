@@ -179,7 +179,7 @@ class TestLaPantalla:
 
         with as_user(gestor) as client:
             respuesta = client.post('/trips/planificar/crear', data={
-                'titulo': 'BCN → LON',
+                'titulo': 'BCN → LON', 'proyecto': 'PRJ-0002',
                 'vuelo': json.dumps(VUELO),
                 'entrada': '2026-10-15',
             })
@@ -348,7 +348,7 @@ class TestLaVueltaTambienSeSelecciona:
 
         with as_user(gestor) as client:
             client.post('/trips/planificar/crear', data={
-                'csrf_token': 'x', 'titulo': 'BCN → LHR',
+                'csrf_token': 'x', 'titulo': 'BCN → LHR', 'proyecto': 'PRJ-0002',
                 'vuelo': [json.dumps(VUELO), json.dumps(vuelta)],
                 'enlace': 'https://google.test/vuelos',
             }, follow_redirects=True)

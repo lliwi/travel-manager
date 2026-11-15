@@ -272,7 +272,7 @@ def can(actor, permiso, recurso=None):
 
     # --- Traveller: only their own trips -------------------------------
     if _is_traveler(actor, trip):
-        permisos = _traveler_permissions(trip)
+        permisos = _traveler_permissions(trip, actor)
         allowed = permiso in permisos
         if allowed and permiso is Permiso.EDITAR_ITINERARIO:
             motivo = _fuera_de_lo_planificable(actor, trip, recurso)
@@ -322,12 +322,32 @@ def _narrow_by_settings(permisos):
     return frozenset(permisos)
 
 
-def _traveler_permissions(trip=None):
+def es_autor(actor, trip):
+    """Whether the actor opened this trip and is still travelling on it."""
+    if actor is None or trip is None:
+        return False
+    return (str(getattr(trip, 'creado_por_id', None)) == str(actor.id)
+            and trip.has_traveler(actor.id))
+
+
+def prepara(actor, trip):
+    """Whether this trip is a draft the actor opened and has not sent yet.
+
+    While it is, the trip is theirs in a way no other traveller's is: they say
+    who comes, they plan it whole, and they decide when the manager sees it.
+    Somebody they added is a traveller on it and nothing more.
+    """
+    return bool(getattr(trip, 'pendiente_envio', False)) and es_autor(actor, trip)
+
+
+def _traveler_permissions(trip=None, actor=None):
     """Traveller permissions, narrowed by the current runtime settings.
 
     With planning allowed, a traveller also edits the itinerary of a trip that
     is still a proposal. ``trip`` is what says whether it still is; without one
     the answer is about no trip in particular, so planning is not included.
+    ``actor`` matters only for a draft not yet sent, where its author holds
+    what the other travellers do not.
     """
     from app.services import settings_service
 
@@ -338,9 +358,18 @@ def _traveler_permissions(trip=None):
         permisos.discard(Permiso.VER_COSTES)
     # Not behind the planning switch: turning it off must not strand the
     # drafts already begun where no manager can see them.
-    if trip is not None and getattr(trip, 'pendiente_envio', False) \
-            and getattr(trip, 'is_editable', True):
+    # The trip they opened stays theirs to correct -- its title, dates,
+    # project, notes and destinations -- for as long as it is a proposal, sent
+    # or not. Only their own: on a trip a manager opened, a traveller plans
+    # their flights but does not rename it or move its dates.
+    if es_autor(actor, trip) \
+            and str(getattr(trip, 'estado', '') or '') in ESTADOS_PLANIFICABLES:
+        permisos.add(Permiso.EDITAR_VIAJE)
+    if prepara(actor, trip) and getattr(trip, 'is_editable', True):
         permisos.add(Permiso.ENVIAR_VIAJE)
+        # Who comes along is part of preparing it. Once sent, the roster is
+        # the manager's like the rest of the trip.
+        permisos.add(Permiso.GESTIONAR_VIAJEROS)
     if trip is not None and usuarios_planifican():
         if str(getattr(trip, 'estado', '') or '') in ESTADOS_PLANIFICABLES:
             permisos.add(Permiso.EDITAR_ITINERARIO)
@@ -480,8 +509,9 @@ def _fuera_de_lo_planificable(actor, trip, recurso):
 
     propio = trip.traveler_for(actor.id)
     if recurso.trip_traveler_id is None:
-        # For the whole trip: theirs only when the whole trip is them.
-        if len(trip.active_travelers) != 1:
+        # For the whole trip: theirs when the whole trip is them, or while it
+        # is still the draft they are preparing for everybody on it.
+        if len(trip.active_travelers) != 1 and not prepara(actor, trip):
             return 'elemento_de_otros'
     elif propio is None or recurso.trip_traveler_id != propio.id:
         return 'elemento_de_otros'

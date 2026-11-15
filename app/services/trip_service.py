@@ -47,11 +47,24 @@ def generate_reference(year=None):
     return f'{prefix}{nxt:04d}'
 
 
+def exigir_proyecto(proyecto):
+    """The project a new trip is charged to, or a refusal.
+
+    Asked at the doors a person comes in through -- the form, the planner, the
+    API -- and not inside :func:`create_trip`: a trip opened from an internal
+    request form takes its project from the document, after it exists.
+    """
+    proyecto = str(proyecto or '').strip()[:120]
+    if not proyecto:
+        raise ValidationError('Indique el proyecto al que se imputa el viaje.')
+    return proyecto
+
+
 def create_trip(actor, titulo, gestor=None, estado=TripStatus.BORRADOR,
                 finalidad=None, finalidad_detalle=None, observaciones=None,
                 inicio_local=None, inicio_tz=None, fin_local=None, fin_tz=None,
                 referencia=None, proyecto=None, coste_estimado=None,
-                moneda=None, commit=True):
+                moneda=None, facturable=False, commit=True):
     """Create a trip.
 
     The manager defaults to the creating actor, which is the common case: a
@@ -84,6 +97,7 @@ def create_trip(actor, titulo, gestor=None, estado=TripStatus.BORRADOR,
         finalidad_detalle=finalidad_detalle,
         observaciones=observaciones,
         proyecto=(str(proyecto).strip()[:120] or None) if proyecto else None,
+        facturable=bool(facturable),
         coste_estimado=coste_estimado,
         moneda=(str(moneda).strip().upper()[:3] or None) if moneda else None,
         gestor_id=(gestor.id if gestor is not None else actor.id),
@@ -188,10 +202,23 @@ def _avisar_del_envio(trip, gestor, actor):
     )
 
 
+#: What a traveller editing their own trip never changes.
+SOLO_DEL_GESTOR = ('gestor_id', 'coste_estimado', 'moneda')
+
+
 def update_trip(actor, trip, commit=True, **campos):
     """Apply field changes to a trip, recording what actually changed."""
     if not trip.is_editable:
         raise ConflictError('Un viaje cancelado no puede modificarse.')
+
+    from app.services import authorization_service
+
+    # Who runs the trip and what it costs are the manager's to say, whatever
+    # a form or a request body carries. Dropped here so the screen and the API
+    # cannot disagree about it.
+    if not authorization_service.gestiona(actor):
+        campos = {k: v for k, v in campos.items()
+                  if k not in SOLO_DEL_GESTOR}
 
     cambios = {}
     # «estado» no está aquí a propósito: lo escribe «change_status», que es
@@ -199,7 +226,7 @@ def update_trip(actor, trip, commit=True, **campos):
     # formulario de edición saltándose todas las reglas.
     simple_fields = (
         'titulo', 'finalidad', 'finalidad_detalle', 'observaciones',
-        'gestor_id', 'proyecto', 'coste_estimado', 'moneda',
+        'gestor_id', 'proyecto', 'facturable', 'coste_estimado', 'moneda',
     )
     for field in simple_fields:
         if field not in campos:
@@ -341,6 +368,15 @@ def change_status(actor, trip, nuevo_estado, motivo=None, commit=True,
     anterior = trip.estado
     if anterior is nuevo_estado:
         return trip
+
+    # Editing a trip is not deciding how far along it is: a traveller may
+    # hold EDITAR_VIAJE on their own proposal, and that must not confirm it.
+    from app.services import authorization_service
+
+    if not automatico and not authorization_service.gestiona(actor):
+        from app.utils.errors import AuthorizationError
+
+        raise AuthorizationError('El estado del viaje lo cambia su gestor.')
 
     if nuevo_estado not in TRANSICIONES.get(anterior, ()):
         raise ConflictError(
@@ -530,6 +566,14 @@ def remove_traveler(actor, trip, user_id, commit=True):
     traveler = trip.traveler_for(user_id)
     if traveler is None:
         raise ResourceNotFound('Esa persona no está asignada a este viaje.')
+
+    # An unsent draft is visible only through its author's place on it. Take
+    # that away and nobody but an administrator could ever find it again.
+    if trip.pendiente_envio and str(traveler.user_id) == str(trip.creado_por_id):
+        raise ConflictError(
+            'Quien está preparando el viaje no puede quitarse de él antes de '
+            'enviarlo.'
+        )
 
     traveler.soft_delete(actor)
     trip.touch_itinerary()

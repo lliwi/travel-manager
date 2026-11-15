@@ -150,3 +150,142 @@ class TestEnviar:
 
         assert propio.gestor_id == relevo.id
         assert len(_avisos(relevo)) == 1
+
+
+class TestQuienViajaConmigo:
+    """Whoever prepares the draft says who comes -- until it is sent."""
+
+    def test_quien_lo_prepara_anade_y_quita_a_otros(self, viajero, otro_viajero, propio):
+        assert can(viajero, Permiso.GESTIONAR_VIAJEROS, propio)
+
+        trip_service.add_traveler(viajero, propio, otro_viajero)
+        assert propio.has_traveler(otro_viajero.id)
+
+        trip_service.remove_traveler(viajero, propio, otro_viajero.id)
+        assert not propio.has_traveler(otro_viajero.id)
+
+    def test_desde_la_pantalla(self, as_user, viajero, otro_viajero, propio):
+        with as_user(viajero) as client:
+            html = client.get(f'/trips/{propio.id}').get_data(as_text=True)
+            respuesta = client.post(f'/trips/{propio.id}/viajeros', data={
+                'user_id': str(otro_viajero.id), 'rol_en_viaje': 'viajero',
+            })
+
+        assert f'/trips/{propio.id}/viajeros' in html
+        assert respuesta.status_code == 302
+        db.session.refresh(propio)
+        assert propio.has_traveler(otro_viajero.id)
+
+    def test_el_anadido_lo_ve_pero_ni_invita_ni_envia(self, viajero, otro_viajero, propio):
+        trip_service.add_traveler(viajero, propio, otro_viajero)
+
+        assert can(otro_viajero, Permiso.VER_VIAJE, propio)
+        assert not can(otro_viajero, Permiso.GESTIONAR_VIAJEROS, propio)
+        assert not can(otro_viajero, Permiso.ENVIAR_VIAJE, propio)
+
+    def test_no_puede_quitarse_a_si_mismo(self, viajero, propio):
+        with pytest.raises(ConflictError):
+            trip_service.remove_traveler(viajero, propio, viajero.id)
+        assert propio.has_traveler(viajero.id)
+
+    def test_una_vez_enviado_los_viajeros_son_del_gestor(self, gestor, viajero, propio):
+        trip_service.enviar_al_gestor(viajero, propio)
+
+        assert not can(viajero, Permiso.GESTIONAR_VIAJEROS, propio)
+        assert can(gestor, Permiso.GESTIONAR_VIAJEROS, propio)
+
+    def test_en_un_viaje_del_gestor_tampoco(self, gestor, viajero):
+        trip = trip_service.create_trip(gestor, titulo='Feria')
+        trip_service.add_traveler(gestor, trip, viajero)
+
+        assert not can(viajero, Permiso.GESTIONAR_VIAJEROS, trip)
+
+    def test_planifica_para_todo_el_grupo(self, viajero, otro_viajero, propio):
+        from datetime import datetime
+
+        from app.services import itinerary_service
+
+        def vuelo(**campos):
+            return itinerary_service.create_item(
+                viajero, propio, 'segmento',
+                instants={'salida': (datetime(2026, 12, 1, 7, 10), 'Europe/Madrid'),
+                          'llegada': (datetime(2026, 12, 1, 9, 0), 'Europe/Paris')},
+                origen_codigo='BCN', destino_codigo='LYS', **campos,
+            )
+
+        antes = vuelo()
+        trip_service.add_traveler(viajero, propio, otro_viajero)
+        del_otro = propio.traveler_for(otro_viajero.id)
+        suyo = propio.traveler_for(viajero.id)
+
+        # What was chosen while alone is still editable, and new rows are for
+        # everybody unless said to be only theirs -- never for one colleague.
+        assert can(viajero, Permiso.EDITAR_ITINERARIO, antes)
+        assert vuelo().trip_traveler_id is None
+        assert vuelo(trip_traveler_id=del_otro.id).trip_traveler_id is None
+        assert vuelo(trip_traveler_id=suyo.id).trip_traveler_id == suyo.id
+        assert not can(otro_viajero, Permiso.EDITAR_ITINERARIO, antes)
+
+
+class TestCorregirSuViaje:
+    """The author corrects their own trip while it is still a proposal."""
+
+    def test_lo_edita_antes_y_despues_de_enviarlo(self, viajero, propio):
+        assert can(viajero, Permiso.EDITAR_VIAJE, propio)
+
+        trip_service.enviar_al_gestor(viajero, propio)
+        assert can(viajero, Permiso.EDITAR_VIAJE, propio)
+
+        trip_service.update_trip(viajero, propio, titulo='Visita a Lyon y Grenoble')
+        assert propio.titulo == 'Visita a Lyon y Grenoble'
+
+    def test_cuando_el_gestor_lo_confirma_deja_de_poder(self, viajero, propio):
+        from app.models.enums import TripStatus
+
+        for estado in (TripStatus.CONFIRMADO, TripStatus.EN_CURSO,
+                       TripStatus.FINALIZADO, TripStatus.CANCELADO):
+            propio.estado = estado
+            assert not can(viajero, Permiso.EDITAR_VIAJE, propio), estado
+
+    def test_solo_el_suyo(self, gestor, viajero, otro_viajero, propio):
+        del_gestor = trip_service.create_trip(gestor, titulo='Feria')
+        trip_service.add_traveler(gestor, del_gestor, viajero)
+        trip_service.add_traveler(viajero, propio, otro_viajero)
+
+        assert not can(viajero, Permiso.EDITAR_VIAJE, del_gestor)
+        assert not can(otro_viajero, Permiso.EDITAR_VIAJE, propio)
+
+    def test_ni_el_gestor_ni_el_coste_ni_el_estado(self, viajero, otro_viajero, propio):
+        from app.models.enums import TripStatus
+        from app.utils.errors import AuthorizationError
+
+        gestor_id, estado = propio.gestor_id, propio.estado
+
+        trip_service.update_trip(viajero, propio, gestor_id=otro_viajero.id,
+                                 coste_estimado=5000, moneda='EUR')
+        with pytest.raises(AuthorizationError):
+            trip_service.change_status(viajero, propio, TripStatus.CONFIRMADO)
+
+        assert propio.gestor_id == gestor_id
+        assert propio.coste_estimado is None
+        assert propio.estado is estado
+
+    def test_desde_la_pantalla(self, as_user, viajero, propio):
+        estado = propio.estado
+
+        with as_user(viajero) as client:
+            html = client.get(f'/trips/{propio.id}/editar').get_data(as_text=True)
+            respuesta = client.post(f'/trips/{propio.id}/editar', data={
+                'titulo': 'Visita corregida', 'proyecto': 'PRJ-0009',
+                'estado': 'confirmado', 'observaciones': 'Salgo un día antes.',
+                'inicio_tz': 'Europe/Madrid', 'fin_tz': 'Europe/Madrid',
+            })
+
+        assert 'name="gestor_id"' not in html
+        assert 'name="coste_estimado"' not in html
+        assert respuesta.status_code == 302
+        db.session.refresh(propio)
+        assert propio.titulo == 'Visita corregida'
+        assert propio.proyecto == 'PRJ-0009'
+        assert propio.observaciones == 'Salgo un día antes.'
+        assert propio.estado is estado, 'el estado no es suyo'

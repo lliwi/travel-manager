@@ -402,12 +402,15 @@
                     <dd>{{ trip.fin_local | local_dt(trip.fin_tz) }}</dd>
                     <dt>Gestor</dt>
                     <dd>{{ trip.gestor.nombre_completo if trip.gestor else '—' }}</dd>
+                    <dt>Proyecto</dt>
+                    <dd>{{ trip.proyecto or '—' }}
+                        {% if trip.facturable %}{{ badge('Facturable', 'success') }}{% endif %}</dd>
                     <dt>Ruta</dt>
                     <dd>{{ trip.resumen_ruta }}</dd>
                     <dt>Destinos</dt>
                     <dd>{{ trip.resumen_destinos }}</dd>
                     {% if trip.observaciones %}
-                    <dt>Observaciones</dt>
+                    <dt>Notas</dt>
                     <dd>{{ trip.observaciones }}</dd>
                     {% endif %}
                 </dl>
@@ -415,7 +418,14 @@
         </div>
 
         <div class="card">
-            <div class="card-header"><i class="bi bi-people me-2"></i>Personas viajeras</div>
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-people me-2"></i>Personas viajeras</span>
+                {% if Permiso.GESTIONAR_VIAJEROS in permisos %}
+                <a href="{{ url_for('trips.travelers', trip_id=trip.id) }}"
+                   class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-person-plus me-1"></i>Añadir</a>
+                {% endif %}
+            </div>
             {% if trip.active_travelers %}
             <ul class="list-group list-group-flush">
                 {% for viajero in trip.active_travelers %}

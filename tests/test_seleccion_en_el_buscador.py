@@ -101,7 +101,7 @@ class TestElCaminoCompleto:
 
         with as_user(gestor) as client:
             respuesta = client.post('/trips/planificar/crear', data={
-                'csrf_token': 'x', 'titulo': 'BCN → LON',
+                'csrf_token': 'x', 'titulo': 'BCN → LON', 'proyecto': 'PRJ-0002',
                 'vuelo': vuelos[:1], 'alojamiento': alojamientos[:1],
                 'entrada': '2026-09-28', 'salida': '2026-10-02',
             }, follow_redirects=True)

@@ -407,6 +407,7 @@ class TestAdjuntarAlCrearElViaje:
 
         login(gestor)
         respuesta = client.post('/trips/nuevo', data={
+            'proyecto': 'PRJ-0002',
             'titulo': 'Viaje con reservas',
             'estado': 'confirmado',
             'documentos': [
@@ -435,6 +436,7 @@ class TestAdjuntarAlCrearElViaje:
 
         login(gestor)
         respuesta = client.post('/trips/nuevo', data={
+            'proyecto': 'PRJ-0002',
             'titulo': 'Viaje con adjunto malo',
             'estado': 'borrador',
             'documentos': [(io.BytesIO(b'MZ\x90\x00'), 'virus.exe')],
@@ -451,6 +453,7 @@ class TestAdjuntarAlCrearElViaje:
 
         login(gestor)
         respuesta = client.post('/trips/nuevo', data={
+            'proyecto': 'PRJ-0002',
             'titulo': 'Viaje sin adjuntos', 'estado': 'borrador',
         }, follow_redirects=False)
 

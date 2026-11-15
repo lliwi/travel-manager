@@ -181,6 +181,21 @@ because a notification about a trip one cannot open is a link to a 404.
 that the planning is finished. It is a flag and not a `TripStatus`: the state
 says how far along the journey is, this says who has been shown it.
 
+While it is unsent the draft belongs to whoever opened it
+(`authorization_service.prepara`), not to everybody travelling on it: its
+author says who comes (`GESTIONAR_VIAJEROS`), plans it whole -- rows «for the
+whole trip», never rows addressed to one colleague, which would vanish from
+their own view -- and is the only one who can send it. They cannot remove
+themselves: their place on the trip is the only thing that makes it findable.
+Once sent, the roster and the shared rows are the manager's again.
+
+Sent or not, the author keeps `EDITAR_VIAJE` on their own trip while it is a
+proposal (`ESTADOS_PLANIFICABLES`) and loses it when the manager confirms.
+That permission was a manager's alone until then, so two things it used to
+imply are now refused in the service rather than the form: `update_trip`
+drops `SOLO_DEL_GESTOR` fields for anybody who does not manage, and
+`change_status` refuses a manual change from them.
+
 `ENVIAR_VIAJE` is not behind `USUARIOS_PLANIFICAN`: turning planning off must
 not strand the drafts already begun. An administrator still sees them.
 

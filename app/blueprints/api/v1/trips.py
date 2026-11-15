@@ -86,6 +86,8 @@ def create_trip():
         finalidad=TripPurpose.coerce(payload.get('finalidad')),
         finalidad_detalle=payload.get('finalidad_detalle'),
         observaciones=payload.get('observaciones'),
+        proyecto=trip_service.exigir_proyecto(payload.get('proyecto')),
+        facturable=payload.get('facturable') is True,
         inicio_local=_parse_datetime(payload.get('inicio_local'), 'inicio_local'),
         inicio_tz=payload.get('inicio_tz'),
         fin_local=_parse_datetime(payload.get('fin_local'), 'fin_local'),
@@ -115,6 +117,10 @@ def update_trip(trip_id, trip):
     for field in ('titulo', 'finalidad_detalle', 'observaciones', 'moneda'):
         if field in payload:
             campos[field] = payload[field]
+    if 'proyecto' in payload:
+        campos['proyecto'] = trip_service.exigir_proyecto(payload['proyecto'])
+    if 'facturable' in payload:
+        campos['facturable'] = payload['facturable'] is True
     if 'estado' in payload:
         campos['estado'] = TripStatus.coerce(payload['estado'], trip.estado)
     if 'finalidad' in payload:

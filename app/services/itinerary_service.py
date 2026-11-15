@@ -611,6 +611,13 @@ def _solo_lo_planificable(actor, trip, kind, campos):
     campos = dict(campos)
     if len(trip.active_travelers) == 1:
         campos['trip_traveler_id'] = None
+    elif authorization_service.prepara(actor, trip):
+        # Their own draft with colleagues on it: for everybody unless they
+        # said it is only theirs. Never for one colleague -- that row would
+        # vanish from their own view the moment it was saved.
+        solo_suyo = propio is not None and \
+            str(campos.get('trip_traveler_id') or '') == str(propio.id)
+        campos['trip_traveler_id'] = propio.id if solo_suyo else None
     elif propio is not None:
         campos['trip_traveler_id'] = propio.id
     return campos

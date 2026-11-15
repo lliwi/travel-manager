@@ -147,6 +147,7 @@ def create():
                 finalidad_detalle=form.finalidad_detalle.data or None,
                 observaciones=form.observaciones.data or None,
                 proyecto=form.proyecto.data or None,
+                facturable=form.facturable.data,
                 inicio_local=form.inicio_local.data,
                 inicio_tz=form.inicio_tz.data or None,
                 fin_local=form.fin_local.data,
@@ -245,6 +246,7 @@ def edit(trip_id, trip):
             'finalidad_detalle': form.finalidad_detalle.data or None,
             'observaciones': form.observaciones.data or None,
             'proyecto': form.proyecto.data or None,
+            'facturable': bool(form.facturable.data),
             'inicio_local': form.inicio_local.data,
             'inicio_tz': form.inicio_tz.data or None,
             'fin_local': form.fin_local.data,
@@ -266,13 +268,14 @@ def edit(trip_id, trip):
             # el resto de campos es lo que permitía llevar un viaje finalizado
             # de vuelta a borrador desde un desplegable.
             destino = TripStatus.coerce(form.estado.data, trip.estado)
-            if destino is not trip.estado:
+            if destino is not trip.estado and authorization_service.gestiona(actor):
                 trip_service.change_status(
                     actor, trip, destino, motivo=form.motivo_estado.data or None,
                 )
         except AppError as error:
             flash(error.mensaje, 'danger')
-            return render_template('trips/form.html', form=form, trip=trip)
+            return render_template('trips/form.html', form=form, trip=trip,
+                                   **_quien_crea())
 
         flash('Viaje actualizado.', 'success')
         return redirect(url_for('trips.detail', trip_id=trip.id))
@@ -282,7 +285,7 @@ def edit(trip_id, trip):
         form.finalidad.data = str(trip.finalidad) if trip.finalidad else ''
         form.gestor_id.data = ''
 
-    return render_template('trips/form.html', form=form, trip=trip)
+    return render_template('trips/form.html', form=form, trip=trip, **_quien_crea())
 
 
 @trips_bp.route('/<trip_id>/eliminar', methods=['POST'])
@@ -633,6 +636,9 @@ def create_from_search():
         trip, avisos = trip_from_search_service.crear_viaje(
             current_user._get_current_object(),
             titulo=request.form.get('titulo') or None,
+            proyecto=trip_service.exigir_proyecto(request.form.get('proyecto')),
+            facturable=bool(request.form.get('facturable')),
+            observaciones=(request.form.get('observaciones') or '').strip() or None,
             gestor=_gestor_elegido(request.form.get('gestor_id')),
             vuelos=vuelos,
             alojamientos=alojamientos,

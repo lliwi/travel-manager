@@ -237,6 +237,7 @@ class TestLaPantallaDelViaje:
         with as_user(viajero) as client:
             respuesta = client.post('/trips/nuevo', data={
                 'titulo': 'Revisión de prototipo', 'estado': 'confirmado',
+                'proyecto': 'PRJ-0002',
                 'inicio_tz': 'Europe/Madrid', 'fin_tz': 'Europe/Madrid',
             })
 

@@ -89,11 +89,18 @@ class TripForm(Formulario):
     )
 
     gestor_id = SelectField('Gestor responsable', validators=[Optional()])
-    observaciones = TextAreaField('Observaciones', validators=[Optional()])
+    observaciones = TextAreaField(
+        'Notas', validators=[Optional()],
+        description='Lo que convenga saber del viaje y no cabe en otro campo.',
+    )
 
     proyecto = StringField(
-        'Proyecto', validators=[Optional(), Length(max=120)],
-        description='Opcional. Con qué proyecto se agrupa en los informes.',
+        'Proyecto',
+        validators=[DataRequired(message='Indique el proyecto.'), Length(max=120)],
+        description='A qué proyecto se imputa; es como se agrupa en los informes.',
+    )
+    facturable = BooleanField(
+        'Facturable', description='El gasto se repercute al cliente.',
     )
     coste_estimado = DecimalField(
         'Coste estimado', places=2, validators=[Optional(), NumberRange(min=0)]

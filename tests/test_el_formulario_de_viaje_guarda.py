@@ -40,6 +40,8 @@ VALORES = {
     'finalidad_detalle': 'Reunión con el cliente',
     'observaciones': 'Llevar el portátil de repuesto',
     'proyecto': 'PRJ-0002',
+    # Una casilla: que se guarda marcada y desmarcada lo prueba «TestFacturable».
+    'facturable': 'y',
     'coste_estimado': '1234.50',
     'moneda': 'EUR',
 }
@@ -132,8 +134,101 @@ class TestTodoLoQueSePuedeEscribirSeGuarda:
 
         with as_user(gestor) as client:
             client.post(f'/trips/{viaje.id}/editar', data={
-                'csrf_token': 'x', 'titulo': 'Para editar',
+                'csrf_token': 'x', 'titulo': 'Para editar', 'proyecto': 'PRJ-0002',
                 'estado': str(TripStatus.CONFIRMADO), 'coste_estimado': '',
             }, follow_redirects=True)
 
         assert db.session.get(Trip, viaje.id).coste_estimado is None
+
+
+class TestElProyectoEsObligatorio:
+    """Whoever opens a trip says what it is charged to, at every door."""
+
+    def test_el_formulario_no_crea_sin_proyecto(self, as_user, gestor):
+        with as_user(gestor) as client:
+            html = client.post('/trips/nuevo', data={
+                'csrf_token': 'x', 'titulo': 'Sin imputar', 'estado': 'borrador',
+            }).get_data(as_text=True)
+
+        assert 'Indique el proyecto' in html
+        assert not Trip.query.filter_by(titulo='Sin imputar').count()
+
+    def test_el_planificador_tampoco(self, as_user, gestor):
+        import json
+
+        vuelo = {'tramos': [{'origen': 'BCN', 'destino': 'LHR',
+                             'salida': '2026-10-15 07:10',
+                             'llegada': '2026-10-15 08:40'}]}
+        with as_user(gestor) as client:
+            html = client.post('/trips/planificar/crear', data={
+                'csrf_token': 'x', 'titulo': 'Sin imputar',
+                'vuelo': json.dumps(vuelo),
+            }, follow_redirects=True).get_data(as_text=True)
+
+        assert 'Indique el proyecto' in html
+        assert not Trip.query.filter_by(titulo='Sin imputar').count()
+
+    def test_el_planificador_guarda_proyecto_y_notas(self, as_user, gestor):
+        import json
+
+        vuelo = {'tramos': [{'origen': 'BCN', 'destino': 'LHR',
+                             'salida': '2026-10-15 07:10',
+                             'llegada': '2026-10-15 08:40'}]}
+        with as_user(gestor) as client:
+            client.post('/trips/planificar/crear', data={
+                'csrf_token': 'x', 'titulo': 'Con notas', 'proyecto': 'PRJ-0007',
+                'observaciones': 'Vuelvo el viernes si hay sitio.',
+                'vuelo': json.dumps(vuelo),
+            })
+
+        viaje = Trip.query.filter_by(titulo='Con notas').one()
+        assert viaje.proyecto == 'PRJ-0007'
+        assert viaje.observaciones == 'Vuelvo el viernes si hay sitio.'
+
+    def test_la_api_tampoco(self, client, api_login, gestor):
+        api_login(gestor)
+
+        sin = client.post('/api/v1/trips', json={'titulo': 'Por la API'})
+        con = client.post('/api/v1/trips',
+                          json={'titulo': 'Por la API', 'proyecto': 'PRJ-0007'})
+
+        assert sin.status_code == 422
+        assert con.status_code == 201
+        assert con.get_json()['data']['proyecto'] == 'PRJ-0007'
+
+
+class TestFacturable:
+    def test_se_marca_al_crear_y_se_desmarca_al_editar(self, as_user, gestor):
+        from app.extensions import db
+
+        with as_user(gestor) as client:
+            html = client.get('/trips/nuevo').get_data(as_text=True)
+            client.post('/trips/nuevo', data={
+                'csrf_token': 'x', 'titulo': 'Para el cliente', 'estado': 'borrador',
+                'proyecto': 'PRJ-0002', 'facturable': 'y',
+            })
+            viaje = Trip.query.filter_by(titulo='Para el cliente').one()
+            assert viaje.facturable
+
+            client.post(f'/trips/{viaje.id}/editar', data={
+                'csrf_token': 'x', 'titulo': 'Para el cliente',
+                'estado': 'borrador', 'proyecto': 'PRJ-0002',
+            })
+
+        assert 'name="facturable"' in html
+        db.session.refresh(viaje)
+        assert not viaje.facturable
+
+    def test_por_defecto_no_lo_es(self, gestor):
+        from app.services import trip_service
+
+        assert trip_service.create_trip(gestor, titulo='Interno').facturable is False
+
+    def test_por_la_api(self, client, api_login, gestor):
+        api_login(gestor)
+
+        creado = client.post('/api/v1/trips', json={
+            'titulo': 'Por la API', 'proyecto': 'PRJ-0007', 'facturable': True,
+        }).get_json()['data']
+
+        assert creado['facturable'] is True
