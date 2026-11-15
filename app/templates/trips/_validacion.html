@@ -1,0 +1,102 @@
+{# La validación del viaje: qué se pidió, a quién y qué contestó. Se enseña
+   a quien puede pedirla, a quien tiene que contestarla y, una vez pedida, a
+   todo el que ve el viaje -- quien viaja también quiere saber si está
+   aprobado. #}
+{% set puede_pedir = Permiso.SOLICITAR_VALIDACION in permisos
+                     and trip.estado.value in ('borrador', 'en_preparacion')
+                     and not trip.pendiente_envio %}
+{% if trip.validacion_estado or puede_pedir %}
+<div class="card mb-3" id="validacion">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-patch-check me-2"></i>Validación</span>
+        {% if trip.validacion_estado %}
+        {{ badge(trip.validacion_estado.label, trip.validacion_estado.css_class) }}
+        {% elif validacion_obligatoria %}
+        {{ badge('Sin pedir', 'secondary') }}
+        {% endif %}
+    </div>
+    <div class="card-body">
+        {% if trip.validacion_estado %}
+        <dl class="detail-list">
+            <dt>Validador</dt>
+            <dd>{{ trip.validador.nombre_completo if trip.validador else '—' }}</dd>
+            <dt>Solicitada</dt>
+            <dd>{{ trip.validacion_solicitada_en | local_date }}</dd>
+            {% if trip.validacion_resuelta_en %}
+            <dt>Respondida</dt>
+            <dd>{{ trip.validacion_resuelta_en | local_date }}</dd>
+            {% endif %}
+            {% if trip.validacion_comentario %}
+            <dt>Comentario</dt>
+            <dd>{{ trip.validacion_comentario }}</dd>
+            {% endif %}
+        </dl>
+        {% if trip.cambiado_tras_validar %}
+        {# No bloquea: las reservas llegan después de validar y cambian el
+           itinerario. Pero quien confirma tiene que saber que lo aprobado y
+           lo que hay ya no son exactamente lo mismo. #}
+        <p class="small text-warning-emphasis mb-2">
+            <i class="bi bi-exclamation-triangle me-1"></i>
+            El itinerario o las personas viajeras han cambiado después de esta
+            respuesta.
+        </p>
+        {% endif %}
+        {% elif validacion_obligatoria %}
+        <p class="text-muted small">
+            Este viaje no podrá confirmarse hasta que un validador lo apruebe.
+        </p>
+        {% endif %}
+
+        {% if puede_validar %}
+        <form method="post" action="{{ url_for('trips.resolve_validation', trip_id=trip.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label for="validacion-comentario" class="form-label small">Comentario</label>
+            <textarea name="comentario" id="validacion-comentario" rows="2"
+                      class="form-control form-control-sm mb-2"
+                      placeholder="Obligatorio si lo rechaza"></textarea>
+            <div class="d-flex gap-2">
+                <button type="submit" name="decision" value="aprobar"
+                        class="btn btn-success btn-sm">
+                    <i class="bi bi-check-lg me-1"></i>Validar</button>
+                <button type="submit" name="decision" value="rechazar"
+                        class="btn btn-outline-danger btn-sm"
+                        data-confirm="¿Rechazar el viaje {{ trip.referencia }}?">
+                    <i class="bi bi-x-lg me-1"></i>Rechazar</button>
+            </div>
+        </form>
+        {% endif %}
+
+        {% if puede_pedir %}
+        {% if falta_para_validar %}
+        <p class="text-muted small mb-0">
+            Para pedir la validación falta {{ falta_para_validar | join(', y ') }}.
+        </p>
+        {% elif not validadores %}
+        <p class="text-muted small mb-0">
+            No hay ninguna cuenta activa con el rol «Validador» a la que pedírselo.
+        </p>
+        {% else %}
+        <form method="post" action="{{ url_for('trips.request_validation', trip_id=trip.id) }}"
+              class="{{ 'border-top pt-3 mt-2' if trip.validacion_estado }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label for="validador_id" class="form-label small">
+                {{ 'Pedirla de nuevo a' if trip.validacion_estado else 'Validador' }}</label>
+            <div class="d-flex gap-2">
+                <select name="validador_id" id="validador_id"
+                        class="form-select form-select-sm" required>
+                    <option value="">— Elija —</option>
+                    {% for v in validadores %}
+                    <option value="{{ v.id }}"
+                            {{ 'selected' if trip.validador_id == v.id }}>{{ v.nombre_completo }}</option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="btn btn-primary btn-sm text-nowrap">
+                    <i class="bi bi-send me-1"></i>{{ 'Volver a pedir' if trip.validacion_estado else 'Pedir validación' }}
+                </button>
+            </div>
+        </form>
+        {% endif %}
+        {% endif %}
+    </div>
+</div>
+{% endif %}

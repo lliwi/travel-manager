@@ -327,6 +327,13 @@ def requisitos_pendientes(trip, destino):
         faltan.append('asignar al menos una persona viajera')
     if not _tiene_itinerario(trip):
         faltan.append('registrar algún trayecto, alojamiento o servicio')
+
+    # Confirming says the trip is bought, so this is where «not before it is
+    # validated» has to hold -- for the form and the API alike.
+    from app.services import validacion_service
+
+    if validacion_service.obligatoria() and not trip.validado:
+        faltan.append('que lo apruebe su validador')
     return faltan
 
 

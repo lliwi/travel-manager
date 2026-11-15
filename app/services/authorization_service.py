@@ -43,6 +43,8 @@ class Permiso(str, enum.Enum):
     ELIMINAR_VIAJE = 'eliminar_viaje'
     GESTIONAR_VIAJEROS = 'gestionar_viajeros'
     ENVIAR_VIAJE = 'enviar_viaje'
+    SOLICITAR_VALIDACION = 'solicitar_validacion'
+    VALIDAR_VIAJE = 'validar_viaje'
 
     SUBIR_DOCUMENTO = 'subir_documento'
     VER_DOCUMENTO = 'ver_documento'
@@ -78,7 +80,13 @@ PERMISOS_GLOBALES = frozenset({
 })
 
 #: Specification section 2.1, the three access profiles.
-PERMISOS_ADMIN = frozenset(Permiso)
+#:
+#: Validating is the one thing no profile carries. It belongs to the person a
+#: manager named for that trip, whatever else they are, and :func:`can`
+#: answers it on its own before looking at any role -- otherwise «the
+#: administrator may do everything» would include approving a trip nobody
+#: asked them to look at.
+PERMISOS_ADMIN = frozenset(Permiso) - {Permiso.VALIDAR_VIAJE}
 
 #: Sending a trip is its planner's act, not the manager's: it is how the
 #: manager comes to have the trip at all.
@@ -231,6 +239,15 @@ def can(actor, permiso, recurso=None):
 
     permiso = Permiso(permiso) if not isinstance(permiso, Permiso) else permiso
 
+    # --- Validating: the named validator, and nobody else --------------
+    if permiso is Permiso.VALIDAR_VIAJE:
+        trip = _trip_of(recurso) if recurso is not None else None
+        if trip is not None and puede_validar(actor, trip):
+            return AccessDecision(True, 'validador', trip_id=trip.id)
+        ve = recurso is not None and can(actor, Permiso.VER_VIAJE, recurso).permitido
+        return AccessDecision(False, 'no_es_su_validacion',
+                              trip_id=getattr(trip, 'id', None), no_existe=not ve)
+
     # --- Administrator: everything ------------------------------------
     if actor.has_role(RoleCode.ADMINISTRADOR):
         return AccessDecision(True, 'admin', PERMISOS_ADMIN, _trip_id_of(recurso))
@@ -270,16 +287,22 @@ def can(actor, permiso, recurso=None):
             PERMISOS_GESTOR, trip.id,
         )
 
-    # --- Traveller: only their own trips -------------------------------
-    if _is_traveler(actor, trip):
-        permisos = _traveler_permissions(trip, actor)
+    # --- Traveller: only their own trips; validator: only those asked ---
+    viaja, valida = _is_traveler(actor, trip), es_validador_de(actor, trip)
+    if viaja or valida:
+        permisos = frozenset(
+            (_traveler_permissions(trip, actor) if viaja else frozenset())
+            | (_validator_permissions(trip) if valida else frozenset())
+        )
         allowed = permiso in permisos
         if allowed and permiso is Permiso.EDITAR_ITINERARIO:
             motivo = _fuera_de_lo_planificable(actor, trip, recurso)
             if motivo:
                 return AccessDecision(False, motivo, permisos, trip.id)
         return AccessDecision(
-            allowed, 'viajero_asignado' if allowed else 'permiso_viajero_denegado',
+            allowed,
+            ('viajero_asignado' if viaja else 'validador') if allowed
+            else 'permiso_viajero_denegado',
             permisos, trip.id,
         )
 
@@ -319,6 +342,49 @@ def _narrow_by_settings(permisos):
     permisos = set(permisos)
     if not settings_service.get_bool('COSTES_HABILITADOS', False):
         permisos.discard(Permiso.VER_COSTES)
+    return frozenset(permisos)
+
+
+def es_validador_de(actor, trip):
+    """Whether this trip has been put before the actor to validate.
+
+    Three things, all needed: they hold the role today, the manager named
+    them, and the request was actually made. Naming somebody is not yet
+    showing them the trip, and a role taken away takes the trips with it.
+    """
+    if actor is None or trip is None:
+        return False
+    return (getattr(trip, 'validacion_estado', None) is not None
+            and str(getattr(trip, 'validador_id', None)) == str(actor.id)
+            and actor.has_role(RoleCode.VALIDADOR))
+
+
+def puede_validar(actor, trip):
+    """Whether the actor may answer the request right now."""
+    from app.models.enums import ValidationState
+
+    return (es_validador_de(actor, trip)
+            and trip.validacion_estado is ValidationState.PENDIENTE
+            and getattr(trip, 'is_editable', True)
+            and not getattr(trip, 'is_deleted', False))
+
+
+def _validator_permissions(trip):
+    """What a validator sees of a trip put before them: enough to judge it.
+
+    The whole itinerary and what it costs, because that is the question they
+    were asked. Not the documents -- a boarding pass says nothing a validator
+    needs and a good deal they should not have -- and nothing that changes
+    the trip: their answer is the only thing they write.
+    """
+    from app.models.enums import ValidationState
+    from app.services import settings_service
+
+    permisos = {Permiso.VER_VIAJE}
+    if settings_service.get_bool('COSTES_HABILITADOS', False):
+        permisos.add(Permiso.VER_COSTES)
+    if trip.validacion_estado is ValidationState.PENDIENTE:
+        permisos.add(Permiso.VALIDAR_VIAJE)
     return frozenset(permisos)
 
 
@@ -523,6 +589,7 @@ def _trip_mutable(trip, permiso):
     mutating = {
         Permiso.EDITAR_VIAJE, Permiso.GESTIONAR_VIAJEROS, Permiso.SUBIR_DOCUMENTO,
         Permiso.EDITAR_ITINERARIO, Permiso.REVISAR_EXTRACCION,
+        Permiso.SOLICITAR_VALIDACION,
     }
     if permiso not in mutating:
         return True
@@ -714,6 +781,14 @@ def visible_trips_query(actor):
         return query.filter(
             db.or_(Trip.pendiente_envio.is_(False), Trip.id.in_(propios))
         )
+    if actor.has_role(RoleCode.VALIDADOR):
+        # The trips put before them, by the same three conditions as
+        # ``es_validador_de``.
+        return query.filter(db.or_(
+            Trip.id.in_(propios),
+            db.and_(Trip.validador_id == actor.id,
+                    Trip.validacion_estado.isnot(None)),
+        ))
     return query.filter(Trip.id.in_(propios))
 
 
@@ -727,6 +802,10 @@ def scope_itinerary_query(actor, trip, query, model):
     if actor is None:
         return query.filter(db.false())
     if actor.has_role(RoleCode.ADMINISTRADOR) or actor.has_role(RoleCode.GESTOR):
+        return query
+    # Asked to judge the trip, so shown all of it: a validator who saw one
+    # traveller's flights would be approving a trip they had not seen.
+    if es_validador_de(actor, trip):
         return query
 
     traveler = trip.traveler_for(actor.id) if trip else None
@@ -750,6 +829,8 @@ def scope_itinerary_items(actor, trip, items):
     if actor is None:
         return []
     if actor.has_role(RoleCode.ADMINISTRADOR) or actor.has_role(RoleCode.GESTOR):
+        return list(items)
+    if es_validador_de(actor, trip):
         return list(items)
 
     traveler = trip.traveler_for(actor.id) if trip else None

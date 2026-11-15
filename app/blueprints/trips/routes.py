@@ -213,12 +213,22 @@ def detail(trip_id, trip):
 
     timeline = itinerary_service.build_timeline(actor, trip)
 
+    from app.services import validacion_service
+
     return render_template(
         'trips/detail.html',
         trip=trip,
         timeline=timeline,
         permisos=permisos,
         Permiso=Permiso,
+        # Asked apart from ``permisos``: validating belongs to no profile, so
+        # an administrator named as validator would not find it in theirs.
+        puede_validar=bool(authorization_service.can(actor, Permiso.VALIDAR_VIAJE, trip)),
+        validadores=(validacion_service.validadores_para(trip, actor)
+                     if Permiso.SOLICITAR_VALIDACION in permisos else []),
+        validacion_obligatoria=validacion_service.obligatoria(),
+        falta_para_validar=(validacion_service.lo_que_falta(trip)
+                            if Permiso.SOLICITAR_VALIDACION in permisos else []),
         tipos_creables=authorization_service.tipos_que_puede_crear(actor, trip),
     )
 
@@ -313,6 +323,53 @@ def submit(trip_id, trip):
             'recibido el aviso.',
             'success',
         )
+    return redirect(url_for('trips.detail', trip_id=trip.id))
+
+
+@trips_bp.route('/<trip_id>/validacion/solicitar', methods=['POST'])
+@login_required
+@require_trip_access(Permiso.SOLICITAR_VALIDACION)
+def request_validation(trip_id, trip):
+    """Put the prepared trip before the validator the manager picked."""
+    from app.services import validacion_service
+
+    validador = None
+    try:
+        validador = db.session.get(User, uuid.UUID(request.form.get('validador_id', '')))
+    except (ValueError, TypeError):
+        pass
+
+    try:
+        validacion_service.solicitar(current_user._get_current_object(), trip, validador)
+    except AppError as error:
+        flash(error.mensaje, 'danger')
+    else:
+        flash(
+            f'Validación solicitada a {validador.nombre_completo}, que ha '
+            'recibido el aviso.',
+            'success',
+        )
+    return redirect(url_for('trips.detail', trip_id=trip.id))
+
+
+@trips_bp.route('/<trip_id>/validacion/responder', methods=['POST'])
+@login_required
+@require_trip_access(Permiso.VALIDAR_VIAJE)
+def resolve_validation(trip_id, trip):
+    """The validator's answer: approve, or reject saying why."""
+    from app.services import validacion_service
+
+    aprobar = request.form.get('decision') == 'aprobar'
+    try:
+        validacion_service.resolver(
+            current_user._get_current_object(), trip, aprobar,
+            comentario=request.form.get('comentario'),
+        )
+    except AppError as error:
+        flash(error.mensaje, 'danger')
+    else:
+        flash('Viaje validado.' if aprobar else 'Viaje rechazado.',
+              'success' if aprobar else 'info')
     return redirect(url_for('trips.detail', trip_id=trip.id))
 
 

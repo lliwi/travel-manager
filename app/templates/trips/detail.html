@@ -14,6 +14,9 @@
             <span class="ref-code">{{ trip.referencia }}</span>
             {{ badge(trip.estado.label, trip.estado.css_class) }}
             {% if trip.pendiente_envio %}{{ badge('Sin enviar', 'warning') }}{% endif %}
+            {% if trip.validacion_estado %}
+            {{ badge(trip.validacion_estado.label, trip.validacion_estado.css_class) }}
+            {% endif %}
             {% if trip.finalidad %}· {{ trip.finalidad.label }}{% endif %}
         </p>
     </div>
@@ -101,12 +104,21 @@
 <ul class="nav nav-tabs mb-3">
     <li class="nav-item"><a class="nav-link active" href="#itinerario" data-bs-toggle="tab">
         <i class="bi bi-list-ol me-1"></i>Itinerario</a></li>
+    {# Cada pestaña solo si se puede abrir: a quien valida el viaje no se le
+       enseñan sus documentos, y una pestaña que contesta 403 es peor que
+       ninguna. #}
+    {% if Permiso.VER_DOCUMENTO in permisos %}
     <li class="nav-item"><a class="nav-link" href="{{ url_for('documents.index', trip_id=trip.id) }}">
         <i class="bi bi-files me-1"></i>Documentos</a></li>
+    {% endif %}
+    {% if Permiso.VER_ALERTA in permisos %}
     <li class="nav-item"><a class="nav-link" href="{{ url_for('alerts.index', trip_id=trip.id) }}">
         <i class="bi bi-bell me-1"></i>Alertas</a></li>
+    {% endif %}
+    {% if Permiso.VER_RECOMENDACION in permisos %}
     <li class="nav-item"><a class="nav-link" href="{{ url_for('advisories.index', trip_id=trip.id) }}">
         <i class="bi bi-shield-check me-1"></i>Recomendaciones</a></li>
+    {% endif %}
 </ul>
 
 <div class="row g-4">
@@ -417,6 +429,8 @@
                 </dl>
             </div>
         </div>
+
+        {% include 'trips/_validacion.html' %}
 
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">

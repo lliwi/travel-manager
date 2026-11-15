@@ -82,6 +82,10 @@ class RoleCode(LabeledEnum):
     ADMINISTRADOR = ('administrador', 'Administrador')
     GESTOR = ('gestor', 'Gestor')
     USUARIO = ('usuario', 'Usuario')
+    #: An ordinary user a manager may pick to approve a trip before it is
+    #: bought. Holding it grants nothing by itself: what a validator sees is
+    #: the trips somebody asked them to validate.
+    VALIDADOR = ('validador', 'Validador')
 
 
 # ======================================================================
@@ -108,6 +112,23 @@ class TripStatus(LabeledEnum):
             'finalizado': 'dark',
             'cancelado': 'danger',
         }[self.value]
+
+
+class ValidationState(LabeledEnum):
+    """Where a trip stands with the person asked to approve it.
+
+    A trip nobody has sent for validation has no state at all (NULL): «not
+    asked» is the absence of a request, not a fourth answer to one.
+    """
+
+    PENDIENTE = ('pendiente', 'Pendiente de validar')
+    APROBADA = ('aprobada', 'Validado')
+    RECHAZADA = ('rechazada', 'Rechazado')
+
+    @property
+    def css_class(self):
+        return {'pendiente': 'warning', 'aprobada': 'success',
+                'rechazada': 'danger'}[self.value]
 
 
 #: Trips in these states are closed; the alert engine skips them.

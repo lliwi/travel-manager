@@ -34,6 +34,12 @@ ROLE_DEFINITIONS = {
         'Consulta exclusivamente de los viajes asignados, sus documentos procesados, '
         'itinerario, alertas y recomendaciones de seguridad.',
     ),
+    RoleCode.VALIDADOR: (
+        'Validador',
+        'Un usuario al que un gestor puede pedir que valide un viaje ya '
+        'preparado -- fechas, costes, personas viajeras -- antes de comprarlo. '
+        'Ve solo los viajes que se le han pedido validar.',
+    ),
 }
 
 

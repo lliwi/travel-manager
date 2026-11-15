@@ -22,6 +22,7 @@ from app.models.enums import (
     TravelerRole,
     TripPurpose,
     TripStatus,
+    ValidationState,
 )
 from app.utils.timeutil import utcnow
 
@@ -34,6 +35,7 @@ class Trip(SoftDeleteMixin, InstantMixin, BaseModel):
         db.Index('ix_trips_estado_inicio', 'estado', 'inicio_utc'),
         db.Index('ix_trips_gestor_estado', 'gestor_id', 'estado'),
         enum_check('estado', TripStatus, 'trips'),
+        enum_check('validacion_estado', ValidationState, 'trips'),
     )
 
     # --- Identification -----------------------------------------------
@@ -55,6 +57,20 @@ class Trip(SoftDeleteMixin, InstantMixin, BaseModel):
         db.Boolean, nullable=False, default=False, server_default=db.false(),
     )
     enviado_en = db.Column(db.DateTime(timezone=True))
+
+    # --- Validation ---------------------------------------------------
+    #: Who the manager asked to approve the trip before it is bought, and
+    #: what they answered. Only the latest request lives here; every request
+    #: and answer is in the audit trail.
+    validador_id = db.Column(GUID(), db.ForeignKey('users.id'), nullable=True, index=True)
+    validacion_estado = enum_column(ValidationState, nullable=True, index=True)
+    validacion_solicitada_en = db.Column(db.DateTime(timezone=True))
+    validacion_solicitada_por_id = db.Column(GUID(), db.ForeignKey('users.id'), nullable=True)
+    validacion_resuelta_en = db.Column(db.DateTime(timezone=True))
+    validacion_comentario = db.Column(db.Text)
+    #: ``itinerary_version`` when the answer was given, so the screen can say
+    #: the trip has moved since without anybody having to compare by eye.
+    validacion_version = db.Column(db.Integer)
 
     # --- Dates (local / tz / utc triple, see app.utils.timeutil) -------
     inicio_local = db.Column(db.DateTime(timezone=False))
@@ -95,6 +111,7 @@ class Trip(SoftDeleteMixin, InstantMixin, BaseModel):
     # --- Relationships ------------------------------------------------
     gestor = db.relationship('User', foreign_keys=[gestor_id], lazy='joined')
     creado_por = db.relationship('User', foreign_keys=[creado_por_id], lazy='select')
+    validador = db.relationship('User', foreign_keys=[validador_id], lazy='select')
     organizacion = db.relationship('Organization', lazy='select')
 
     travelers = db.relationship(
@@ -147,6 +164,18 @@ class Trip(SoftDeleteMixin, InstantMixin, BaseModel):
     def is_editable(self):
         """Cancelled trips are read-only; everything else can still be edited."""
         return self.estado is not TripStatus.CANCELADO and not self.is_deleted
+
+    @property
+    def validado(self):
+        return self.validacion_estado is ValidationState.APROBADA
+
+    @property
+    def cambiado_tras_validar(self):
+        """True when the itinerary or the travellers moved after the answer."""
+        return (self.validacion_estado is not None
+                and self.validacion_resuelta_en is not None
+                and self.validacion_version is not None
+                and (self.itinerary_version or 0) != self.validacion_version)
 
     def touch_itinerary(self):
         """Record that the itinerary changed, so alerts get recalculated."""
@@ -286,6 +315,17 @@ class Trip(SoftDeleteMixin, InstantMixin, BaseModel):
                 'utc': self.fin_utc.isoformat() if self.fin_utc else None,
             },
             'gestor': self.gestor.to_reference() if self.gestor else None,
+            'validacion': {
+                'estado': str(self.validacion_estado) if self.validacion_estado else None,
+                'estado_label': (self.validacion_estado.label
+                                 if self.validacion_estado else None),
+                'validador': self.validador.to_reference() if self.validador else None,
+                'solicitada_en': (self.validacion_solicitada_en.isoformat()
+                                  if self.validacion_solicitada_en else None),
+                'resuelta_en': (self.validacion_resuelta_en.isoformat()
+                                if self.validacion_resuelta_en else None),
+                'comentario': self.validacion_comentario,
+            },
             'itinerary_version': self.itinerary_version,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,

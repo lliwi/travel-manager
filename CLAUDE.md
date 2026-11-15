@@ -199,6 +199,24 @@ drops `SOLO_DEL_GESTOR` fields for anybody who does not manage, and
 `ENVIAR_VIAJE` is not behind `USUARIOS_PLANIFICAN`: turning planning off must
 not strand the drafts already begun. An administrator still sees them.
 
+## Validating belongs to a person, not to a profile
+
+`validador` is a role that grants nothing by itself: what a validator sees is
+the trips a manager put before them (`validacion_service.solicitar`), whole
+-- `scope_itinerary_*` lets them through, because approving a trip one has
+seen a third of is not approving it -- and read-only, without its documents.
+`VALIDAR_VIAJE` is in no profile, the administrator's included: `can()`
+answers it first, from `es_validador_de`, so «the administrator may do
+everything» does not include approving a trip nobody asked them about. Nobody
+validates a trip they travel on or asked about, and that is checked again
+when they answer.
+
+With `VALIDACION_OBLIGATORIA` on, `requisitos_pendientes` refuses
+«confirmado» without an approval -- confirming is what says the trip was
+bought. A change to the itinerary afterwards is shown
+(`Trip.cambiado_tras_validar`) and does not withdraw the approval: the
+bookings arrive after it and are exactly such a change.
+
 ## Ledger accounts hang off the kind of expense, and the kind off the itinerary
 
 Administración → Cuentas contables maps each `TipoGasto` to an account.

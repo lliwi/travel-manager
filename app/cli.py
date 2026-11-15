@@ -233,7 +233,7 @@ def create_admin(username, email, nombre, apellidos, password, overwrite):
 @click.option('--email', default=None, help='Correo electrónico.')
 @click.option('--nombre', default=None, help='Nombre de pila.')
 @click.option('--apellidos', default=None, help='Apellidos.')
-@click.option('--rol', type=click.Choice(['administrador', 'gestor', 'usuario']),
+@click.option('--rol', type=click.Choice(['administrador', 'gestor', 'usuario', 'validador']),
               default=None, help='Rol asignado a la cuenta.')
 @click.option('--password', default=None,
               help=f'Contraseña. Preferible usar la variable {PASSWORD_ENV}.')

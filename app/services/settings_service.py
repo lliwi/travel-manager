@@ -312,6 +312,14 @@ DEFAULTS = {
         'siguen siendo del gestor.',
         False,
     ),
+    'VALIDACION_OBLIGATORIA': (
+        False, 'bool', 'funcionalidad', 'Los viajes se validan antes de confirmarse',
+        'Un viaje no puede pasar a «Confirmado» hasta que el validador que '
+        'eligió su gestor lo haya aprobado. Hace falta al menos una cuenta '
+        'con el rol «Validador». Apagado, pedir la validación sigue siendo '
+        'posible pero no obliga.',
+        False,
+    ),
     'GESTOR_POR_DEFECTO': (
         '', 'string', 'funcionalidad', 'Gestor de los viajes que crean las personas viajeras',
         'Nombre de usuario o correo de quien queda a cargo de esos viajes y '

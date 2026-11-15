@@ -81,6 +81,9 @@
                     <td>
                         {{ badge(trip.estado.label, trip.estado.css_class) }}
                         {% if trip.pendiente_envio %}{{ badge('Sin enviar', 'warning') }}{% endif %}
+                        {% if trip.validacion_estado %}
+                        {{ badge(trip.validacion_estado.label, trip.validacion_estado.css_class) }}
+                        {% endif %}
                     </td>
                 </tr>
                 {% endfor %}

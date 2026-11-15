@@ -157,6 +157,42 @@ def submit_trip(trip_id, trip):
     return ok(trip.to_dict(include_costs=_include_costs(actor, trip)))
 
 
+@api_v1_bp.route('/trips/<trip_id>/validation/request', methods=['POST'])
+@login_required
+@require_trip_access(Permiso.SOLICITAR_VALIDACION)
+def request_trip_validation(trip_id, trip):
+    """Put the prepared trip before a validator."""
+    from app.services import validacion_service
+
+    payload = request.get_json(silent=True) or {}
+    actor = current_user._get_current_object()
+    try:
+        validador = db.session.get(User, uuid.UUID(str(payload.get('validador_id'))))
+    except (ValueError, TypeError) as exc:
+        raise ValidationError('El identificador del validador no es válido.') from exc
+
+    validacion_service.solicitar(actor, trip, validador)
+    return ok(trip.to_dict(include_costs=_include_costs(actor, trip)))
+
+
+@api_v1_bp.route('/trips/<trip_id>/validation/resolve', methods=['POST'])
+@login_required
+@require_trip_access(Permiso.VALIDAR_VIAJE)
+def resolve_trip_validation(trip_id, trip):
+    """The validator's answer."""
+    from app.services import validacion_service
+
+    payload = request.get_json(silent=True) or {}
+    actor = current_user._get_current_object()
+    if not isinstance(payload.get('aprobar'), bool):
+        raise ValidationError('Indique «aprobar» como verdadero o falso.')
+
+    validacion_service.resolver(
+        actor, trip, payload['aprobar'], comentario=payload.get('comentario'),
+    )
+    return ok(trip.to_dict(include_costs=_include_costs(actor, trip)))
+
+
 # ======================================================================
 # Travellers
 # ======================================================================

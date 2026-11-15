@@ -342,6 +342,15 @@ SCHEMAS = {
         'facturable': _BOOL,
         'inicio': _ref('Instante'), 'fin': _ref('Instante'),
         'gestor': _ref('ReferenciaUsuario'),
+        'validacion': _obj({
+            'estado': {'type': ['string', 'null'],
+                       'enum': ['pendiente', 'aprobada', 'rechazada', None],
+                       'description': 'Nulo si no se ha pedido la validación.'},
+            'estado_label': _STR_NULL,
+            'validador': {'oneOf': [_ref('ReferenciaUsuario'), {'type': 'null'}]},
+            'solicitada_en': _STR_NULL, 'resuelta_en': _STR_NULL,
+            'comentario': _STR_NULL,
+        }),
         'itinerary_version': {'type': 'integer'},
         'created_at': _STR_NULL, 'updated_at': _STR_NULL,
         'viajeros': {'type': 'array', 'items': _ref('Viajero')},
@@ -566,6 +575,19 @@ OPERACIONES = {
         'responses': {'200': _datos(_ref('Viaje'))},
     },
     'delete_trip': {'exito': '200'},
+    'request_trip_validation': {
+        'requestBody': _cuerpo(_obj({'validador_id': _UUID}, ['validador_id'])),
+        'exito': '200',
+        'responses': {'200': _datos(_ref('Viaje'), 'Validación solicitada.')},
+    },
+    'resolve_trip_validation': {
+        'requestBody': _cuerpo(_obj({
+            'aprobar': _BOOL,
+            'comentario': {**_STR_NULL, 'description': 'Obligatorio al rechazar.'},
+        }, ['aprobar'])),
+        'exito': '200',
+        'responses': {'200': _datos(_ref('Viaje'), 'Respuesta registrada.')},
+    },
     'submit_trip': {
         'exito': '200',
         'responses': {'200': _datos(
