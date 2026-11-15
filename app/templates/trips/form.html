@@ -42,11 +42,13 @@
             {% if not gestiona %}
             <div class="alert alert-info">
                 <i class="bi bi-info-circle me-2"></i>
-                El viaje se creará en borrador a su nombre y a cargo de
-                {% if gestor_por_defecto %}<strong>{{ gestor_por_defecto.nombre_completo }}</strong>{% else %}el gestor que elija{% endif %}.
-                Después podrá añadir los vuelos y alojamientos que elija y subir sus
-                documentos; la revisión de lo que se lea en ellos, las
-                recomendaciones y la confirmación las hará el gestor.
+                El viaje se creará en borrador a su nombre y solo lo verá usted
+                mientras lo prepara: podrá añadir los vuelos y alojamientos que
+                elija y subir sus documentos. Cuando termine, pulse
+                <strong>Enviar</strong> y pasará a
+                {% if gestor_por_defecto %}<strong>{{ gestor_por_defecto.nombre_completo }}</strong>{% else %}el gestor que elija{% endif %},
+                que recibirá el aviso y se ocupará de la revisión de los
+                documentos, las recomendaciones y la confirmación.
             </div>
             {% endif %}
             <div class="card mb-3">

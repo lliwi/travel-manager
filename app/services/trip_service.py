@@ -58,10 +58,12 @@ def create_trip(actor, titulo, gestor=None, estado=TripStatus.BORRADOR,
     manager opening a trip they will run themselves.
 
     A traveller planning their own trip is the other case. It is theirs to
-    plan and the manager's to run, so it opens as a draft, goes to the manager
-    named in Ajustes -- or, without one, to the manager they chose -- puts
-    them on it as its traveller, and carries no cost: an amount typed by the
-    person travelling is not the company's figure.
+    plan and the manager's to run, so it opens as a draft, is addressed to the
+    manager named in Ajustes -- or, without one, to the manager they chose --
+    puts them on it as its traveller, and carries no cost: an amount typed by
+    the person travelling is not the company's figure. It also stays out of
+    the manager's sight until the traveller sends it (:func:`enviar_al_gestor`):
+    a half-chosen flight is not yet something to act on.
     """
     if not titulo or not str(titulo).strip():
         raise ValidationError('El título del viaje es obligatorio.')
@@ -86,6 +88,7 @@ def create_trip(actor, titulo, gestor=None, estado=TripStatus.BORRADOR,
         moneda=(str(moneda).strip().upper()[:3] or None) if moneda else None,
         gestor_id=(gestor.id if gestor is not None else actor.id),
         creado_por_id=actor.id,
+        pendiente_envio=propio,
         organizacion_id=getattr(actor, 'organizacion_id', None),
     )
 
@@ -99,7 +102,6 @@ def create_trip(actor, titulo, gestor=None, estado=TripStatus.BORRADOR,
     if propio:
         db.session.flush()
         add_traveler(actor, trip, actor, commit=False)
-        _avisar_al_gestor(trip, actor)
 
     if commit:
         db.session.commit()
@@ -114,8 +116,47 @@ def create_trip(actor, titulo, gestor=None, estado=TripStatus.BORRADOR,
     return trip
 
 
-def _avisar_al_gestor(trip, actor):
-    """Tell the manager a traveller has started planning a trip for them."""
+def enviar_al_gestor(actor, trip, commit=True):
+    """Hand a trip a traveller has been preparing over to its manager.
+
+    From here the manager sees it and is told, once, that the planning is
+    done. Sending is not confirming: the trip keeps its state, and what the
+    traveller chose is still a proposal until the manager says otherwise.
+    """
+    from app.services import authorization_service
+
+    if not trip.pendiente_envio:
+        raise ConflictError('Este viaje ya se envió al gestor.')
+    if not trip.is_editable:
+        raise ConflictError('Un viaje cancelado no puede enviarse.')
+
+    # The manager was chosen when the draft was opened, which may be weeks
+    # ago. One who has since left would receive a trip nobody looks at.
+    gestor = trip.gestor
+    if (gestor is None or gestor.is_deleted
+            or not getattr(gestor, 'is_active_account', False)
+            or not authorization_service.gestiona(gestor)):
+        gestor = authorization_service.gestor_para_viaje_propio()
+        trip.gestor_id = gestor.id
+
+    trip.pendiente_envio = False
+    trip.enviado_en = utcnow()
+    _avisar_del_envio(trip, gestor, actor)
+
+    if commit:
+        db.session.commit()
+        audit_service.record(
+            'trip.submitted',
+            recurso_tipo=AuditResourceType.VIAJE,
+            recurso_id=str(trip.id),
+            actor=actor,
+            metadatos={'referencia': trip.referencia, 'gestor_id': str(gestor.id)},
+        )
+    return trip
+
+
+def _avisar_del_envio(trip, gestor, actor):
+    """Tell the manager a traveller has finished planning a trip for them."""
     from flask import url_for
 
     from app.services import notification_service
@@ -124,15 +165,23 @@ def _avisar_al_gestor(trip, actor):
         enlace = url_for('trips.detail', trip_id=trip.id)
     except RuntimeError:
         enlace = None
+
+    mensaje = (
+        f'Ha enviado el viaje {trip.referencia} con lo que ha elegido. Queda a '
+        'su cargo: documentación, recomendaciones y confirmación.'
+    )
+    # Uploads made while it was a draft told nobody, so this is the one place
+    # the manager learns there is something waiting to be reviewed.
+    documentos = sum(1 for d in trip.documents if not d.is_deleted)
+    if documentos:
+        mensaje += f' Incluye {documentos} documento(s) pendientes de su revisión.'
+
     notification_service.notificar(
-        trip.gestor or db.session.get(User, trip.gestor_id),
+        gestor,
         tipo='viaje',
-        clave=f'viaje_planificado:{trip.id}',
-        titulo=f'{actor.nombre_completo} ha empezado a planificar «{trip.titulo}»',
-        mensaje=(
-            'Es un borrador con los vuelos y alojamientos que ha elegido. Queda '
-            'a su cargo: documentación, recomendaciones y confirmación.'
-        ),
+        clave=f'viaje_enviado:{trip.id}',
+        titulo=f'{actor.nombre_completo} ha terminado de planificar «{trip.titulo}»',
+        mensaje=mensaje,
         enlace=enlace,
         trip=trip,
         commit=False,

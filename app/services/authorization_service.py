@@ -42,6 +42,7 @@ class Permiso(str, enum.Enum):
     EDITAR_VIAJE = 'editar_viaje'
     ELIMINAR_VIAJE = 'eliminar_viaje'
     GESTIONAR_VIAJEROS = 'gestionar_viajeros'
+    ENVIAR_VIAJE = 'enviar_viaje'
 
     SUBIR_DOCUMENTO = 'subir_documento'
     VER_DOCUMENTO = 'ver_documento'
@@ -79,7 +80,11 @@ PERMISOS_GLOBALES = frozenset({
 #: Specification section 2.1, the three access profiles.
 PERMISOS_ADMIN = frozenset(Permiso)
 
-PERMISOS_GESTOR = PERMISOS_ADMIN - {Permiso.ADMINISTRAR, Permiso.VER_AUDITORIA}
+#: Sending a trip is its planner's act, not the manager's: it is how the
+#: manager comes to have the trip at all.
+PERMISOS_GESTOR = PERMISOS_ADMIN - {
+    Permiso.ADMINISTRAR, Permiso.VER_AUDITORIA, Permiso.ENVIAR_VIAJE,
+}
 
 #: A traveller consults only: their trips, their processed documents, their
 #: itinerary, alerts and advisories. Nothing that mutates, nothing about costs.
@@ -249,6 +254,13 @@ def can(actor, permiso, recurso=None):
         return AccessDecision(False, 'viaje_eliminado', trip_id=trip.id)
 
     # --- Manager: administers every trip (section 2.1) -----------------
+    # Every trip that has been handed over, that is. One a traveller is still
+    # preparing does not exist for a manager yet, and is denied the way any
+    # trip one has no relationship with is.
+    if (actor.has_role(RoleCode.GESTOR) and getattr(trip, 'pendiente_envio', False)
+            and not _is_traveler(actor, trip)):
+        return AccessDecision(False, 'viaje_sin_enviar', trip_id=trip.id, no_existe=True)
+
     if actor.has_role(RoleCode.GESTOR):
         allowed = permiso in PERMISOS_GESTOR
         if allowed and not _trip_mutable(trip, permiso):
@@ -324,6 +336,11 @@ def _traveler_permissions(trip=None):
         permisos.discard(Permiso.DESCARGAR_DOCUMENTO)
     if not settings_service.get_bool('COSTES_HABILITADOS', False):
         permisos.discard(Permiso.VER_COSTES)
+    # Not behind the planning switch: turning it off must not strand the
+    # drafts already begun where no manager can see them.
+    if trip is not None and getattr(trip, 'pendiente_envio', False) \
+            and getattr(trip, 'is_editable', True):
+        permisos.add(Permiso.ENVIAR_VIAJE)
     if trip is not None and usuarios_planifican():
         if str(getattr(trip, 'estado', '') or '') in ESTADOS_PLANIFICABLES:
             permisos.add(Permiso.EDITAR_ITINERARIO)
@@ -655,16 +672,19 @@ def visible_trips_query(actor):
     if getattr(actor, 'is_deleted', False) or not getattr(actor, 'is_active_account', False):
         return query.filter(db.false())
 
-    if actor.has_role(RoleCode.ADMINISTRADOR) or actor.has_role(RoleCode.GESTOR):
+    if actor.has_role(RoleCode.ADMINISTRADOR):
         return query
 
-    return (
-        query.join(TripTraveler, TripTraveler.trip_id == Trip.id)
-        .filter(
-            TripTraveler.user_id == actor.id,
-            TripTraveler.is_deleted.is_(False),
-        )
+    propios = db.select(TripTraveler.trip_id).where(
+        TripTraveler.user_id == actor.id,
+        TripTraveler.is_deleted.is_(False),
     )
+    if actor.has_role(RoleCode.GESTOR):
+        # Same rule as ``can``: what a traveller has not sent is not there.
+        return query.filter(
+            db.or_(Trip.pendiente_envio.is_(False), Trip.id.in_(propios))
+        )
+    return query.filter(Trip.id.in_(propios))
 
 
 def scope_itinerary_query(actor, trip, query, model):

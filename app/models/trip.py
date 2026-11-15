@@ -46,6 +46,16 @@ class Trip(SoftDeleteMixin, InstantMixin, BaseModel):
     # --- Status -------------------------------------------------------
     estado = enum_column(TripStatus, nullable=False, default=TripStatus.BORRADOR, index=True)
 
+    #: True while a trip a traveller created is still theirs alone: no manager
+    #: sees it or hears about it until they send it. A flag rather than one
+    #: more state, because «estado» says how far along the journey is and this
+    #: says who has been shown it -- and a state would have had to be skipped
+    #: by every trip a manager opens.
+    pendiente_envio = db.Column(
+        db.Boolean, nullable=False, default=False, server_default=db.false(),
+    )
+    enviado_en = db.Column(db.DateTime(timezone=True))
+
     # --- Dates (local / tz / utc triple, see app.utils.timeutil) -------
     inicio_local = db.Column(db.DateTime(timezone=False))
     inicio_tz = db.Column(db.String(64))
@@ -253,6 +263,8 @@ class Trip(SoftDeleteMixin, InstantMixin, BaseModel):
             'titulo': self.titulo,
             'estado': str(self.estado),
             'estado_label': self.estado.label if self.estado else None,
+            'pendiente_envio': bool(self.pendiente_envio),
+            'enviado_en': self.enviado_en.isoformat() if self.enviado_en else None,
             'finalidad': str(self.finalidad) if self.finalidad else None,
             'finalidad_detalle': self.finalidad_detalle,
             'observaciones': self.observaciones,

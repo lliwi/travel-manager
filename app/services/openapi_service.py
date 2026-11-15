@@ -332,6 +332,9 @@ SCHEMAS = {
         'referencia': {**_STR, 'description': 'Referencia interna, p. ej. VJ-2026-0001.'},
         'titulo': _STR,
         'estado': _STR, 'estado_label': _STR_NULL,
+        'pendiente_envio': {**_BOOL, 'description': (
+            'Lo está preparando quien viaja y su gestor aún no lo ve.')},
+        'enviado_en': _STR_NULL,
         'finalidad': _STR_NULL, 'finalidad_detalle': _STR_NULL,
         'observaciones': _STR_NULL,
         'proyecto': {**_STR_NULL,
@@ -560,6 +563,12 @@ OPERACIONES = {
         'responses': {'200': _datos(_ref('Viaje'))},
     },
     'delete_trip': {'exito': '200'},
+    'submit_trip': {
+        'exito': '200',
+        'responses': {'200': _datos(
+            _ref('Viaje'), 'Viaje enviado: su gestor ya lo ve y ha sido avisado.',
+        )},
+    },
 
     # -- travellers and destinations ----------------------------------
     'list_travelers': {'responses': {'200': _lista('Viajero')}},

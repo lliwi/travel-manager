@@ -295,6 +295,24 @@ def delete(trip_id, trip):
     return redirect(url_for('trips.index'))
 
 
+@trips_bp.route('/<trip_id>/enviar', methods=['POST'])
+@login_required
+@require_trip_access(Permiso.ENVIAR_VIAJE)
+def submit(trip_id, trip):
+    """Hand a trip the traveller has been preparing over to its manager."""
+    try:
+        trip_service.enviar_al_gestor(current_user._get_current_object(), trip)
+    except AppError as error:
+        flash(error.mensaje, 'danger')
+    else:
+        flash(
+            f'Viaje enviado. {trip.gestor.nombre_completo} ya puede verlo y ha '
+            'recibido el aviso.',
+            'success',
+        )
+    return redirect(url_for('trips.detail', trip_id=trip.id))
+
+
 # ======================================================================
 # Travellers
 # ======================================================================

@@ -207,7 +207,7 @@ def _avisar_al_gestor(document, trip, actor):
     except RuntimeError:
         enlace = None
     notification_service.notificar(
-        trip.gestor,
+        notification_service.gestor_a_avisar(trip),
         tipo='documento',
         clave=f'documento_de_viajero:{document.id}',
         titulo=f'{actor.nombre_completo} ha subido «{document.nombre_original}»',

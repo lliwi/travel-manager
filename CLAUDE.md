@@ -169,6 +169,21 @@ authorisation check in the application would already say yes.
 The requirement is enforced in a `before_request`, not only at sign-in: an
 administrator changes the policy while everybody else is already logged in.
 
+## A traveller's draft is theirs until they send it
+
+A trip created by somebody who does not manage trips is born with
+`pendiente_envio` set, and for a manager it does not exist: `can()` answers
+404 and `visible_trips_query` leaves it out, so every list and report that
+starts there does too. Nothing is told to the manager meanwhile either --
+`notification_service.gestor_a_avisar` is the one place that decides it,
+because a notification about a trip one cannot open is a link to a 404.
+`trip_service.enviar_al_gestor` clears the flag and tells the manager, once,
+that the planning is finished. It is a flag and not a `TripStatus`: the state
+says how far along the journey is, this says who has been shown it.
+
+`ENVIAR_VIAJE` is not behind `USUARIOS_PLANIFICAN`: turning planning off must
+not strand the drafts already begun. An administrator still sees them.
+
 ## Directory accounts are read-only
 
 A directory-backed account authenticates and nothing else. Its personal fields

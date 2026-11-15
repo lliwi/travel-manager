@@ -9,7 +9,8 @@ quietly:
 - A traveller never plans somebody else's journey, nor rewrites what came
   from a document.
 - Planning ends when the manager confirms the trip.
-- A trip a traveller creates always has a manager who has been told.
+- A trip a traveller creates always has a manager, who is told when it is
+  sent (``tests/test_envio_al_gestor.py``).
 """
 from datetime import datetime
 
@@ -167,14 +168,14 @@ class TestCrearSuPropioViaje:
         assert trip.coste_estimado is None
         assert can(viajero, Permiso.EDITAR_ITINERARIO, trip)
 
-    def test_se_avisa_al_gestor(self, viajero, gestor):
+    def test_al_gestor_no_se_le_avisa_hasta_que_se_envia(self, viajero, gestor):
         from app.models.notification import Notification
 
         _activar(gestor)
         trip = trip_service.create_trip(viajero, titulo='Mi viaje')
 
-        aviso = Notification.query.filter_by(usuario_id=gestor.id, trip_id=trip.id).one()
-        assert 'planificar' in aviso.titulo
+        assert trip.pendiente_envio
+        assert not Notification.query.filter_by(usuario_id=gestor.id).count()
 
     def test_tambien_con_el_asistente(self, viajero, gestor):
         from app.services import trip_from_search_service

@@ -72,8 +72,9 @@ def interesados_en(trip):
     the whole point is that the person who has to act finds out.
     """
     gente = []
-    if trip.gestor is not None and not trip.gestor.is_deleted:
-        gente.append(trip.gestor)
+    gestor = gestor_a_avisar(trip)
+    if gestor is not None:
+        gente.append(gestor)
     for viajero in trip.active_travelers:
         if viajero.user is not None and not viajero.user.is_deleted:
             gente.append(viajero.user)
@@ -85,6 +86,21 @@ def interesados_en(trip):
             vistos.add(persona.id)
             unicos.append(persona)
     return unicos
+
+
+def gestor_a_avisar(trip):
+    """The trip's manager, if this trip is something they can be told about.
+
+    None while a traveller is still preparing it: the manager cannot open the
+    trip yet, so a notification would be a link to a page that says it does
+    not exist.
+    """
+    if getattr(trip, 'pendiente_envio', False):
+        return None
+    gestor = trip.gestor
+    if gestor is None or gestor.is_deleted:
+        return None
+    return gestor
 
 
 def sin_leer(usuario, limite=None):

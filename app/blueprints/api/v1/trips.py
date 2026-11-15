@@ -141,6 +141,16 @@ def delete_trip(trip_id, trip):
     return ok({'mensaje': 'Viaje eliminado.', 'id': str(trip.id)})
 
 
+@api_v1_bp.route('/trips/<trip_id>/submit', methods=['POST'])
+@login_required
+@require_trip_access(Permiso.ENVIAR_VIAJE)
+def submit_trip(trip_id, trip):
+    """Hand a trip the traveller has been preparing over to its manager."""
+    actor = current_user._get_current_object()
+    trip_service.enviar_al_gestor(actor, trip)
+    return ok(trip.to_dict(include_costs=_include_costs(actor, trip)))
+
+
 # ======================================================================
 # Travellers
 # ======================================================================

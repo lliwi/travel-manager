@@ -13,6 +13,7 @@
         <p class="text-muted mb-0">
             <span class="ref-code">{{ trip.referencia }}</span>
             {{ badge(trip.estado.label, trip.estado.css_class) }}
+            {% if trip.pendiente_envio %}{{ badge('Sin enviar', 'warning') }}{% endif %}
             {% if trip.finalidad %}· {{ trip.finalidad.label }}{% endif %}
         </p>
     </div>
@@ -68,6 +69,34 @@
         </div>
     </div>
 </div>
+
+{# El aviso y el botón van juntos y arriba: enviar es lo único que hace falta
+   para que el viaje avance, y escondido en «Acciones» el borrador se quedaría
+   esperando a un gestor que no sabe que existe. #}
+{% if trip.pendiente_envio %}
+<div class="alert alert-warning d-flex justify-content-between align-items-center flex-wrap gap-3">
+    <div>
+        <i class="bi bi-eye-slash me-2"></i>
+        <strong>Este viaje aún no se ha enviado.</strong>
+        {% if trip.gestor %}{{ trip.gestor.nombre_completo }} no lo verá{% else %}Su gestor no lo verá{% endif %}
+        ni recibirá aviso hasta que se envíe.
+    </div>
+    {% if Permiso.ENVIAR_VIAJE in permisos %}
+    <form method="post" action="{{ url_for('trips.submit', trip_id=trip.id) }}"
+          data-confirm="¿Enviar el viaje {{ trip.referencia }}{% if trip.gestor %} a {{ trip.gestor.nombre_completo }}{% endif %}? Recibirá el aviso de que ha terminado de planificarlo.">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-primary">
+            <i class="bi bi-send me-1"></i>Enviar
+        </button>
+    </form>
+    {% endif %}
+</div>
+{% elif trip.enviado_en and trip.gestor %}
+<p class="text-muted small">
+    <i class="bi bi-send-check me-1"></i>Enviado a {{ trip.gestor.nombre_completo }}
+    el {{ trip.enviado_en | local_date }}.
+</p>
+{% endif %}
 
 <ul class="nav nav-tabs mb-3">
     <li class="nav-item"><a class="nav-link active" href="#itinerario" data-bs-toggle="tab">
