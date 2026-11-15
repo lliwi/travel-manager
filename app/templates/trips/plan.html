@@ -40,16 +40,19 @@
             <div class="card-header">Qué es y qué no</div>
             <div class="card-body small text-muted">
                 {% if buscador == 'activo' %}
-                <p><strong>Busca vuelos y alojamiento de verdad.</strong> Los
-                   horarios y los precios salen del buscador, no del modelo, y
-                   son los que había en el momento de la consulta: orientativos
-                   y sin reserva. No cubre trenes ni autobuses.</p>
+                <p><strong>Busca vuelos de verdad.</strong> Los horarios y los
+                   precios salen del buscador, no del modelo, y son los que
+                   había en el momento de la consulta: orientativos y sin
+                   reserva. No cubre trenes ni autobuses.</p>
                 {% else %}
                 <p><strong>Hoy no es un buscador.</strong> Sin el conector
                    activo, el asistente no le dirá qué vuelo sale ni cuánto
                    cuesta: no lo sabe, y un dato inventado con aspecto de
                    reserva es peor que no decir nada.</p>
                 {% endif %}
+                <p><strong>El alojamiento es el de la organización.</strong>
+                   Se ofrecen los hoteles que sus gestores recomiendan en el
+                   destino; no se consulta ningún buscador de hoteles.</p>
                 <p class="mb-0"><strong>Sí orienta.</strong> Qué medios tienen
                    sentido entre esos dos sitios, cuánto se tarda normalmente,
                    en qué zona conviene alojarse y con qué hay que contar:
@@ -69,10 +72,10 @@
         <div class="alert alert-info d-flex justify-content-between align-items-center gap-3">
             <div>
                 {% if buscador == 'sin_clave' %}
-                La búsqueda de vuelos y alojamiento no tiene clave configurada,
+                La búsqueda de vuelos no tiene clave configurada,
                 así que lo que sigue es orientación.
                 {% elif buscador == 'desactivado' %}
-                Hay una clave guardada, pero la búsqueda de vuelos y alojamiento
+                Hay una clave guardada, pero la búsqueda de vuelos
                 está desactivada. Actívela para ver opciones reales.
                 {% else %}
                 Se ha alcanzado el límite de búsquedas de hoy; lo que sigue es
@@ -104,8 +107,8 @@
         {% if opciones and opciones.alojamiento %}
         <div class="card mb-3">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <span><i class="bi bi-building me-1"></i>Alojamiento encontrado</span>
-                <span class="badge bg-light text-muted border">Datos del buscador</span>
+                <span><i class="bi bi-building-check me-1"></i>Hoteles recomendados</span>
+                <span class="badge bg-light text-muted border">Lista de la organización</span>
             </div>
             <ul class="list-group list-group-flush">
                 {% for hotel in opciones.alojamiento %}
@@ -129,6 +132,11 @@
                             <span class="chip"><i class="bi bi-geo-alt"></i>{{ hotel.zona }}</span>
                             {% endif %}
                         </div>
+                        {% if hotel.direccion or hotel.notas %}
+                        <div class="text-muted small mt-1">
+                            {{ hotel.direccion or '' }}{% if hotel.direccion and hotel.notas %} · {% endif %}{{ hotel.notas or '' }}
+                        </div>
+                        {% endif %}
                     </div>
                     <div class="text-end text-nowrap">
                         {% if hotel.precio_noche %}<strong>{{ hotel.precio_noche }}</strong>
@@ -138,7 +146,9 @@
                 {% endfor %}
             </ul>
             <div class="card-footer text-muted small">
-                Precios orientativos de Google Hotels en el momento de la consulta.
+                Los recomienda la organización. El precio es la tarifa de
+                referencia que anotó su gestor, no una reserva ni una
+                disponibilidad.
             </div>
         </div>
         {% endif %}
@@ -199,15 +209,6 @@
         {% endif %}
 
         {% if plan %}
-        {% if plan.avisos %}
-        <div class="alert alert-warning">
-            <strong><i class="bi bi-exclamation-triangle me-1"></i>Lo que no ha podido responder</strong>
-            <ul class="mb-0 mt-1">
-                {% for aviso in plan.avisos %}<li>{{ aviso }}</li>{% endfor %}
-            </ul>
-        </div>
-        {% endif %}
-
         {% for opcion in plan.opciones %}
         <div class="card mb-3">
             <div class="card-header d-flex justify-content-between align-items-center">
@@ -258,6 +259,21 @@
                 {% if plan.alojamiento.motivo %}
                 <p class="mb-0 text-muted small">{{ plan.alojamiento.motivo }}</p>
                 {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        {# Al final y en tono de nota, no arriba y en amarillo: son salvedades
+           de una respuesta que ha salido bien, y con el triángulo de aviso y
+           el título «lo que no ha podido responder» se leían como un error
+           del planificador. #}
+        {% if plan.avisos %}
+        <div class="card mb-3">
+            <div class="card-header"><i class="bi bi-info-circle me-2"></i>Conviene comprobar</div>
+            <div class="card-body small text-muted">
+                <ul class="mb-0 ps-3">
+                    {% for aviso in plan.avisos %}<li>{{ aviso }}</li>{% endfor %}
+                </ul>
             </div>
         </div>
         {% endif %}

@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import render_field %}
+{% block title %}{{ 'Editar hotel' if hotel else 'Nuevo hotel recomendado' }} — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item"><a href="{{ url_for('trips.recommended_hotels') }}">Hoteles recomendados</a></li>
+<li class="breadcrumb-item active">{{ hotel.nombre if hotel else 'Nuevo' }}</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>{{ 'Editar hotel' if hotel else 'Nuevo hotel recomendado' }}</h1>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <form method="post" novalidate>
+            {{ form.hidden_tag() }}
+            <div class="card mb-3">
+                <div class="card-header">Hotel</div>
+                <div class="card-body">
+                    {{ render_field(form.nombre, placeholder='Hotel Carlton') }}
+                    <div class="row">
+                        <div class="col-md-6">{{ render_field(form.ciudad, placeholder='Lyon') }}</div>
+                        <div class="col-md-6">{{ render_field(form.pais) }}</div>
+                        <div class="col-md-6">{{ render_field(form.zona) }}</div>
+                        <div class="col-md-6">{{ render_field(form.direccion) }}</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-header">Tarifa y reserva</div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">{{ render_field(form.precio_noche) }}</div>
+                        <div class="col-md-6">{{ render_field(form.moneda, placeholder='EUR') }}</div>
+                    </div>
+                    {{ render_field(form.enlace, placeholder='https://') }}
+                    {{ render_field(form.notas, rows=3) }}
+                    {{ render_field(form.activo) }}
+                </div>
+            </div>
+
+            <div class="form-actions">
+                {{ form.submit(class='btn btn-primary') }}
+                <a href="{{ url_for('trips.recommended_hotels') }}"
+                   class="btn btn-outline-secondary">Cancelar</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

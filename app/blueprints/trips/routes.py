@@ -564,6 +564,105 @@ def plan():
 
 
 # ======================================================================
+# Recommended hotels
+# ======================================================================
+def _hotel_form(hotel=None):
+    from app.blueprints.trips.forms import RecommendedHotelForm
+
+    form = RecommendedHotelForm(obj=hotel)
+    form.pais.choices = _country_choices()
+    return form
+
+
+def _campos_del_hotel(form):
+    return {
+        'nombre': form.nombre.data, 'ciudad': form.ciudad.data,
+        'pais': form.pais.data or None, 'zona': form.zona.data,
+        'direccion': form.direccion.data, 'precio_noche': form.precio_noche.data,
+        'moneda': form.moneda.data, 'enlace': form.enlace.data,
+        'notas': form.notas.data, 'activo': bool(form.activo.data),
+    }
+
+
+@trips_bp.route('/hoteles-recomendados')
+@login_required
+@require_permiso(Permiso.GESTIONAR_HOTELES)
+def recommended_hotels():
+    """The hotels the planner offers, city by city."""
+    from app.services import hotel_recomendado_service
+
+    return render_template(
+        'trips/hotels.html', hoteles=hotel_recomendado_service.listar(),
+    )
+
+
+@trips_bp.route('/hoteles-recomendados/nuevo', methods=['GET', 'POST'])
+@login_required
+@require_permiso(Permiso.GESTIONAR_HOTELES)
+def create_recommended_hotel():
+    from app.services import hotel_recomendado_service
+
+    form = _hotel_form()
+    if form.validate_on_submit():
+        try:
+            hotel = hotel_recomendado_service.crear(
+                current_user._get_current_object(), **_campos_del_hotel(form),
+            )
+        except AppError as error:
+            db.session.rollback()
+            flash(error.mensaje, 'danger')
+        else:
+            flash(f'«{hotel.nombre}» añadido a los hoteles de {hotel.ciudad}.', 'success')
+            return redirect(url_for('trips.recommended_hotels'))
+    elif request.method == 'GET':
+        form.activo.data = True
+        from app.services import settings_service
+
+        form.moneda.data = (
+            settings_service.get('BUSQUEDA_VIAJES_MONEDA', 'EUR') or 'EUR'
+        ).upper()[:3]
+
+    return render_template('trips/hotel_form.html', form=form, hotel=None)
+
+
+@trips_bp.route('/hoteles-recomendados/<hotel_id>/editar', methods=['GET', 'POST'])
+@login_required
+@require_permiso(Permiso.GESTIONAR_HOTELES)
+def edit_recommended_hotel(hotel_id):
+    from app.services import hotel_recomendado_service
+
+    hotel = hotel_recomendado_service.obtener(hotel_id)
+    form = _hotel_form(hotel)
+    if form.validate_on_submit():
+        try:
+            hotel_recomendado_service.actualizar(
+                current_user._get_current_object(), hotel, **_campos_del_hotel(form),
+            )
+        except AppError as error:
+            db.session.rollback()
+            flash(error.mensaje, 'danger')
+        else:
+            flash(f'«{hotel.nombre}» actualizado.', 'success')
+            return redirect(url_for('trips.recommended_hotels'))
+    elif request.method == 'GET':
+        form.pais.data = hotel.pais or ''
+
+    return render_template('trips/hotel_form.html', form=form, hotel=hotel)
+
+
+@trips_bp.route('/hoteles-recomendados/<hotel_id>/eliminar', methods=['POST'])
+@login_required
+@require_permiso(Permiso.GESTIONAR_HOTELES)
+def delete_recommended_hotel(hotel_id):
+    from app.services import hotel_recomendado_service
+
+    hotel = hotel_recomendado_service.obtener(hotel_id)
+    hotel_recomendado_service.eliminar(current_user._get_current_object(), hotel)
+    flash(f'«{hotel.nombre}» ya no se recomienda.', 'info')
+    return redirect(url_for('trips.recommended_hotels'))
+
+
+# ======================================================================
 # Assistant
 # ======================================================================
 #: Questions worth one click, phrased the way a manager would ask them. They

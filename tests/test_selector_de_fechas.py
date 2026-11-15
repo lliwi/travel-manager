@@ -64,3 +64,15 @@ class TestLosRangosDeDias:
 
         viaje = Trip.query.filter_by(titulo='Rango').one()
         assert viaje.fin_local.isoformat() == '2026-10-31T23:59:00'
+
+
+def test_la_caja_del_calendario_no_se_pinta_como_apagada():
+    """flatpickr makes its box ``readonly``; styled like a disabled field it
+    read as «the dates are locked», on every form that has a calendar."""
+    from pathlib import Path
+
+    css = (Path(__file__).resolve().parents[1] / 'app' / 'static' / 'css'
+           / 'main.css').read_text(encoding='utf-8')
+
+    assert '.form-control[readonly]:not(.flatpickr-input)' in css
+    assert '.form-control[readonly],' not in css

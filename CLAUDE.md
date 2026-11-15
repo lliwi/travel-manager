@@ -21,8 +21,9 @@ Two things remain, deliberately last:
 - **Travel-provider integrations** (Amadeus, Renfe, a corporate agency) --
   meaning *booking*. Still not startable without a contract and credentials.
   What exists now is one step short of it: `travel_search_service` reads real
-  flights and lodging through SerpApi's Google Travel engines, so the planning
-  assistant shows what exists instead of only how to get there. Three limits
+  flights through SerpApi's Google Flights engine, so the planning assistant
+  shows what exists instead of only how to get there. Lodging is not searched
+  at all -- see «Where to stay is the organisation's list» below. Three limits
   that are properties of the connector, not gaps to close later: it books
   nothing, its prices are Google's and therefore indicative, and it has no
   train engine at all -- for rail the assistant orients as before and says so,
@@ -216,6 +217,22 @@ With `VALIDACION_OBLIGATORIA` on, `requisitos_pendientes` refuses
 bought. A change to the itinerary afterwards is shown
 (`Trip.cambiado_tras_validar`) and does not withdraw the approval: the
 bookings arrive after it and are exactly such a change.
+
+## Where to stay is the organisation's list
+
+The planner's lodging comes from `hoteles_recomendados`, kept by the managers
+(`GESTIONAR_HOTELES`), and from nowhere else: no hotel engine is asked, not
+even as a fallback, and `tests/test_hoteles_recomendados.py` fails if one is.
+A city with none says so. The rows take the shape the connector's had, with
+`recomendado` set, so the screen, the posted selection and
+`trip_from_search_service` have one code path; the model receives the same
+rows and is told to recommend among them only. That half of the answer works
+with the connector off -- it never leaves the perimeter.
+
+Cities match by the catalogue's spelling, and strictly: a code, the city's
+own name or an alias. Not by a name that merely *contains* the text, which
+is what `ciudad_del_catalogo` falls back to -- «Lyon» is contained in «Paris
+Gare de Lyon», and a Lyon hotel was being filed under París.
 
 ## Ledger accounts hang off the kind of expense, and the kind off the itinerary
 

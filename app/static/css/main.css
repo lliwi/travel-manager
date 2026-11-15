@@ -1283,8 +1283,11 @@ a.stat-card { transition: border-color .12s ease, box-shadow .12s ease, transfor
 
 .form-control::placeholder { color: var(--field-placeholder); opacity: 1; }
 
+/* El selector de fechas marca su caja como «readonly» para que no se
+   escriba en ella, pero se pulsa y se elige: no es un campo apagado. Pintada
+   como uno, el formulario parecía tener las fechas bloqueadas. */
 .form-control:disabled,
-.form-control[readonly],
+.form-control[readonly]:not(.flatpickr-input),
 .form-select:disabled {
     background-color: var(--field-bg-hover);
     border-color: transparent;
@@ -1632,3 +1635,5 @@ input[type="time"].form-control { font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: reduce) {
     .btn-esperando::before { animation-duration: 3s; }
 }
+
+.form-control.flatpickr-input[readonly] { cursor: pointer; }

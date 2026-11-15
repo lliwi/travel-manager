@@ -8,9 +8,14 @@ difference between orienting and informing.
 
 Three things it is important to be honest about, because they shape the design:
 
-- **It reads Google Flights and Google Hotels; it is not a GDS.** Prices are
-  what Google was showing, which is indicative and can be stale by the time
-  somebody books. The same caveat as looking at Google Flights yourself.
+- **It reads Google Flights; it is not a GDS.** Prices are what Google was
+  showing, which is indicative and can be stale by the time somebody books.
+  The same caveat as looking at Google Flights yourself.
+- **It does not look for hotels.** Lodging comes from the list of recommended
+  hotels the managers keep (``hotel_recomendado_service``), and from nowhere
+  else: where to stay is the organisation's decision, not whatever a search
+  returned that day. So lodging works with the connector off, and a city with
+  no recommended hotel says so instead of filling the gap from outside.
 - **Nothing here books anything.** SerpApi returns a `booking_token` that leads
   to booking options elsewhere. The assistant still never claims a reservation
   exists, which was already the rule.
@@ -162,13 +167,7 @@ def _pedir(actor, motor, parametros, timeout=TIMEOUT):
     consulta['api_key'] = settings_service.get('BUSQUEDA_VIAJES_API_KEY')
     consulta.setdefault('currency', settings_service.get('BUSQUEDA_VIAJES_MONEDA', 'EUR'))
     consulta.setdefault('gl', 'es')
-    # Not on hotels. Measured, not assumed: with `hl=es` the hotels engine
-    # answers «Google Hotels hasn't returned any results for this query» for a
-    # search that returns twenty properties without it. The flights engine is
-    # unaffected, and `gl=es` is fine for both. Losing Spanish labels on hotel
-    # amenities is a far smaller price than losing every hotel.
-    if motor != 'google_hotels':
-        consulta.setdefault('hl', 'es')
+    consulta.setdefault('hl', 'es')
 
     try:
         with http.cliente(timeout=timeout) as client:
@@ -552,79 +551,8 @@ def opciones_de_compra(actor, token, busqueda):
 
 
 # ======================================================================
-# Lodging
+# Lodging dates
 # ======================================================================
-def _alojamiento(bruto, ciudad=None, pais=None):
-    """One lodging option.
-
-    The city comes from the search rather than from the row: Google answers
-    with the property and its price and says nothing about which city it is
-    in, so a stay written into an itinerary had no place to resolve a timezone
-    from -- and the hours were stored as UTC with a warning naming the *room*,
-    «1924 - Queen Room with Shared Bathroom», because that was the only text
-    the row had. We searched that city; there is no need to guess it.
-    """
-    tarifa = bruto.get('rate_per_night') or {}
-    total = bruto.get('total_rate') or {}
-    return {
-        'nombre': bruto.get('name'),
-        'ciudad': ciudad,
-        'pais': pais,
-        'tipo': bruto.get('type'),
-        'valoracion': bruto.get('overall_rating'),
-        'opiniones': bruto.get('reviews'),
-        'categoria': bruto.get('hotel_class'),
-        'precio_noche': tarifa.get('lowest'),
-        'precio_total': total.get('lowest'),
-        # El número detrás de la cadena que Google ya formateó, para poder
-        # sumarlo sin volver a interpretar «€66» en otro sitio.
-        'precio_total_valor': _numero_de(total.get('lowest')),
-        'zona': bruto.get('nearby_places', [{}])[0].get('name')
-        if bruto.get('nearby_places') else None,
-        'enlace': bruto.get('link'),
-    }
-
-
-def buscar_alojamiento(actor, destino, entrada, salida, viajeros=1):
-    """Lodging options in a place between two dates.
-
-    ``destino`` is free text -- a city, a district, «cerca de LHR» -- because
-    that is what Google Hotels takes and what a manager would type.
-    """
-    parametros = {
-        'q': destino,
-        'check_in_date': str(entrada),
-        'check_out_date': str(salida),
-        'adults': max(1, int(viajeros or 1)),
-    }
-
-    datos = _pedir(actor, 'google_hotels', parametros)
-
-    brutas = datos.get('properties') or []
-    ciudad, pais = _ciudad_canonica(destino)
-    opciones = [_alojamiento(o, ciudad, pais) for o in brutas[:8]]
-    _registrar(actor, 'google_hotels', parametros, len(opciones))
-    return opciones
-
-
-def _ciudad_canonica(destino):
-    """The catalogue's own spelling of the place that was searched.
-
-    Canonical rather than what somebody typed, because that is what everything
-    downstream is keyed by: the timezone of the stay, and the marker on the
-    map. «London», «LON» and «Londres» have to end up as one city.
-    """
-    from app.services.map_service import ciudad_del_catalogo
-
-    if not destino:
-        return None, None
-    ciudad, pais = ciudad_del_catalogo(
-        codigo=str(destino).strip() if len(str(destino).strip()) <= 5 else None,
-        nombres=(destino,),
-    )
-    return ciudad, pais
-
-
 def fechas_por_defecto(ida, vuelta):
     """Lodging dates implied by a journey, when nobody gave any.
 
@@ -735,6 +663,8 @@ def buscar_para(actor, origen, destino, ida, vuelta=None, viajeros=1):
                  'hay_vuelta': bool(vuelta), 'fecha_ida': ida,
                  'precios': None}
 
+    _alojamiento_recomendado(resultado, destino, ida, vuelta)
+
     if not esta_configurada() or not ida:
         return resultado
 
@@ -759,14 +689,31 @@ def buscar_para(actor, origen, destino, ida, vuelta=None, viajeros=1):
             'no tiene cobertura, así que lo que sigue es orientación.'
         )
 
-    entrada, salida = fechas_por_defecto(ida, vuelta)
-    if entrada and salida:
-        try:
-            resultado['alojamiento'] = buscar_alojamiento(
-                actor, destino, entrada, salida, viajeros,
-            )
-            resultado['consultado'] = True
-        except BusquedaNoDisponible as error:
-            resultado['avisos'].append(error.mensaje)
-
     return resultado
+
+
+def _alojamiento_recomendado(resultado, destino, ida, vuelta):
+    """Fill in the lodging from the organisation's own list.
+
+    Before anything is asked of the connector and whether or not it is
+    configured: this half of the answer never leaves the perimeter. A stay
+    that needs no night -- out and back the same day -- gets no hotels, and a
+    city with none on the list gets a sentence saying so, because an empty
+    card would read as «there is nowhere to stay».
+    """
+    from app.services import hotel_recomendado_service
+
+    entrada, salida = fechas_por_defecto(ida, vuelta)
+    if not (entrada and salida):
+        return
+
+    hoteles = hotel_recomendado_service.en(destino)
+    if hoteles:
+        resultado['alojamiento'] = hotel_recomendado_service.como_opciones(
+            hoteles, entrada, salida,
+        )
+    else:
+        resultado['avisos'].append(
+            f'La organización no tiene hoteles recomendados en «{destino}». '
+            'Consulte con su gestor dónde alojarse.'
+        )

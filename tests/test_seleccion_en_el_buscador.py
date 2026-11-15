@@ -45,17 +45,17 @@ def _casillas(html, nombre):
 @pytest.fixture
 def resultados(as_user, gestor, seeded, monkeypatch):
     """La pantalla de planificación con opciones reales dibujadas."""
+    from app.services import hotel_recomendado_service
     from tests.test_vuelos_legibles import DIRECTO, IDA_Y_VUELTA, _preparar
 
     _preparar(monkeypatch, {
         'best_flights': [DIRECTO, IDA_Y_VUELTA], 'other_flights': [],
-        'properties': [{
-            'name': 'Zedwell Piccadilly Circus', 'overall_rating': 4.3,
-            'rate_per_night': {'lowest': '148 €'},
-            'total_rate': {'lowest': '327 €'},
-            'link': 'https://hotel.test/reservar',
-        }],
     })
+    # Lodging is the organisation's own list now, not the connector's.
+    hotel_recomendado_service.crear(
+        gestor, nombre='Zedwell Piccadilly Circus', ciudad='LON',
+        precio_noche='148', moneda='EUR', enlace='https://hotel.test/reservar',
+    )
 
     with as_user(gestor) as client:
         yield client.post('/trips/planificar', data={

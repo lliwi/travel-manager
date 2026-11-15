@@ -42,17 +42,6 @@ RESPUESTA_VUELOS = {
     'other_flights': [],
 }
 
-RESPUESTA_HOTELES = {
-    'properties': [{
-        'name': 'Hotel de prueba',
-        'overall_rating': 4.3,
-        'reviews': 812,
-        'rate_per_night': {'lowest': '148 €'},
-        'total_rate': {'lowest': '296 €'},
-        'link': 'https://example.test/hotel',
-    }],
-}
-
 
 class _RespuestaFalsa:
     def __init__(self, payload, status=200):
@@ -136,17 +125,6 @@ class TestLoQueDevuelve:
         assert vuelo['tramos'][0]['numero'] == 'BA 477'
         assert vuelo['tramos'][0]['origen'] == 'BCN'
         assert vuelo['emisiones_kg'] == 142
-
-    def test_un_alojamiento_se_normaliza(self, app, seeded, gestor, monkeypatch):
-        _configurar()
-        monkeypatch.setattr(httpx, 'Client', _cliente_que_responde(RESPUESTA_HOTELES))
-
-        opciones = travel_search_service.buscar_alojamiento(
-            gestor, 'Londres', '2026-10-01', '2026-10-03',
-        )
-
-        assert opciones[0]['nombre'] == 'Hotel de prueba'
-        assert opciones[0]['precio_noche'] == '148 €'
 
     def test_sin_resultados_no_es_un_error(self, app, seeded, gestor, monkeypatch):
         """«No flights that day» is an answer, not a breakage."""
@@ -371,7 +349,7 @@ class TestSeAdministraDesdeAjustes:
         with as_user(admin) as client:
             html = client.get('/admin/ajustes').get_data(as_text=True)
 
-        assert 'Búsqueda de vuelos y alojamiento' in html
+        assert 'Búsqueda de vuelos' in html
         assert 'BUSQUEDA_VIAJES_API_KEY' in html
 
     def test_la_clave_no_se_devuelve_a_la_pantalla(self, as_user, admin, seeded):
@@ -450,37 +428,12 @@ class TestSeExplicaPorQueNoHayOpciones:
         with as_user(gestor) as client:
             html = client.get('/trips/planificar').get_data(as_text=True)
 
-        assert 'Busca vuelos y alojamiento de verdad' in html
+        assert 'Busca vuelos de verdad' in html
         assert 'no está conectada a ningún sistema' not in html
 
 
 @pytest.mark.unit
-class TestElIdiomaNoTumbaLaBusqueda:
-    """Measured against the real API, not assumed.
-
-    With ``hl=es`` the hotels engine answers «Google Hotels hasn't returned any
-    results for this query» for a search that returns twenty properties without
-    it. Sending it cost every hotel result and looked like «there are no hotels
-    in Paris», which is the kind of wrong answer nobody questions.
-    """
-
-    def test_a_hoteles_no_se_le_manda_el_idioma(
-        self, app, seeded, gestor, monkeypatch,
-    ):
-        registro = []
-        _configurar()
-        monkeypatch.setattr(
-            httpx, 'Client',
-            _cliente_que_responde(RESPUESTA_HOTELES, registro=registro),
-        )
-
-        travel_search_service.buscar_alojamiento(
-            gestor, 'Paris', '2026-10-15', '2026-10-17')
-
-        assert 'hl' not in registro[0]['params']
-        # gl sí: ese no le afecta, y sigue orientando los precios al mercado.
-        assert registro[0]['params']['gl'] == 'es'
-
+class TestElIdiomaDeLaBusqueda:
     def test_a_vuelos_si(self, app, seeded, gestor, monkeypatch):
         registro = []
         _configurar()

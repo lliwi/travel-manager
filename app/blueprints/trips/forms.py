@@ -444,3 +444,38 @@ class PlanningForm(Formulario):
             self.vuelta.errors.append('La vuelta no puede ser anterior a la ida.')
             return False
         return True
+
+
+class RecommendedHotelForm(Formulario):
+    """A hotel the organisation recommends in a city."""
+
+    nombre = StringField(
+        'Nombre', validators=[DataRequired(message='Indique el nombre del hotel.'),
+                              Length(max=250)],
+    )
+    ciudad = StringField(
+        'Ciudad', validators=[DataRequired(message='Indique la ciudad.'), Length(max=160)],
+        description='Se guarda como la escribe el catálogo: «London» y «LHR» '
+                    'quedan como «Londres».',
+    )
+    pais = SelectField('País', validators=[Optional()])
+    zona = StringField(
+        'Zona', validators=[Optional(), Length(max=160)],
+        description='Barrio o referencia: «Centro», «junto a la oficina».',
+    )
+    direccion = StringField('Dirección', validators=[Optional(), Length(max=300)])
+    precio_noche = DecimalField(
+        'Precio por noche', places=2, validators=[Optional(), NumberRange(min=0)],
+        description='De referencia: la tarifa acordada, si la hay.',
+    )
+    moneda = StringField('Moneda', validators=[Optional(), Length(min=3, max=3)])
+    enlace = StringField(
+        'Enlace para reservar', validators=[Optional(), Length(max=500)],
+        description='Con http:// o https://.',
+    )
+    notas = TextAreaField(
+        'Notas', validators=[Optional(), Length(max=2000)],
+        description='Código de tarifa, persona de contacto, lo que convenga saber.',
+    )
+    activo = BooleanField('Se ofrece en el planificador', default=True)
+    submit = SubmitField('Guardar')

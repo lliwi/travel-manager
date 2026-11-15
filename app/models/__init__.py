@@ -25,7 +25,7 @@ from app.models.base import (
     TimestampMixin,
     UUIDMixin,
 )
-from app.models.catalog import Country, Location
+from app.models.catalog import Country, HotelRecomendado, Location
 from app.models.document import (
     Document,
     DocumentPage,
@@ -76,6 +76,7 @@ __all__ = [
     'AIProviderConfig', 'AITaskBinding', 'AIRun', 'AIParameterProfile', 'AIAutotuneRun',
     # Catalogues and settings
     'Country', 'Location', 'SystemSetting', 'TravelerDocument', 'CuentaContable',
+    'HotelRecomendado',
     # Audit
     'AuditEvent', 'GENESIS_HASH', 'BackupJob',
 ]

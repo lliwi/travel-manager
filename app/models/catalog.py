@@ -7,7 +7,14 @@ needs (section 2.4).
 from sqlalchemy import UniqueConstraint
 
 from app.extensions import db
-from app.models.base import BaseModel, JSONBType, enum_check, enum_column
+from app.models.base import (
+    GUID,
+    BaseModel,
+    JSONBType,
+    SoftDeleteMixin,
+    enum_check,
+    enum_column,
+)
 from app.models.enums import LocationKind
 
 
@@ -95,3 +102,31 @@ class Location(BaseModel):
             'pais_codigo': self.pais_codigo,
             'zona_horaria': self.zona_horaria,
         }
+
+
+class HotelRecomendado(SoftDeleteMixin, BaseModel):
+    """A hotel the organisation recommends in a city.
+
+    Kept by the managers and offered by the planner as the lodging for that
+    city. ``ciudad`` is the catalogue's spelling and ``ciudad_clave`` its
+    accent- and case-free form, which is what a search matches on.
+    """
+
+    __tablename__ = 'hoteles_recomendados'
+
+    nombre = db.Column(db.String(250), nullable=False)
+    ciudad = db.Column(db.String(160), nullable=False)
+    ciudad_clave = db.Column(db.String(160), nullable=False, index=True)
+    pais = db.Column(db.String(2))
+    zona = db.Column(db.String(160))
+    direccion = db.Column(db.String(300))
+    #: A reference the manager typed -- an agreed rate, usually -- not a quote.
+    precio_noche = db.Column(db.Numeric(10, 2))
+    moneda = db.Column(db.String(3))
+    enlace = db.Column(db.String(500))
+    notas = db.Column(db.Text)
+    activo = db.Column(db.Boolean, nullable=False, default=True, server_default=db.true())
+    actualizado_por_id = db.Column(GUID(), db.ForeignKey('users.id'), nullable=True)
+
+    def __repr__(self):
+        return f'<HotelRecomendado {self.nombre} ({self.ciudad})>'

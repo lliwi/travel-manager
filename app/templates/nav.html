@@ -42,6 +42,14 @@
     </li>
     {% endif %}
 
+    {% if 'gestionar_hoteles' in permisos_globales %}
+    <li>
+        <a href="{{ url_for('trips.recommended_hotels') }}" class="nav-link">
+            <i class="bi bi-building-check"></i><span>Hoteles recomendados</span>
+        </a>
+    </li>
+    {% endif %}
+
     {% if current_user.is_administrador %}
     <li class="sidebar-section"><span class="sidebar-section-label">Administración</span></li>
     <li>

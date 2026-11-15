@@ -1366,9 +1366,10 @@ def plan_trip(actor, origen, destino, ida=None, vuelta=None, viajeros=1,
         sistema=PROMPTS['plan_trip'],
         instruccion=(
             (
-                'Propón cómo hacer este viaje. Tienes opciones reales '
-                'consultadas a un buscador: razona sobre ellas, pero no '
-                'repitas sus horarios ni sus precios, que quien lee ya tiene '
+                'Propón cómo hacer este viaje. Tienes opciones reales -- '
+                'vuelos de un buscador, hoteles recomendados por la '
+                'organización, o ambos: razona sobre ellas, pero no repitas '
+                'sus horarios ni sus precios, que quien lee ya tiene '
                 'delante.\n\n'
                 if hay_opciones else
                 'Propón cómo hacer este viaje. Recuerda: ningún número de '

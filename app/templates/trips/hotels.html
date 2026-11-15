@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% from "macros/forms.html" import badge %}
+{% block title %}Hoteles recomendados — {{ app_name }}{% endblock %}
+{% block breadcrumb_items %}
+<li class="breadcrumb-item active">Hoteles recomendados</li>
+{% endblock %}
+
+{% block content %}
+<div class="page-header d-flex justify-content-between align-items-start flex-wrap gap-2">
+    <div>
+        <h1>Hoteles recomendados</h1>
+        <p class="text-muted mb-0">
+            Lo que el planificador ofrece como alojamiento en cada ciudad. No se
+            consulta ningún buscador de hoteles: en una ciudad sin ninguno aquí,
+            el planificador dice que no hay recomendación.
+        </p>
+    </div>
+    <a href="{{ url_for('trips.create_recommended_hotel') }}" class="btn btn-primary btn-sm">
+        <i class="bi bi-plus-lg me-1"></i>Añadir hotel</a>
+</div>
+
+{% if hoteles %}
+<div class="card">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead>
+                <tr>
+                    <th>Ciudad</th>
+                    <th>Hotel</th>
+                    <th>Zona</th>
+                    <th class="text-end">Por noche</th>
+                    <th>Estado</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for hotel in hoteles %}
+                <tr>
+                    <td>{{ hotel.ciudad }}{% if hotel.pais %} <span class="text-muted">({{ hotel.pais }})</span>{% endif %}</td>
+                    <td>
+                        <a href="{{ url_for('trips.edit_recommended_hotel', hotel_id=hotel.id) }}"
+                           class="fw-semibold">{{ hotel.nombre }}</a>
+                        {% if hotel.direccion %}
+                        <div class="text-muted small">{{ hotel.direccion }}</div>
+                        {% endif %}
+                    </td>
+                    <td class="small">{{ hotel.zona or '—' }}</td>
+                    <td class="text-end text-nowrap">
+                        {% if hotel.precio_noche is not none %}
+                        {{ hotel.precio_noche | importe }} {{ hotel.moneda or '' }}
+                        {% else %}—{% endif %}
+                    </td>
+                    <td>
+                        {% if hotel.activo %}{{ badge('Se ofrece', 'success') }}
+                        {% else %}{{ badge('Oculto', 'secondary') }}{% endif %}
+                    </td>
+                    <td class="text-end text-nowrap">
+                        <a href="{{ url_for('trips.edit_recommended_hotel', hotel_id=hotel.id) }}"
+                           class="btn btn-sm btn-outline-secondary"
+                           aria-label="Editar {{ hotel.nombre }}"><i class="bi bi-pencil"></i></a>
+                        <form method="post" class="d-inline"
+                              action="{{ url_for('trips.delete_recommended_hotel', hotel_id=hotel.id) }}"
+                              data-confirm="¿Dejar de recomendar «{{ hotel.nombre }}»?">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button class="btn btn-sm btn-outline-danger" type="submit"
+                                    aria-label="Eliminar {{ hotel.nombre }}">
+                                <i class="bi bi-trash"></i></button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% else %}
+<div class="card">
+    <div class="card-body empty-state">
+        <i class="bi bi-building"></i>
+        <p>Todavía no hay ningún hotel recomendado. Mientras tanto, el
+           planificador no ofrece alojamiento en ninguna ciudad.</p>
+        <a href="{{ url_for('trips.create_recommended_hotel') }}"
+           class="btn btn-sm btn-primary">Añadir el primero</a>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

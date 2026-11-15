@@ -127,15 +127,19 @@ Lo que se borra es el contenido del documento. La fila de metadatos, su hash y
 la traza de auditoría permanecen: se borra el original, no la prueba de que
 existió.
 
-## Búsqueda de vuelos y alojamiento
+## Búsqueda de vuelos
 
 El asistente de planificación puede consultar opciones reales a través de
-SerpApi. Se activa en **Ajustes → Búsqueda de vuelos y alojamiento**, con la
+SerpApi. Se activa en **Ajustes → Búsqueda de vuelos**, con la
 clave que se obtiene en serpapi.com. Sin ella, el asistente sigue funcionando:
 orienta sobre cómo viajar en lugar de decir qué hay.
 
-**Cada consulta se cobra.** Una planificación gasta hasta dos búsquedas —una de
-vuelos y otra de alojamiento—, y cada vez que alguien pulsa «Dónde comprarlo»
+El alojamiento no pasa por SerpApi: el planificador ofrece los hoteles que los
+gestores mantienen en **Hoteles recomendados**, y solo esos. En una ciudad sin
+ninguno dice que no hay recomendación.
+
+**Cada consulta se cobra.** Una planificación gasta una búsqueda de vuelos, y
+cada vez que alguien pulsa «Dónde comprarlo»
 en un vuelo se gasta otra. Ese botón va aparte y bajo demanda precisamente por
 eso: resolverlo para los ocho resultados de cada planificación gastaría el
 presupuesto de un día en seis planificaciones, y nadie mira ocho. El ajuste «Búsquedas máximas al día» es el freno:

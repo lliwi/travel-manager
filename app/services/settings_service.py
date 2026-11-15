@@ -27,7 +27,7 @@ GRUPOS = (
      'Generación, validación y vigilancia de las fuentes.'),
     ('investigacion', 'Investigación pública',
      'Consulta de fuentes oficiales en internet.'),
-    ('busqueda_viajes', 'Búsqueda de vuelos y alojamiento',
+    ('busqueda_viajes', 'Búsqueda de vuelos',
      'Conector externo que devuelve opciones reales de viaje. Sin él, el '
      'asistente de planificación sigue funcionando, pero orienta sobre cómo '
      'viajar en lugar de decir qué hay.'),

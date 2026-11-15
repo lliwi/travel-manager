@@ -195,12 +195,19 @@ def _alojamiento(trip, bruto, entrada, salida, actor, avisos, enlace=None,
         ciudad=(bruto.get('ciudad') or '')[:160] or None,
         pais=(bruto.get('pais') or '')[:2] or None,
         importe=bruto.get('precio_total_valor'),
-        moneda=_moneda() if bruto.get('precio_total_valor') is not None else None,
+        moneda=((str(bruto.get('moneda') or '').upper()[:3] or _moneda())
+                if bruto.get('precio_total_valor') is not None else None),
         observaciones=_observaciones([
+            'Hotel recomendado por la organización.' if bruto.get('recomendado') else None,
             f'Reservar en: {bruto["enlace"]}' if bruto.get('enlace') else None,
-            f'Buscado en: {enlace}' if enlace and not bruto.get('enlace') else None,
-            f'{bruto["precio_noche"]} por noche según el buscador, orientativo.'
+            f'Buscado en: {enlace}' if enlace and not bruto.get('enlace')
+            and not bruto.get('recomendado') else None,
+            (f'{bruto["precio_noche"]} por noche, tarifa de referencia anotada '
+             f'por el gestor.' if bruto.get('recomendado') else
+             f'{bruto["precio_noche"]} por noche según el buscador, orientativo.')
             if bruto.get('precio_noche') else None,
+            str(bruto['notas'])[:500] if bruto.get('recomendado') and bruto.get('notas')
+            else None,
         ]),
     )
     db.session.add(hotel)
