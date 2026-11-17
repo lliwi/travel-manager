@@ -20,31 +20,55 @@ from app.utils.timeutil import set_instant, utcnow
 
 logger = logging.getLogger(__name__)
 
-#: Reference format: VJ-2026-0001.
-REFERENCE_PREFIX = 'VJ'
-_REFERENCE_RE = re.compile(r'^VJ-(\d{4})-(\d{4,})$')
+#: Reference format: VI000001-2026 -- a counter that starts again every
+#: January, then the year it belongs to.
+REFERENCE_PREFIX = 'VI'
+REFERENCE_DIGITS = 6
+_REFERENCE_RE = re.compile(r'^VI(\d{6,})-(\d{4})$')
+
+#: The format before this one, VJ-2026-0001. Those trips were renumbered to
+#: the new one keeping year and number (migration 0020), but the old form
+#: lives on in mails, notifications and the audit trail, so a search typed
+#: from one of them still has to find the trip.
+_REFERENCIA_ANTIGUA_RE = re.compile(r'^\s*VJ-(\d{4})-(\d+)\s*$', re.IGNORECASE)
+
+
+def formatear_referencia(numero, year):
+    return f'{REFERENCE_PREFIX}{int(numero):0{REFERENCE_DIGITS}d}-{int(year)}'
+
+
+def referencia_actual(texto):
+    """The current reference for an old-format one, or None."""
+    encontrada = _REFERENCIA_ANTIGUA_RE.match(str(texto or ''))
+    if not encontrada:
+        return None
+    return formatear_referencia(encontrada.group(2), encontrada.group(1))
 
 
 def generate_reference(year=None):
     """Allocate the next internal reference for a trip.
 
-    Sequential per calendar year. Races are resolved by the unique constraint on
-    ``trips.referencia``; the caller retries, which is cheaper than a lock.
+    Sequential per calendar year of creation. Two trips created at the same
+    instant could compute the same number; the unique constraint on
+    ``trips.referencia`` refuses the second rather than letting both exist.
+
+    The maximum is taken over the parsed numbers, not over the strings: with
+    the year at the end there is no common prefix to compare by, and a
+    counter that one day outgrows its padding would sort below «999999».
     """
     year = year or utcnow().year
-    prefix = f'{REFERENCE_PREFIX}-{year}-'
-
-    last = (
-        db.session.query(func.max(Trip.referencia))
-        .filter(Trip.referencia.like(f'{prefix}%'))
-        .scalar()
+    existentes = (
+        db.session.query(Trip.referencia)
+        .filter(Trip.referencia.like(f'{REFERENCE_PREFIX}%-{year}'))
+        .all()
     )
-    if last:
-        match = _REFERENCE_RE.match(last)
-        nxt = int(match.group(2)) + 1 if match else 1
-    else:
-        nxt = 1
-    return f'{prefix}{nxt:04d}'
+    numeros = [
+        int(encontrada.group(1))
+        for (referencia,) in existentes
+        if (encontrada := _REFERENCE_RE.match(referencia or ''))
+        and int(encontrada.group(2)) == year
+    ]
+    return formatear_referencia(max(numeros, default=0) + 1, year)
 
 
 def exigir_proyecto(proyecto):
@@ -959,13 +983,15 @@ def list_trips(actor, page=1, per_page=20, estado=None, buscar=None,
 
     if buscar:
         needle = f'%{str(buscar).strip().lower()}%'
-        query = query.filter(
-            db.or_(
-                func.lower(Trip.titulo).like(needle),
-                func.lower(Trip.referencia).like(needle),
-                func.lower(Trip.observaciones).like(needle),
-            )
-        )
+        criterios = [
+            func.lower(Trip.titulo).like(needle),
+            func.lower(Trip.referencia).like(needle),
+            func.lower(Trip.observaciones).like(needle),
+        ]
+        traducida = referencia_actual(buscar)
+        if traducida:
+            criterios.append(Trip.referencia == traducida)
+        query = query.filter(db.or_(*criterios))
 
     if desde:
         query = query.filter(Trip.fin_utc >= desde)

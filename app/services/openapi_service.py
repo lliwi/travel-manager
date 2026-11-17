@@ -329,7 +329,7 @@ SCHEMAS = {
 
     'Viaje': _obj({
         'id': _UUID,
-        'referencia': {**_STR, 'description': 'Referencia interna, p. ej. VJ-2026-0001.'},
+        'referencia': {**_STR, 'description': 'Referencia interna, p. ej. VI000001-2026.'},
         'titulo': _STR,
         'estado': _STR, 'estado_label': _STR_NULL,
         'pendiente_envio': {**_BOOL, 'description': (

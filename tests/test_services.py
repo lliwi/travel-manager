@@ -25,8 +25,8 @@ class TestServicioDeViajes:
         segundo = trip_service.create_trip(gestor, titulo='Dos')
 
         año = datetime.now().year
-        assert primero.referencia == f'VJ-{año}-0001'
-        assert segundo.referencia == f'VJ-{año}-0002'
+        assert primero.referencia == f'VI000001-{año}'
+        assert segundo.referencia == f'VI000002-{año}'
 
     def test_no_se_admite_un_viaje_sin_titulo(self, gestor, seeded):
         with pytest.raises(ValidationError, match='título'):
@@ -905,3 +905,76 @@ class TestLoQueAportaElCatalogo:
 
         assert resultado.servicios[0]['campos']['pais'] == 'GB'
         assert resultado.servicios[0]['confianzas']['pais'] == CONFIANZA_CATALOGO
+
+
+@pytest.mark.unit
+class TestLaReferenciaDelViaje:
+    def test_el_contador_vuelve_a_empezar_cada_año(self, gestor, seeded):
+        assert trip_service.generate_reference(2026) == 'VI000001-2026'
+        trip_service.create_trip(gestor, titulo='Uno', referencia='VI000041-2026')
+
+        assert trip_service.generate_reference(2026) == 'VI000042-2026'
+        assert trip_service.generate_reference(2027) == 'VI000001-2027'
+
+    def test_cuenta_por_número_y_no_por_orden_alfabético(self, gestor, seeded):
+        """With the year at the end there is no prefix to compare strings by,
+        and a counter past its padding would sort below «999999»."""
+        trip_service.create_trip(gestor, titulo='A', referencia='VI999999-2026')
+        trip_service.create_trip(gestor, titulo='B', referencia='VI1000000-2026')
+
+        assert trip_service.generate_reference(2026) == 'VI1000001-2026'
+
+    def test_no_se_confunde_con_otro_año_ni_con_el_formato_antiguo(self, gestor, seeded):
+        trip_service.create_trip(gestor, titulo='A', referencia='VI000007-2025')
+        trip_service.create_trip(gestor, titulo='B', referencia='VJ-2026-0300')
+
+        assert trip_service.generate_reference(2026) == 'VI000001-2026'
+
+    def test_una_referencia_antigua_sigue_encontrando_el_viaje(self, gestor, seeded):
+        """The old form lives on in mails, notifications and the audit trail."""
+        viaje = trip_service.create_trip(gestor, titulo='Lyon', referencia='VI000009-2026')
+
+        encontrados = trip_service.list_trips(gestor, buscar='vj-2026-0009').items
+
+        assert encontrados == [viaje]
+        assert trip_service.referencia_actual('VJ-2026-0009') == 'VI000009-2026'
+        assert trip_service.referencia_actual('VI000009-2026') is None
+
+
+def _migracion_0020():
+    import importlib.util
+    from pathlib import Path
+
+    ruta = Path(__file__).resolve().parents[1] / 'migrations' / 'versions' / \
+        '0020_referencia_de_viaje.py'
+    especificacion = importlib.util.spec_from_file_location('m0020', ruta)
+    modulo = importlib.util.module_from_spec(especificacion)
+    especificacion.loader.exec_module(modulo)
+    return modulo
+
+
+@pytest.mark.unit
+def test_la_migración_renumera_conservando_año_y_número(gestor, seeded, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.extensions import db
+    from app.models.trip import Trip
+
+    viejo = trip_service.create_trip(gestor, titulo='A', referencia='VJ-2026-0009')
+    otro_año = trip_service.create_trip(gestor, titulo='B', referencia='VJ-2025-0123')
+    ajeno = trip_service.create_trip(gestor, titulo='C', referencia='OTRA-COSA')
+
+    migracion = _migracion_0020()
+    monkeypatch.setattr(migracion, 'op',
+                        SimpleNamespace(get_bind=lambda: db.session.connection()))
+
+    migracion.upgrade()
+    db.session.expire_all()
+    assert [db.session.get(Trip, t.id).referencia for t in (viejo, otro_año, ajeno)] == \
+        ['VI000009-2026', 'VI000123-2025', 'OTRA-COSA']
+    assert trip_service.generate_reference(2026) == 'VI000010-2026', \
+        'el contador del año sigue donde estaba'
+
+    migracion.downgrade()
+    db.session.expire_all()
+    assert db.session.get(Trip, viejo.id).referencia == 'VJ-2026-0009'
